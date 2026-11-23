@@ -44,6 +44,10 @@ STEPS: list[str] = [
     CREATE INDEX idx_sources_unit ON message_sources(unit_id);
     CREATE INDEX idx_sources_key1 ON message_sources(platform, platform_msg_id);
     """,
+    """
+    CREATE INDEX idx_messages_fuzzy ON messages(person_id, role, norm_text, ts);
+    CREATE INDEX idx_messages_key2_occ ON messages(person_id, role, norm_text, minute, occ);
+    """,
 ]
 
 SCHEMA_VERSION = len(STEPS)

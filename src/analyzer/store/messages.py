@@ -65,6 +65,15 @@ class MessageStore:
 
     # ---- ingest -------------------------------------------------------
     def ingest(self, person_id: int, msgs: list[Message], unit_id: str) -> IngestResult:
+        try:
+            result = self._ingest(person_id, msgs, unit_id)
+            self.conn.commit()
+            return result
+        except BaseException:
+            self.conn.rollback()
+            raise
+
+    def _ingest(self, person_id: int, msgs: list[Message], unit_id: str) -> IngestResult:
         c = self.conn
         row = c.execute("SELECT person_id FROM units WHERE unit_id=?", (unit_id,)).fetchone()
         if row is not None and row[0] != person_id:
@@ -84,7 +93,15 @@ class MessageStore:
             occ_counter[k] = occ + 1
             platform = platform_of(m.source)
 
-            target = self._find_match(person_id, m, platform, minute, norm, occ, touched) if m.role else None
+            if m.role:
+                target = self._find_match(person_id, m, platform, minute, norm, occ, touched)
+            else:  # unknown role: only idempotency within the same unit
+                r = c.execute(
+                    "SELECT m.id FROM messages m JOIN message_sources s ON s.message_id=m.id"
+                    " WHERE s.unit_id=? AND m.person_id=? AND m.role IS NULL AND m.speaker_raw=?"
+                    " AND m.minute=? AND m.norm_text=? AND m.occ=? LIMIT 1",
+                    (unit_id, person_id, m.speaker_raw, minute, norm, occ)).fetchone()
+                target = r[0] if r else None
             if target is None:
                 cur = c.execute(
                     "INSERT INTO messages(person_id, ts, minute, role, speaker_raw, text, norm_text, ts_precision, occ)"
@@ -102,7 +119,6 @@ class MessageStore:
             touched.add(target)
             c.execute("INSERT INTO message_sources(message_id, source, platform, unit_id, platform_msg_id)"
                       " VALUES (?,?,?,?,?)", (target, m.source, platform, unit_id, m.platform_msg_id))
-        c.commit()
         return IngestResult(added, merged, skipped)
 
     def _find_match(self, person_id, m, platform, minute, norm, occ, touched):
@@ -120,12 +136,15 @@ class MessageStore:
             rows = c.execute(
                 "SELECT id, ts FROM messages WHERE person_id=? AND role=? AND norm_text=? AND ts BETWEEN ? AND ?",
                 (person_id, m.role, norm, lo, hi)).fetchall()
-        else:  # key 2 (existing approx rows still match fuzzily)
+        else:  # key 2, plus existing approx rows matching fuzzily
             rows = c.execute(
                 "SELECT id, ts FROM messages WHERE person_id=? AND role=? AND norm_text=?"
-                " AND ((ts_precision!='approx' AND minute=? AND occ=?)"
-                "   OR (ts_precision='approx' AND ts BETWEEN ? AND ?))",
-                (person_id, m.role, norm, minute, occ, lo, hi)).fetchall()
+                " AND minute=? AND occ=? AND ts_precision!='approx'",
+                (person_id, m.role, norm, minute, occ)).fetchall()
+            rows += c.execute(
+                "SELECT id, ts FROM messages WHERE person_id=? AND role=? AND norm_text=?"
+                " AND ts BETWEEN ? AND ? AND ts_precision='approx'",
+                (person_id, m.role, norm, lo, hi)).fetchall()
         rows = [r for r in rows if r[0] not in touched]
         if not rows:
             return None
@@ -170,33 +189,47 @@ class MessageStore:
 
     # ---- roles / dedupe ----------------------------------------------
     def set_roles(self, person_id: int, source: str, mapping: dict[str, str]) -> int:
-        c = self.conn
-        n = 0
-        for raw, role in mapping.items():
+        for role in mapping.values():  # validate everything before writing
             if role not in ("me", "them"):
                 raise ValueError(f"bad role {role!r}")
-            n += c.execute(
-                "UPDATE messages SET role=? WHERE person_id=? AND speaker_raw=? AND id IN"
-                " (SELECT message_id FROM message_sources WHERE source=?)",
-                (role, person_id, raw, source)).rowcount
-        # Occurrence indexes were counted per raw speaker; recount per unit and role.
-        rows = c.execute(
-            "SELECT m.id, s.unit_id, m.role, m.minute, m.norm_text FROM messages m"
-            " JOIN message_sources s ON s.message_id=m.id"
-            " WHERE m.person_id=? AND s.source=? AND m.role IS NOT NULL"
-            " AND (SELECT COUNT(*) FROM message_sources s2 WHERE s2.message_id=m.id)=1 ORDER BY m.id",
-            (person_id, source)).fetchall()
-        counter: dict[tuple, int] = {}
-        for mid, unit, role, minute, norm in rows:
-            k = (unit, role, minute, norm)
-            c.execute("UPDATE messages SET occ=? WHERE id=?", (counter.get(k, 0), mid))
-            counter[k] = counter.get(k, 0) + 1
-        c.commit()
-        self.recompute_dedupe(person_id)
-        return n
+        c = self.conn
+        try:
+            n = 0
+            for raw, role in mapping.items():
+                n += c.execute(
+                    "UPDATE messages SET role=? WHERE person_id=? AND speaker_raw=? AND id IN"
+                    " (SELECT message_id FROM message_sources WHERE source=?)",
+                    (role, person_id, raw, source)).rowcount
+            # Occurrence indexes were counted per raw speaker; recount per unit and role.
+            rows = c.execute(
+                "SELECT m.id, s.unit_id, m.role, m.minute, m.norm_text FROM messages m"
+                " JOIN message_sources s ON s.message_id=m.id"
+                " WHERE m.person_id=? AND s.source=? AND m.role IS NOT NULL"
+                " AND (SELECT COUNT(*) FROM message_sources s2 WHERE s2.message_id=m.id)=1 ORDER BY m.id",
+                (person_id, source)).fetchall()
+            counter: dict[tuple, int] = {}
+            for mid, unit, role, minute, norm in rows:
+                k = (unit, role, minute, norm)
+                c.execute("UPDATE messages SET occ=? WHERE id=?", (counter.get(k, 0), mid))
+                counter[k] = counter.get(k, 0) + 1
+            self._dedupe(person_id)
+            c.commit()
+            return n
+        except BaseException:
+            c.rollback()
+            raise
 
     def recompute_dedupe(self, person_id: int) -> int:
         """Merge role-known messages that now match under key 1 / key 2 / fuzzy rules."""
+        try:
+            merged = self._dedupe(person_id)
+            self.conn.commit()
+            return merged
+        except BaseException:
+            self.conn.rollback()
+            raise
+
+    def _dedupe(self, person_id: int) -> int:
         c = self.conn
         rows = c.execute(
             "SELECT id, role, ts, minute, norm_text, occ, ts_precision FROM messages"
@@ -210,34 +243,56 @@ class MessageStore:
             units.setdefault(mid, set()).add(unit)
             if pmid:
                 keys1.setdefault(mid, set()).add((plat, pmid))
-        keepers: list[tuple] = []
+        # Keepers are indexed so each message only meets plausible candidates:
+        # key 1 by (platform, id); key 2 by exact key; fuzzy by (role, text) bucket.
+        by_key1: dict[tuple, int] = {}
+        by_key2: dict[tuple, list] = {}
+        approx_bucket: dict[tuple, list] = {}  # approx keepers per (role, text)
+        all_bucket: dict[tuple, list] = {}  # every keeper per (role, text); scanned only for approx rows
+        info: dict[int, tuple] = {}
         merged = 0
         for r in rows:
             mid, role, ts, minute, norm, occ, prec = r
+            u = units.setdefault(mid, set())
+            bucket = (role, norm)
             hit = None
-            for k in keepers:
-                kid = k[0]
-                if k[1] != role or units[kid] & units[mid]:
-                    continue  # messages sharing a unit were distinct in one batch
-                if keys1.get(kid, set()) & keys1.get(mid, set()):
-                    hit = k
-                elif k[4] != norm:
-                    continue
-                elif prec == "approx" or k[6] == "approx":
-                    if abs(_parse(k[2]) - _parse(ts)) <= FUZZ:
-                        hit = k
-                elif k[3] == minute and k[5] == occ:
-                    hit = k
-                if hit:
+            for k1 in keys1.get(mid, ()):
+                kid = by_key1.get(k1)
+                if kid is not None and not (units[kid] & u):
+                    hit = kid
                     break
             if hit is None:
-                keepers.append(r)
+                if prec == "approx":
+                    cands = all_bucket.get(bucket, ())
+                else:
+                    cands = by_key2.get((role, norm, minute, occ), []) + approx_bucket.get(bucket, [])
+                t = _parse(ts)
+                for kid in cands:
+                    if units[kid] & u:
+                        continue  # same unit: distinct within one batch
+                    kts, kprec = info[kid]
+                    if prec == "approx" or kprec == "approx":
+                        if abs(_parse(kts) - t) <= FUZZ:
+                            hit = kid
+                            break
+                    else:
+                        hit = kid
+                        break
+            if hit is None:
+                info[mid] = (ts, prec)
+                all_bucket.setdefault(bucket, []).append(mid)
+                if prec == "approx":
+                    approx_bucket.setdefault(bucket, []).append(mid)
+                else:
+                    by_key2.setdefault((role, norm, minute, occ), []).append(mid)
+                for k1 in keys1.get(mid, ()):
+                    by_key1.setdefault(k1, mid)
                 continue
-            kid = hit[0]
-            c.execute("UPDATE message_sources SET message_id=? WHERE message_id=?", (kid, mid))
+            c.execute("UPDATE message_sources SET message_id=? WHERE message_id=?", (hit, mid))
             c.execute("DELETE FROM messages WHERE id=?", (mid,))
-            units[kid] |= units[mid]
-            keys1.setdefault(kid, set()).update(keys1.get(mid, set()))
+            units[hit] |= u
+            for k1 in keys1.get(mid, ()):
+                keys1.setdefault(hit, set()).add(k1)
+                by_key1.setdefault(k1, hit)
             merged += 1
-        c.commit()
         return merged

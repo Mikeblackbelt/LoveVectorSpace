@@ -108,3 +108,54 @@ def test_coverage_intervals_and_units(store, person):
 def test_messages_utc_order(store, person):
     store.ingest(person, [mk("late", 50), mk("early", 1, "them")], "u")
     assert [m.text for m in store.messages(person)] == ["early", "late"]
+
+
+def test_ingest_failure_is_atomic(store, person):
+    import pytest
+    bad = [mk("a", 0), mk("b", 1, precision="bogus")]
+    with pytest.raises(Exception):
+        store.ingest(person, bad, "u1")
+    store.delete_unit("nothing")  # commits on the same connection
+    assert store.messages(person, roles_required=False) == []
+    assert store.units(person) == []
+    assert store.conn.execute("SELECT COUNT(*) FROM message_sources").fetchone()[0] == 0
+
+
+def test_set_roles_bad_mapping_writes_nothing(store, person):
+    import pytest
+    store.ingest(person, [mk("x", 0, None, speaker="Alex"), mk("y", 1, None, speaker="Sam")], "u1")
+    with pytest.raises(ValueError):
+        store.set_roles(person, "whatsapp_import", {"Alex": "me", "Sam": "robot"})
+    store.delete_unit("nothing")
+    assert all(m.role is None for m in store.messages(person, roles_required=False))
+
+
+def test_role_none_reingest_is_idempotent(store, person):
+    batch = [mk("ok", 0, None, speaker="Alex"), mk("ok", 0, None, speaker="Alex"),
+             mk("yo", 1, None, speaker="Sam")]
+    assert store.ingest(person, batch, "u1").added == 3
+    r = store.ingest(person, batch, "u1")
+    assert (r.added, r.merged, r.skipped) == (0, 0, 3)
+    assert len(store.messages(person, roles_required=False)) == 3
+
+
+def test_recompute_dedupe_scales(store, person):
+    import time
+    c = store.conn
+    n = 10_000
+    for unit, src in (("uA", "whatsapp_ext"), ("uB", "whatsapp_import")):
+        c.execute("INSERT INTO units(unit_id, person_id, source, created_at) VALUES (?,?,?,?)",
+                  (unit, person, src, "2024-01-01T00:00:00.000000Z"))
+    for i in range(n):
+        minute = f"2024-03-{1 + i // 1440:02d}T{(i % 1440) // 60:02d}:{i % 60:02d}"
+        for unit, src in (("uA", "whatsapp_ext"), ("uB", "whatsapp_import")):
+            cur = c.execute(
+                "INSERT INTO messages(person_id, ts, minute, role, speaker_raw, text, norm_text, ts_precision, occ)"
+                " VALUES (?,?,?,?,?,?,?,?,0)",
+                (person, minute + ":00.000000Z", minute, "me", "Me", f"msg {i % 50}", f"msg {i % 50}", "minute"))
+            c.execute("INSERT INTO message_sources(message_id, source, platform, unit_id) VALUES (?,?,?,?)",
+                      (cur.lastrowid, src, "whatsapp", unit))
+    c.commit()
+    t = time.time()
+    assert store.recompute_dedupe(person) == n
+    assert time.time() - t < 10
