@@ -1,6 +1,6 @@
 # Relationship Analyzer — design
 
-*2026-11-23. Personal-use tool. Status: draft for owner approval.*
+*2026-11-23. Personal-use tool. Status: approved by owner 2026-11-23 (with the answers in §10).*
 
 ## 1. Intent
 
@@ -36,11 +36,13 @@ The owner fills in a questionnaire and can upload chat exports. Self-hosted ML m
 ## 3. Constraints
 
 - **Single user**: the owner.
-- **Hosted on another service.** The provider is not yet chosen (see §10). The system ships as one Docker image, so it is portable.
+- **Hosted on Railway.** One Docker-image service with a persistent Railway volume (for the database and uploads) and Railway variables for secrets. Railway provides HTTPS on its domain. There is no GPU, so everything served there runs on CPU.
+- **Language: English only.** Non-English messages are detected and skipped, with a note in the output.
 - **Self-hosted models.** Encoders and classifiers run inside the container; no third-party ML inference API. LLM use is optional and switchable (§6.5).
 - **Internet-facing.** Authentication and encryption at rest are required. The relaxed practices only apply to licences and packaging.
 - **Licences.** Personal, non-commercial use, so CC BY-NC and research-only datasets and models are allowed. A one-file provenance record (`models/PROVENANCE.md`: model → datasets) is kept anyway. It costs a minute and keeps a future public version possible.
 - **CPU-first.** No assumed GPU; all encoders run as ONNX int8. The model budget is about 0.5–1 GB, to be measured.
+- **Access via API calls.** The owner calls the service from scripts and through the Claude API (e.g. the Messages API MCP connector passing an authorization token). No claude.ai or mobile OAuth flow is needed.
 
 ## 4. Approaches considered
 
@@ -144,7 +146,7 @@ Resources: scale definitions and the evidence notes (from `research/`). Tool out
 - **Default: off in the web UI.** The UI shows scores and templated explanations without any LLM.
 - **Path 1 (recommended): Claude as the MCP client.** The owner connects Claude Desktop, Claude Code or a claude.ai custom connector to `/mcp`. Claude calls the tools and coaches. The server holds no LLM API key, and only tool outputs (metrics) reach the LLM.
 - **Path 2: server-side narrative.** A per-request toggle sends the metrics (not the raw chat) to the Claude API for a written summary. The key is stored as a host secret.
-- **Path 3: self-hosted small LLM.** Only if the host has a GPU or 16 GB+ RAM. Candidates: Qwen3.5-4B / Gemma 4 E4B / Ministral 3 8B via Ollama.
+- **Path 3: self-hosted small LLM.** Out of scope on Railway (no GPU). Revisit only if the host changes.
 - **Agent rules (system prompt / tool descriptions):** cite evidence tags; no probability-of-outcome claims; never override the safety block; suggest talking to the person or a professional where relevant; refuse to help monitor the other person's activity.
 
 ### 6.6 Phase 2: experimental predictor (`engine/predict`, approach B)
@@ -161,8 +163,8 @@ Resources: scale definitions and the evidence notes (from `research/`). Tool out
 ## 7. Data handling and security (kept even though personal)
 
 1. **HTTPS only**, using the host's TLS.
-2. **Auth on everything.** Web UI: single-user password plus TOTP, or a passkey, with an HTTP-only session cookie. MCP: bearer token in a host secret, or OAuth if the Claude connector requires it. No unauthenticated route except `/healthz`.
-3. **MCP over HTTP:** validate the `Origin` header and reject unknown origins, as the spec requires.
+2. **Auth on everything.** Web UI: single-user password plus TOTP, with an HTTP-only session cookie. `/api` and `/mcp`: a static bearer token (long random value in a Railway variable, rotatable), compared in constant time. No OAuth. No unauthenticated route except `/healthz`.
+3. **MCP over HTTP:** reject requests with a browser `Origin` that isn't the app's own domain. API clients (scripts, the Claude API) send no `Origin` and are allowed if the bearer token is valid.
 4. **Encryption at rest.** SQLCipher database and encrypted uploads; key in a host secret, never in the image or repo.
 5. **Logs contain no message text**: IDs, timings and metric names only.
 6. **People are stored under pseudonyms** chosen by the owner.
@@ -183,17 +185,23 @@ Resources: scale definitions and the evidence notes (from `research/`). Tool out
 2. FastAPI + auth + encrypted storage + minimal UI.
 3. Emotion and toxicity ONNX models; safety module.
 4. MCP endpoint + Claude connection.
-5. Docker image + deploy to host.
+5. Docker image + deploy to Railway (service + volume + variables).
 6. Phase 2: labelled-history import → synthetic pipeline → judge panel → train → gate.
 
 ## 10. Open items
 
-- **Host (owner's call).** It decides whether path 3 (self-hosted LLM) is possible and how secrets and TLS are set up. The default assumption is a CPU container host with a persistent volume, 2–4 GB RAM and secrets support.
-- Exact chat export formats the owner uses (first parsers: WhatsApp `.txt` and plain text).
+Resolved by the owner on 2026-11-23:
+- Language: English only.
+- Access: API calls (scripts and the Claude API), so a bearer token is enough and there is no OAuth.
+- Host: Railway.
+- Safety snippets and chat text: the owner overrides §10a.1 (see there).
+- Training compute: smoke test on the owner's own CPU; one or two full runs on a school research GPU server or an owner-provided GPU (see §10a.6).
+
+Still open: the exact chat export formats (first parsers: WhatsApp `.txt` and plain text).
 
 ## 10a. Decisions settled after builder review (designer's calls — owner may override)
 
-1. **What the LLM sees from safety.** `safety_check` over MCP, and any Path 2 narrative, returns categories, counts, severity and dates only. Evidence snippets (the other person's words) appear only in the authenticated web UI. "Verbatim" means the LLM must relay the category and severity unchanged. `analyze_chat` accepts raw text only when the owner deliberately pastes it into a Claude conversation; the server never sends chat text to an LLM on its own.
+1. **What the LLM sees (owner override).** The LLM may receive evidence snippets and chat text. `safety_check` over MCP and the Path 2 narrative include the snippets. `analyze_chat` may return representative excerpts when asked (`include_excerpts=true`, default false, to keep token use down). "Verbatim" still means the LLM must relay the category and severity unchanged. The owner accepts that the other person's words go to the LLM provider. The UI shows a one-line reminder of this when Path 2 is switched on.
 2. **Bands.** Only scales with published norms or cut-offs get bands (e.g. CSI-16 distress cut-off 51.5). Un-normed metrics (message share, latency, initiation, custom checklists, the Joel-predictor items) show "no reference band". They are reported descriptively and against the owner's own history. The builder fetches and verifies item wording and scoring keys from the primary sources: IMS commitment aggregation, the ECR-R reverse-keyed items, CDAQ item text. Anything unverifiable is left out, not guessed. The builder drafts the custom item wording and the owner approves it before it ships.
 3. **v1 scope by step.** Step 1 covers all §6.1 scales and items (CSI-16, IMS commitment, PRQC, ECR-R, Joel-predictor items, reciprocity, self-disclosure balance, PPR, breadcrumbing items, CDAQ-derived items). The self-disclosure classifier moves to phase 2; v1 uses a lexicon. Path 2 narrative (Claude API) ships in step 4, off by default. Path 3 (self-hosted LLM) is deferred until a host with enough RAM or a GPU is chosen.
 4. **Safety behaviour.**
@@ -204,7 +212,7 @@ Resources: scale definitions and the evidence notes (from `research/`). Tool out
    - Support resources come from a configurable region file, default US.
    - Tests: a hand-written fixture set per category, with thresholds tuned for high recall. A false negative on *urgent* fails the build; false positives are acceptable.
 5. **Phase 2 output.** A model that passes the gate shows a band (lower / similar / higher than the owner's own baseline) plus the features driving it. It never shows a probability, consistent with the §2 non-goals.
-6. **Phase 2 data flow.** Real chats are never sent to generator or judge models. Style seeds use only the owner's own messages, anonymised. Generation uses the Claude API; judges are open-weight models from other families run on a rented GPU or Colab. Fine-tuning runs there too. The shared research servers the owner has access to for other projects are not used.
+6. **Phase 2 compute and data flow (owner decision).** Every training script is smoke-tested on the owner's own CPU first: a tiny subset, 1 epoch, a few minutes. Full training runs once or twice, on a school research GPU server or an owner-provided GPU. Server names, usernames and addresses stay out of this repo. On a shared server, the run follows that server's own usage rules (GPU and CPU caps, storage location, one session) and runs from a minimal job script. Data on any shared machine is limited to synthetic chats, the owner's own anonymised messages and public datasets; the other person's real messages never go there. The owner's labelled real threads are used only for evaluation, on the owner's own machine. Generation uses the Claude API; the judges are open-weight models from other families, run on the same GPU.
 7. **Re-uploads.** Uploads are merged into one thread per person, de-duplicated by a hash of (timestamp, speaker, text). Each upload records which messages it added, so "delete upload" removes only those. Trends are computed on the merged thread.
 
 ## 11. Left to the builder
