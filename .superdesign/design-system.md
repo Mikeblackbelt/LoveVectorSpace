@@ -52,7 +52,7 @@ All web screens are responsive: desktop 1440px and phone 390px. They're also pac
   - an occasional subtle flicker (opacity 0.97–1.0).
 - **Character-grid layout.** Spacing in multiples of 8px.
 - **ASCII instruments:** sparklines with block glyphs `▁▂▃▄▅▆▇█`, bars as `████░░░░`, hatched gaps as `╱╱╱` or `···`, and tables with `│` separators and `─` rules.
-- **Navigation** is a command bar, e.g. `[1]PEOPLE [2]DASH [3]CHAT [4]CONTEXT [5]FORMS [6]SOURCES [7]SET`, with the active item in reverse video amber. There's a prompt line at the bottom: `riley@lvs:~/dashboard $ ▌`.
+- **Navigation** is a command bar, e.g. `[1]PEOPLE [2]DASH [3]CHAT [4]CONTEXT [5]FORMS [6]SOURCES [7]SET`, with the active item in reverse video amber. There's a prompt line at the bottom: `yucheng@lvs:~/dashboard $ ▌`.
 - **Buttons** are bracketed text: `[ ENTER ] DISCUSS`, `[ D ] DONE`, `[ X ] DISMISS`. The primary action is in reverse-video amber.
 - **Inputs** look like terminal fields: `PASSWORD › ••••••••▌`.
 
