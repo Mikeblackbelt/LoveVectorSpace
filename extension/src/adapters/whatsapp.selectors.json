@@ -1,0 +1,14 @@
+{
+  "shell": "#app",
+  "chatTitle": "#main header span[title]",
+  "messageList": "#main [data-testid='conversation-panel-messages']",
+  "scroller": "#main [data-testid='conversation-panel-messages']",
+  "row": "[role='row']",
+  "incoming": ".message-in",
+  "outgoing": ".message-out",
+  "meta": ".copyable-text[data-pre-plain-text]",
+  "text": "span.selectable-text",
+  "login": "[data-testid='qrcode'], canvas[aria-label*='Scan']",
+  "captcha": "iframe[src*='captcha'], [data-testid='captcha']",
+  "errorBanner": "[data-testid='alert-computer-speed'], [data-testid='alert-update'], [data-testid='connection-lost-banner']"
+}
