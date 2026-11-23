@@ -103,14 +103,23 @@ RULES: dict[str, list[re.Pattern]] = {
     cat: [re.compile(p) for p in pats] for cat, pats in _RAW.items()
 }
 
+# Single source of truth for violence verbs: used for fact urgency AND for negation
+# stripping in check.py, so any verb that can be stripped as negated is re-checked as urgent.
+VIOLENCE_VERBS = [
+    r"hit(s|ting)?", r"punch(ed|es|ing)?", r"slap(ped|s|ping)?", r"kick(ed|s|ing)?",
+    r"chok(e|ed|es|ing)", r"strangl(e|ed|es|ing)", r"stab(bed|s|bing)?", r"shoot(s|ing)?", r"shot",
+    r"grab(bed|s|bing)?", r"push(ed|es|ing)?", r"shov(e|ed|es|ing)", r"beat(s|ing|en)?",
+    r"hurt(s|ing)?", r"kill(ed|s|ing)?", r"threaten(ed|s|ing)?", r"attack(ed|s|ing)?",
+]
+VIOLENCE_RE = re.compile(r"\b(" + "|".join(VIOLENCE_VERBS) + r")\b")
+
 # Words that signal violence or self-harm when the owner describes it in an interview answer.
-FACT_URGENT = [
+FACT_URGENT = [VIOLENCE_RE] + [
     re.compile(p) for p in (
-        r"\bthreat(en|ened|ens|ening)?\b",
+        r"\bthreat\w*",
         r"\bviolen(ce|t)\b",
         r"\babus(e|ed|ive)\b",
-        r"\b(hit|slapped|punched|choked|shoved|kicked|strangled|pushed|hurt|beat)\b",
-        r"\bkill(ed|ing)?\b",
+        r"\bharm(ed|s|ing)?\b",
         r"\bweapon\b",
         r"\bself[- ]harm\b",
         r"\bsuicid",

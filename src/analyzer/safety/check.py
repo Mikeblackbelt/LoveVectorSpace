@@ -13,7 +13,7 @@ from analyzer.scales.schema import ScaleResult
 from analyzer.store.messages import StoredMessage
 from analyzer.store.models import Fact
 
-from .rules import FACT_URGENT, URGENT_CATEGORIES, normalize, scan, scan_soft
+from .rules import FACT_URGENT, VIOLENCE_RE, VIOLENCE_VERBS, URGENT_CATEGORIES, normalize, scan, scan_soft
 
 Category = Literal["monitoring", "control", "isolation", "threat", "hostility", "self_harm"]
 Severity = Literal["info", "concern", "urgent"]
@@ -178,9 +178,8 @@ def _fact_category(key: str, value: str) -> str:
 
 
 _NEG_START = re.compile(r"^(no|never|not|none|nope|nah)\b")
-_VERBS = (r"(hit|slap(ped)?|punch(ed)?|chok(e|ed)|shov(e|ed)|kick(ed)?|strangl(e|ed)|push(ed)?|hurt|beat"
-          r"|grab(bed)?|stab(bed)?|shoot|shot"
-          r"|threat\w*|abus\w*|violen\w*|harm(ed)?|touch(ed)?|scar(e|ed)|kill(ed)?)")
+# strippable verbs = the shared violence verbs plus nouns/adjectives that FACT_URGENT also matches
+_VERBS = "(" + "|".join(VIOLENCE_VERBS + [r"threat\w*", r"abus\w*", r"violen\w*", r"harm(ed|s|ing)?"]) + ")"
 # explicit denial directly governing the verb; intensifiers ("didn't just threaten") are not denials
 _NEG_VP = re.compile(
     r"\b(never|not|(has|have|had|did|does|do|was|is|were)(n'?t| not))\s+"
@@ -192,9 +191,10 @@ def _is_negated(v: str) -> bool:
     when urgent language survives outside a negated verb phrase ("no, he hit me",
     "no, but he threatened me", "he didn't just threaten me, he hit me")."""
     remaining = _NEG_VP.sub(" ", v)
-    if any(p.search(remaining) for p in FACT_URGENT):
+    if VIOLENCE_RE.search(remaining) or any(p.search(remaining) for p in FACT_URGENT):
         return False
-    return bool(_NEG_START.search(v) or remaining != v)
+    denial_stripped = remaining != v
+    return bool(_NEG_START.search(v) or denial_stripped)
 
 
 def _fact_severity(value: str) -> str | None:

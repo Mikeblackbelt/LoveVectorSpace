@@ -266,3 +266,33 @@ def test_intensifier_negation_does_not_hide_disclosures():
         assert flags and flags[0].severity == "urgent", v
     for v in ["no, he never stabbed me", "he has never grabbed me"]:
         assert run([], facts=[fact("safety.threats_experienced", v)]).flags == [], v
+
+
+@pytest.mark.parametrize("verb", [
+    "hit", "hits", "hitting", "punched", "punches", "punching", "slapped", "slaps", "slapping",
+    "kicked", "kicks", "kicking", "choked", "chokes", "choking", "strangled", "strangles",
+    "strangling", "stabbed", "stabs", "stabbing", "shot", "shoots", "shooting", "grabbed", "grabs",
+    "grabbing", "pushed", "pushes", "pushing", "shoved", "shoves", "shoving", "beat", "beats",
+    "beating", "beaten", "hurt", "hurts", "hurting", "killed", "kills", "killing", "threatened",
+    "threatens", "threatening", "attacked", "attacks", "attacking"])
+def test_every_violence_verb_form_is_urgent_in_facts(verb):
+    f = run([], facts=[fact("safety.threats_experienced", f"he {verb} me")]).flags
+    assert f and f[0].severity == "urgent"
+
+
+def test_violence_verb_list_covered_by_forms():
+    import re
+    from analyzer.safety.rules import VIOLENCE_VERBS
+    # every listed verb regex matches at least its bare stem used as "he <verb> me"
+    for stem in ["hit", "punch", "slap", "kick", "choke", "strangle", "stab", "shoot", "shot",
+                 "grab", "push", "shove", "beat", "hurt", "kill", "threaten", "attack"]:
+        assert any(re.fullmatch(v, stem) for v in VIOLENCE_VERBS), stem
+
+
+def test_shared_verb_negation_cases():
+    for v, sev in [("he stabbed me", "urgent"), ("she shot at me", "urgent"),
+                   ("he grabbed me by the throat", "urgent"), ("he shoved me", "urgent"),
+                   ("he didn't push me but he punched me", "urgent"),
+                   ("no, he never stabbed me", None), ("he never pushed me", None)]:
+        flags = run([], facts=[fact("safety.threats_experienced", v)]).flags
+        assert (flags[0].severity if flags else None) == sev, v
