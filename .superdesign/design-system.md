@@ -135,3 +135,8 @@ The layout, terminal structure (box-drawing frames, command bar, bracketed keys,
   - `--on-me` is the ink colour on a `--me` fill.
   - In riso these are darker inks, so text stays ≥4.5:1 on cream. The yellow `--link` is never used for text in riso.
   - Riso's `--urgent-bg` is `#c8231d`.
+- **5th theme `journal` (non-technical, owner request).** A warm notebook look.
+  - **Look:** DM Sans for the UI, Fraunces for display text, terracotta for ME, sage for THEM, 12px radius, soft card shadow.
+  - **Hidden:** keyboard hints (`.key-hint`) and box-drawing glyphs (`.glyph`) are hidden in this theme. Buttons read as normal labelled buttons ("Discuss", "Done").
+  - **Plain-language labels:** where an element has `data-plain`, show that label instead of the technical one (e.g. `initiation_share` becomes "Who starts conversations"). Evidence tags show plain words ("moderate evidence", "rule of thumb", "your own notes", "rough estimate").
+  - **Exceptions:** this is the only theme allowed rounded corners and soft shadows.
