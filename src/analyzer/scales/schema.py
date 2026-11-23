@@ -1,0 +1,85 @@
+from typing import Literal
+
+from pydantic import BaseModel, model_validator
+
+
+class ResponseFormat(BaseModel):
+    min: int
+    max: int
+
+
+class Item(BaseModel):
+    id: str
+    text: str
+    reverse: bool = False
+    min: int | None = None
+    max: int | None = None
+
+
+class Subscale(BaseModel):
+    items: list[str]
+    aggregate: Literal["sum", "mean"]
+
+
+class Band(BaseModel):
+    subscale: str
+    min: float
+    max: float
+    label: str
+
+
+class Cutoff(BaseModel):
+    subscale: str
+    value: float
+    direction: Literal["below", "above"] = "below"
+    label: str
+
+
+class Source(BaseModel):
+    citation: str
+    url: str | None = None
+
+
+class ScaleDef(BaseModel):
+    id: str
+    name: str
+    mode: list[str]
+    items: list[Item]
+    subscales: dict[str, Subscale]
+    response: ResponseFormat
+    norms: list[Band] | None = None
+    cutoffs: list[Cutoff] | None = None
+    source: Source
+    verified: bool = False
+    custom: bool = False
+    owner_approved: bool = False
+    measures: str = ""
+    does_not_measure: str = ""
+
+    @model_validator(mode="after")
+    def _check_refs(self):
+        ids = [i.id for i in self.items]
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate item ids")
+        known = set(ids)
+        for name, sub in self.subscales.items():
+            unknown = [i for i in sub.items if i not in known]
+            if unknown:
+                raise ValueError(f"subscale {name!r} has unknown items {unknown}")
+        for ref in [*(self.norms or []), *(self.cutoffs or [])]:
+            if ref.subscale not in self.subscales:
+                raise ValueError(f"unknown subscale {ref.subscale!r}")
+        return self
+
+    def item_range(self, item: Item) -> tuple[int, int]:
+        lo = self.response.min if item.min is None else item.min
+        hi = self.response.max if item.max is None else item.max
+        return lo, hi
+
+
+class ScaleResult(BaseModel):
+    subscales: dict[str, float]
+    bands: dict[str, str]
+    cutoff_flags: dict[str, bool]
+    status: Literal["ok", "draft", "unverified"]
+    notes: list[str] = []

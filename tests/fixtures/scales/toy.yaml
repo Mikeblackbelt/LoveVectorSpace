@@ -1,0 +1,21 @@
+id: toy
+name: Toy scale
+mode: [self]
+response: {min: 0, max: 5}
+items:
+  - {id: a, text: "Item A"}
+  - {id: b, text: "Item B", reverse: true}
+  - {id: c, text: "Item C", reverse: true, min: 0, max: 6}
+subscales:
+  total: {items: [a, b, c], aggregate: sum}
+norms:
+  - {subscale: total, min: 0, max: 5, label: low}
+  - {subscale: total, min: 6, max: 16, label: high}
+cutoffs:
+  - {subscale: total, value: 6.5, direction: below, label: distress}
+source: {citation: "Synthetic", url: "https://example.invalid"}
+verified: true
+custom: false
+owner_approved: false
+measures: "toy"
+does_not_measure: "nothing real"
