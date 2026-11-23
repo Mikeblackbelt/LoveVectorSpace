@@ -175,7 +175,17 @@ New importers for **Tinder**, **Hinge** and **Grindr** data exports:
 - Unknown or changed formats fail with a clear `invalid_input` error naming the expected file (e.g. "expected data.json from Tinder's Download My Data").
 - Source names: `tinder_import`, `hinge_import`, `grindr_import`.
 
-**Optional extension adapters, added after the merge:** `tinder.com` (web messages) and `web.grindr.com`. They follow the same rules as the other adapters: read-only, opt-in per chat, rate-limited backfill, health checks.
+**Primary path: the extension reads the web app's HTML (owner request).**
+- New site adapters for **Tinder** (`tinder.com`, the messages view) and **Grindr** (`web.grindr.com`) capture BOTH sides of a chat from the rendered page. They follow every existing adapter rule: read-only, opt-in per chat, direction read from the page, timestamps with `ts_precision`, selectors in JSON with health checks, rate-limited backfill and catch-up, and no page modification or platform API calls.
+- The popup gets an **"Import this page"** action. It does a one-shot read of the open chat (optionally backfilling to a chosen date) and sends it as one import unit (`unit_id = capture:<platform>:<chat_key>:<YYYY-MM-DD>`), even if the chat isn't set to live capture.
+- **Hinge** has no web app, so it is export-only (one-sided).
+- **Bumble** web may be added later the same way.
+- The export importers above stay as a fallback.
+- **Merge-time follow-up** for the extension stream:
+  - the `tinder` and `grindr` adapters, fixtures and tests;
+  - the "Import this page" popup action;
+  - host permissions for `tinder.com` and `web.grindr.com`;
+  - `CaptureBatch.platform` gains `"tinder"` and `"grindr"` in docs/api.md and the backend.
 
 **Neutrality:** scoring, labels and agent prompts stay gender-neutral and make no assumptions about orientation. Sancheti et al. (2024) found LLMs under-predict romance for same-gender pairs, and the agent prompt states that explicitly. Grindr data is sensitive, so no logging and no analytics, as everywhere.
 
