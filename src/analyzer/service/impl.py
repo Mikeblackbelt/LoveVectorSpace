@@ -34,8 +34,9 @@ from analyzer.agent.checkins import CHECKIN_FIRST_Q
 from analyzer.agent.interview import first_question, progress as interview_prog
 from analyzer.agent.loop import run_agent
 from analyzer.agent.next_steps import generate_next_steps as _generate
-from analyzer.parsers import (ParseError, assign_roles, filter_english, parse_discord_json,
+from analyzer.parsers import (detect_format, ParseError, assign_roles, filter_english, parse_discord_json,
                               parse_instagram_json, parse_plaintext, parse_whatsapp, to_utc)
+from analyzer.parsers import bumble_json, grindr_json, hinge_json, tinder_json
 from analyzer.parsers.model import Message
 from analyzer.scales.loader import load_scales
 from analyzer.scales.schema import display_text
@@ -61,8 +62,10 @@ from .material import material_change
 log = logging.getLogger("analyzer.service")
 
 DEBOUNCE_S = 900
-PLATFORMS = ("whatsapp", "discord", "instagram")
-THEMES = ("signal", "pulse", "riso", "blueprint", "journal", "crt")
+PLATFORMS = ("whatsapp", "discord", "instagram", "tinder", "grindr", "bumble")
+THEMES = ("signal", "pulse", "riso", "blueprint", "journal", "matcha", "midnight", "inkwell", "crt")
+DATING = {"tinder": tinder_json, "hinge": hinge_json, "grindr": grindr_json, "bumble": bumble_json}
+SOURCE_RE = re.compile(r"^(screenshot_import|android_sms|android_(notify|a11y)_[a-z0-9_]{1,30})$")
 KINDS = ("chat", "interview", "checkin")
 THREAD_TITLES = {"chat": "Chat", "interview": "Intake interview", "checkin": "Hangout check-in"}
 CAPTURE_CHUNK = 2000
@@ -346,32 +349,55 @@ class UserServiceImpl:
     def _decode(raw: bytes) -> str:
         return raw.decode("utf-8-sig", errors="replace")
 
-    def _parse(self, filename: str, raw: bytes, tz: str, me_names: list[str]):
-        """-> (fmt, messages, one_sided); roles assigned unless `me_names` is empty."""
-        text = self._decode(raw)
-        name = (filename or "").lower()
+    def _parse(self, filename: str, raw: bytes, tz: str, me_names: list[str], match_id: str | None = None):
+        """-> (fmt, messages, one_sided); roles assigned unless `me_names` is empty.
+
+        Dating formats need `match_id` (one match = one unit); parser errors become InvalidInput."""
         try:
-            if name.endswith(".json") or text.lstrip().startswith(("{", "[")):
-                data = json.loads(text)
-                if isinstance(data, dict) and "messages" in data:
-                    msgs, fmt, one = parse_instagram_json(text), "instagram", False
-                else:
-                    owner = me_names[0] if me_names else ""
-                    msgs, one = parse_discord_json(text, owner)
-                    return "discord", msgs, one
-            else:
+            fmt = detect_format(filename or "", raw)
+            text = self._decode(raw)
+            if fmt in DATING:
+                if not match_id:
+                    raise InvalidInput("pick which match to import", "match_id")
+                owner = me_names[0] if me_names else "Me"
                 try:
-                    msgs, fmt = parse_whatsapp(text, tz), "whatsapp"
-                except ParseError:
-                    msgs, fmt = parse_plaintext(text, tz), "plaintext"
-                one = False
-        except (ParseError, ValueError) as e:
-            raise InvalidInput("unrecognised chat export", "file") from e
+                    msgs, one = DATING[fmt].parse_match(text, match_id, owner)
+                except ParseError as e:
+                    if "not found" in str(e):
+                        raise InvalidInput(str(e), "match_id") from e
+                    raise
+                return fmt, msgs, one
+            if fmt == "discord":
+                msgs, one = parse_discord_json(text, me_names[0] if me_names else "")
+                return fmt, msgs, one
+            if fmt == "instagram":
+                msgs, one = parse_instagram_json(text), False
+            elif fmt == "whatsapp":
+                msgs, one = parse_whatsapp(text, tz), False
+            else:
+                msgs, one = parse_plaintext(text, tz), False
+        except ParseError as e:
+            raise InvalidInput(str(e), "file") from e
         if me_names:
             msgs = assign_roles(msgs, set(me_names))
         return fmt, msgs, one
 
+    @staticmethod
+    def _match_dict(m) -> dict:
+        return {"match_id": m.match_id, "label": m.label,
+                "first_ts": iso(m.first_ts) if m.first_ts else None,
+                "last_ts": iso(m.last_ts) if m.last_ts else None,
+                "message_count": m.message_count, "one_sided": m.one_sided}
+
     def preview_import(self, filename: str, raw: bytes) -> dict:
+        try:
+            fmt = detect_format(filename or "", raw)
+            if fmt in DATING:
+                matches = DATING[fmt].list_matches(self._decode(raw))
+                return {"format": fmt, "matches": [self._match_dict(m) for m in matches],
+                        "one_sided": all(m.one_sided for m in matches)}
+        except ParseError as e:
+            raise InvalidInput(str(e), "file") from e
         fmt, msgs, one = self._parse(filename, raw, "UTC", [])
         speakers = sorted({m.speaker_raw for m in msgs if m.speaker_raw})
         if fmt == "discord":
@@ -379,28 +405,70 @@ class UserServiceImpl:
         return {"format": fmt, "speakers": speakers, "lines": len(msgs),
                 "one_sided": bool(one or len(speakers) < 2)}
 
-    @locked
-    def import_file(self, pid: int, filename: str, raw: bytes, tz: str, me_names: list[str]) -> dict:
-        self._person(pid)
-        me_names = [n for n in (me_names or []) if n and n.strip()]
-        if not me_names:
-            raise InvalidInput("say which name is you", "me_names")
-        tz = _tz(tz, "tz")
-        fmt, msgs, one_sided = self._parse(filename, raw, tz, me_names)
-        if fmt != "discord" and not any(m.role == "me" for m in msgs):
-            raise InvalidInput("none of those names appear in the chat", "me_names")
+    def _store_import(self, pid: int, msgs: list[Message], unit_id: str, one_sided: bool,
+                      check_roles: bool = True) -> dict:
         msgs, skipped_ne = filter_english(msgs)
-        unit_id = f"import:{uuid.uuid4().hex[:16]}"
         res = MessageStore(self.conn).ingest(pid, msgs, unit_id)
         sm = SpeakerMap(self.conn)
         for src, speaker, role in {(m.source, m.speaker_raw, m.role) for m in msgs if m.role}:
             sm.set(pid, src, speaker, role)
         self._add_skipped(pid, skipped_ne)
-        one_sided = bool(one_sided or len({m.role for m in msgs}) < 2)
+        one_sided = bool(one_sided or (check_roles and len({m.role for m in msgs}) < 2))
         job_id = self.start_analysis(pid)
         self._publish({"type": "ingest", "person_id": pid, "added": res.added, "merged": res.merged})
         return {"unit_id": unit_id, "added": res.added, "merged": res.merged,
                 "skipped_non_english": skipped_ne, "one_sided": one_sided, "job_id": job_id}
+
+    @locked
+    def import_file(self, pid: int, filename: str, raw: bytes, tz: str, me_names: list[str],
+                    match_id: str | None = None) -> dict:
+        self._person(pid)
+        me_names = [n for n in (me_names or []) if n and n.strip()]
+        tz = _tz(tz, "tz")
+        try:
+            dating = detect_format(filename or "", raw) in DATING
+        except ParseError as e:
+            raise InvalidInput(str(e), "file") from e
+        if not me_names and not dating:
+            raise InvalidInput("say which name is you", "me_names")
+        fmt, msgs, one_sided = self._parse(filename, raw, tz, me_names, match_id)
+        if fmt not in ("discord", *DATING) and not any(m.role == "me" for m in msgs):
+            raise InvalidInput("none of those names appear in the chat", "me_names")
+        unit_id = f"import:{fmt}:{match_id}" if dating else f"import:{uuid.uuid4().hex[:16]}"
+        return self._store_import(pid, msgs, unit_id, one_sided)
+
+    @locked
+    def import_messages(self, pid: int, source: str, tz: str, messages: list[dict]) -> dict:
+        """Pre-parsed messages (screenshot OCR, Android readers) through the normal import pipeline."""
+        self._person(pid)
+        if not isinstance(source, str) or not SOURCE_RE.match(source):
+            raise InvalidInput("unknown source", "source")
+        tz = _tz(tz, "tz")
+        if not isinstance(messages, list) or not messages:
+            raise InvalidInput("messages must be a non-empty list", "messages")
+        notify = source.startswith("android_notify_")
+        out: list[Message] = []
+        for m in messages:
+            try:
+                text = m["text"]
+                if not isinstance(text, str) or not text.strip():
+                    raise ValueError
+                ts = _utc(m["ts_utc"]) if m.get("ts_utc") else to_utc(datetime.fromisoformat(m["ts_local"]), tz)
+                role = "them" if notify else m["role"]
+                if role not in ("me", "them"):
+                    raise ValueError
+                prec = m.get("ts_precision", "approx")
+                if prec not in ("second", "minute", "approx"):
+                    raise ValueError
+            except (KeyError, ValueError, TypeError, InvalidInput) as e:
+                raise InvalidInput("each message needs text, role me|them, ts_utc or ts_local, ts_precision",
+                                   "messages") from e
+            out.append(Message(ts, role, role, text, prec, None, source))
+        others = self.conn.execute(
+            "SELECT 1 FROM units WHERE person_id=? AND source NOT LIKE 'android\\_notify\\_%' ESCAPE '\\' LIMIT 1",
+            (pid,)).fetchone()
+        return self._store_import(pid, out, f"import:{source}:{uuid.uuid4().hex[:12]}",
+                                  bool(notify and not others), check_roles=not notify)
 
     def _add_skipped(self, pid: int, n: int) -> None:
         if n:
@@ -984,6 +1052,9 @@ class UserServiceImpl:
         if platform not in PLATFORMS:
             raise InvalidInput("unknown platform", "platform")
         tz = _tz(batch.get("tz"), "tz")
+        given_unit = batch.get("unit_id")
+        if given_unit is not None and (not isinstance(given_unit, str) or not 0 < len(given_unit) <= 200):
+            raise InvalidInput("unit_id must be a short string", "unit_id")
         raw_msgs = batch.get("messages")
         if not isinstance(raw_msgs, list):
             raise InvalidInput("messages must be a list", "messages")
@@ -1016,12 +1087,13 @@ class UserServiceImpl:
             added = merged = skipped = bad
             added = merged = 0
             store = MessageStore(self.conn)
-            by_day: dict[str, list[Message]] = {}
+            by_unit: dict[str, list[Message]] = {}
             for m in sorted(msgs, key=lambda x: x.ts):
-                by_day.setdefault(m.ts.strftime("%Y-%m-%d"), []).append(m)
-            for day, ms in by_day.items():
+                key = given_unit or f"capture:{platform}:{m.ts.strftime('%Y-%m-%d')}"
+                by_unit.setdefault(key, []).append(m)
+            for unit, ms in by_unit.items():
                 for chunk in self._chunks(ms):
-                    r = store.ingest(pid, chunk, f"capture:{platform}:{day}")
+                    r = store.ingest(pid, chunk, unit)
                     added, merged, skipped = added + r.added, merged + r.merged, skipped + r.skipped
             sm = SpeakerMap(self.conn)
             for src, speaker, role in {(m.source, m.speaker_raw, m.role) for m in msgs}:

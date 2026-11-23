@@ -71,7 +71,7 @@ User = { "id": str, "email": str, "email_verified": bool, "display_name": str|nu
 | DELETE | `/api/account` | `{confirm: "DELETE MY ACCOUNT", password?}` | 204. A password is required if the account has one; social-only accounts confirm with the phrase. |
 
 ```
-Settings = { "theme": "signal"|"pulse"|"riso"|"blueprint"|"journal"|"crt"|"auto",
+Settings = { "theme": "signal"|"pulse"|"riso"|"blueprint"|"journal"|"matcha"|"midnight"|"inkwell"|"crt"|"auto",
              "auto_theme": {"mode": "system"|"time", "day": theme, "night": theme, "day_start": "07:00", "day_end": "19:00"},
              "reduce_motion": bool, "contrast_boost": bool, "text_size": "s"|"m"|"l",
              "owner_timezone": str|null, "agent_enabled": bool, "agent_reads_text": bool, "catchup_enabled": bool }
@@ -88,8 +88,9 @@ Invite = { "code": str, "email": str|null, "created_at": str, "expires_at": str,
 | GET | `/api/people/{pid}` | — | `Person` |
 | PATCH | `/api/people/{pid}` | `{pseudonym?, mode?, timezone?}` | `Person` |
 | DELETE | `/api/people/{pid}` | — | 204 (cascade) |
-| POST | `/api/people/{pid}/imports` | multipart: `file`, `tz`, `me_names` (repeatable), `source?` (auto-detected) | 201 `ImportResult`. Over 50 MB returns 413. Missing `me_names` returns 422 with `field: "me_names"`. |
-| POST | `/api/people/{pid}/imports/preview` | multipart: `file` | `{format, speakers: [str], lines: int, one_sided: bool}` (detects the format and speaker names) |
+| POST | `/api/people/{pid}/imports` | multipart: `file`, `tz`, `me_names` (repeatable), `match_id?`, `source?` (auto-detected) | 201 `ImportResult`. Over 50 MB returns 413. Missing `me_names` returns 422 with `field: "me_names"` (not required for the dating formats). For Tinder, Hinge, Grindr and Bumble exports `match_id` is required (400 `invalid_input`, `field: "match_id"` if missing or unknown) and one match becomes one unit (`import:<format>:<match_id>`). An unrecognised or malformed file returns 400 `invalid_input` (`field: "file"`) with the parser's message. |
+| POST | `/api/people/{pid}/imports/preview` | multipart: `file` | Chat formats: `{format, speakers: [str], lines: int, one_sided: bool}`. Dating formats (`format` is `tinder`, `hinge`, `grindr` or `bumble`): `{format, matches: [MatchInfo], one_sided: bool}` (no `speakers`/`lines`). |
+| POST | `/api/people/{pid}/imports/messages` | JSON `{source, tz, messages: [{ts_local?\|ts_utc?, ts_precision: "second"\|"minute"\|"approx", role: "me"\|"them", text}]}` | 201 `ImportResult`. `source` is `screenshot_import`, `android_sms`, `android_notify_<app>` or `android_a11y_<app>` (400 `invalid_input`, `field: "source"` otherwise). `android_notify_*` messages are forced to `them` and the import is `one_sided` unless the person has other sources. |
 | GET | `/api/people/{pid}/units` | — | `[Unit]` |
 | DELETE | `/api/units/{unit_id}` | — | `{removed_messages: int}` |
 | GET/PUT | `/api/people/{pid}/speakers` | PUT `[{source, speaker_raw, role}]` | `[SpeakerMapping]` |
@@ -100,6 +101,7 @@ PersonSummary = { "id": int, "pseudonym": str, "mode": str, "sources": [{"source
                   "success": {"percent": float|null, "low": float|null, "high": float|null, "status": "ok"|"insufficient_data"},
                   "safety": "none"|"info"|"concern"|"urgent", "updated_at": str|null }
 Person = { "id": int, "pseudonym": str, "mode": str, "timezone": str|null, "created_at": str }
+MatchInfo = { "match_id": str, "label": str, "first_ts": str|null, "last_ts": str|null, "message_count": int, "one_sided": bool }
 ImportResult = { "unit_id": str, "added": int, "merged": int, "skipped_non_english": int, "one_sided": bool, "job_id": int }
 Unit = { "unit_id": str, "source": str, "created_at": str, "message_count": int, "start_ts": str|null, "end_ts": str|null }
 ```
