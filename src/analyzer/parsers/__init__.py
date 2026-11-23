@@ -1,3 +1,5 @@
+from ._dating import MatchInfo
+from .detect import detect_format
 from .discord_json import parse_discord_json
 from .instagram_json import parse_instagram_json
 from .language import filter_english, is_english
@@ -8,7 +10,7 @@ from .tz import to_utc
 from .whatsapp import parse_whatsapp
 
 __all__ = [
-    "Message", "ParseError", "assign_roles", "filter_english", "is_english",
+    "MatchInfo", "detect_format", "Message", "ParseError", "assign_roles", "filter_english", "is_english",
     "parse_discord_json", "parse_instagram_json", "parse_plaintext",
     "parse_whatsapp", "to_utc",
 ]
