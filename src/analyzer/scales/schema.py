@@ -12,6 +12,7 @@ class Item(BaseModel):
     id: str
     text: str | None = None
     reverse: bool = False
+    optional: bool = False
     min: int | None = None
     max: int | None = None
 
@@ -80,7 +81,7 @@ class ScaleDef(BaseModel):
 
 
 class ScaleResult(BaseModel):
-    subscales: dict[str, float]
+    subscales: dict[str, float | None]
     bands: dict[str, str]
     cutoff_flags: dict[str, bool]
     status: Literal["ok", "draft", "unverified"]

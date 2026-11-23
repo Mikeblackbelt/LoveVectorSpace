@@ -87,3 +87,40 @@ def test_load_duplicate_ids_raise(tmp_path):
     (tmp_path / "two.yaml").write_text(src)
     with pytest.raises(ValueError):
         load_scales(tmp_path)
+
+
+def _opt(agg="mean", optional=("b",), subs=None):
+    d = toy().model_dump()
+    for i in d["items"]:
+        i["reverse"] = False
+        i["optional"] = i["id"] in optional
+        i["min"] = i["max"] = None
+    d["norms"] = d["cutoffs"] = None
+    d["subscales"] = subs or {"total": {"items": ["a", "b", "c"], "aggregate": agg}}
+    return ScaleDef.model_validate(d)
+
+
+def test_optional_skipped_in_mean_subscale():
+    r = score(_opt("mean"), {"a": 2, "c": 4})
+    assert r.subscales["total"] == 3
+    assert any("'b'" in n for n in r.notes)
+
+
+def test_optional_skipped_in_sum_subscale_is_prorated():
+    r = score(_opt("sum"), {"a": 2, "c": 4})
+    assert r.subscales["total"] == 9
+    assert any("prorated" in n and "'b'" in n for n in r.notes)
+    assert score(_opt("sum"), {"a": 2, "b": 3, "c": 4}).subscales["total"] == 9
+
+
+def test_all_skipped_subscale_is_none():
+    d = _opt("mean", optional=("a", "b", "c"))
+    r = score(d, {})
+    assert r.subscales["total"] is None
+    assert r.bands["total"] == "no reference band"
+    assert r.notes
+
+
+def test_non_optional_missing_still_raises():
+    with pytest.raises(AnswerError):
+        score(_opt("mean"), {"a": 2, "b": 3})

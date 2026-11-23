@@ -94,3 +94,11 @@ def test_custom_scales_are_draft():
     cd = ALL["cdaq_items"]
     assert {"monitoring_experienced", "monitoring_done", "aggression_experienced",
             "aggression_done", "sum"} == set(cd.subscales)
+
+
+def test_joel_predictors_scores_without_optional_item():
+    d = ALL["joel_predictors"]
+    assert [i.id for i in d.items if i.optional] == ["joel_predictors_03"]
+    answers = {i.id: 4 for i in d.items if not i.optional}
+    r = score(d, answers)
+    assert r.subscales["total"] == 4 and r.notes
