@@ -1,0 +1,40 @@
+# Hand-set weights for the UNCALIBRATED success estimate (v2 design 7c).
+# Nothing here is fitted to outcomes. Only the DIRECTION of each weight comes from the
+# literature (literature-review.md; research/app-notes/relationship_science_and_scales.md);
+# the magnitudes are the owner's/author's judgement. Replaced by a fitted model in phase 2.
+#
+# Each signal is standardised to s in [-1, 1] (0 = balanced); contribution = w * s, where
+# w = w_neg if s < 0 else w_pos. Positive sides are deliberately small (a high value is
+# weaker evidence than a low one is a warning).
+# p = sigmoid(intercept + sum(w * s)).
+intercepts:
+  potential: 0.0     # hand-set: no prior either way
+  established: 0.8   # hand-set: couples already together are more likely than not to still be
+weights:
+  lsm:                      # language-style matching predicts mutual interest / stability (Ireland 2011; Slatcher & Pennebaker)
+    w_neg: 1.0
+    w_pos: 0.5
+  initiation_share:         # THEY-share of session openings; pursuit/reciprocity imbalance (reciprocity literature)
+    w_neg: 1.2
+    w_pos: 0.3
+  message_share:            # THEY-share of messages; one-sided effort signals lower mutual interest
+    w_neg: 0.6
+    w_pos: 0.2
+  question_rate:            # them vs me question asking = curiosity about the other (Huang 2017 speed-dating questions)
+    w_neg: 0.7
+    w_pos: 0.3
+  disclosure_rate:          # reciprocal self-disclosure builds closeness (Collins & Miller 1994)
+    w_neg: 0.6
+    w_pos: 0.3
+  meetup_initiation_share:  # THEY-share of logged hangout initiation (self-report); reciprocity in real-world effort
+    w_neg: 1.0
+    w_pos: 0.3
+  plan_follow_through_rate: # plans actually carried out; reliability/commitment proxy
+    w_neg: 0.8
+    w_pos: 0.4
+  closeness_trend:          # rising logged closeness predicts positive trajectory (relationship-science notes)
+    w_neg: 0.8
+    w_pos: 0.5
+  tension_rate:             # logged tension lowers estimate only (conflict literature, Gottman-style negativity)
+    w_neg: 0.8
+    w_pos: 0.0
