@@ -5,6 +5,7 @@ import type { ExtSummary } from "./api";
 export type BgRequest =
   | { type: "enqueue"; platform: Platform; chat_key: string; tz: string; msgs: CapturedMessage[] }
   | { type: "summary"; platform: Platform; chat_key: string }
+  | { type: "import"; platform: Platform; chat_key: string; tz: string; unit_id: string; msgs: CapturedMessage[] }
   | { type: "flush" };
 
 export type BgResponse =
@@ -12,7 +13,8 @@ export type BgResponse =
   | { ok: false; code: string; error: string };
 
 /** popup -> content script */
-export type TabRequest = { type: "getChat" } | { type: "startBackfill"; until: string } | { type: "stopRun" };
+export type TabRequest = { type: "getChat" } | { type: "startBackfill"; until: string }
+  | { type: "importPage"; until: string | null } | { type: "stopRun" };
 
 export interface ChatContext {
   platform: Platform;

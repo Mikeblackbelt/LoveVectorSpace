@@ -102,3 +102,13 @@ describe("rate limiting", () => {
     expect(g.canStart()).toBe(true);
   });
 });
+
+describe("themes", () => {
+  it("lists all nine themes and each is defined in theme.css", async () => {
+    const { THEMES } = await import("../src/storage");
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync("src/theme.css", "utf8");
+    expect(THEMES).toHaveLength(9);
+    for (const t of THEMES) expect(css).toContain(`[data-theme="${t}"] {`);
+  });
+});

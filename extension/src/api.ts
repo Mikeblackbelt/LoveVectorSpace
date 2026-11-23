@@ -29,6 +29,7 @@ export interface CaptureBatch {
   platform: Platform;
   chat_key: string;
   tz: string;
+  unit_id?: string;
   messages: CapturedMessage[];
 }
 

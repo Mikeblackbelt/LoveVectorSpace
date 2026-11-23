@@ -1,0 +1,14 @@
+{
+  "shell": "#t-app, div[class*='App']",
+  "chatTitle": "[data-lvs='tinder-chat-title'], main header h1, main header h2",
+  "messageList": "[aria-label='Message list'], [data-lvs='tinder-messages']",
+  "scroller": "[aria-label='Message list'], [data-lvs='tinder-messages']",
+  "row": "[data-lvs='tinder-row'], [role='row']",
+  "timeSeparator": "[data-lvs='tinder-timestamp'], time[class*='separator']",
+  "bubble": "[data-lvs='tinder-bubble'], [class*='msg']",
+  "outgoing": "[data-lvs='tinder-bubble'][data-outgoing='true'], [class*='msg'][class*='--sent']",
+  "text": "[data-lvs='tinder-text'], span[class*='text']",
+  "login": "[data-testid='login'], a[href*='/login'][role='button']",
+  "captcha": "iframe[src*='captcha'], iframe[src*='arkose'], [class*='captcha']",
+  "errorBanner": "[role='alert'], [data-testid='error-banner']"
+}

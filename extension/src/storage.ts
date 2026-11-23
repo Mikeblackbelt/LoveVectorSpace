@@ -1,9 +1,11 @@
 import type { Platform } from "./adapters/types";
+import type { DateFormat } from "./adapters/time";
 
 export interface Settings {
   apiBase: string;
   token: string;
   theme: string;
+  waDateFormat: DateFormat;
 }
 export interface Prefs {
   enabled: Record<Platform, boolean>;
@@ -16,7 +18,8 @@ export interface HealthState {
   at: number;
 }
 export interface RunState {
-  kind: "backfill" | "catchup";
+  kind: "backfill" | "catchup" | "import";
+  imported?: number;
   status: "running" | "stopped";
   step: number;
   maxSteps: number;
@@ -28,11 +31,11 @@ export interface LinkEntry {
   pseudonym: string;
 }
 
-export const THEMES = ["signal", "pulse", "riso", "blueprint", "journal", "crt"] as const;
+export const THEMES = ["signal", "pulse", "riso", "blueprint", "journal", "matcha", "midnight", "inkwell", "crt"] as const;
 
-export const DEFAULT_SETTINGS: Settings = { apiBase: "", token: "", theme: "signal" };
+export const DEFAULT_SETTINGS: Settings = { apiBase: "", token: "", theme: "signal", waDateFormat: "auto" };
 export const DEFAULT_PREFS: Prefs = {
-  enabled: { whatsapp: true, discord: true, instagram: true },
+  enabled: { whatsapp: true, discord: true, instagram: true, tinder: true, grindr: true },
   catchup: true,
   paused: false,
 };

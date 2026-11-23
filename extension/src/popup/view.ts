@@ -20,13 +20,14 @@ export interface PopupDeps {
   link(personId: number, p: Platform, k: string, pseudonym: string): Promise<void>;
   unlink(p: Platform, k: string): Promise<void>;
   startBackfill(until: string): Promise<{ started: boolean; reason?: string }>;
+  importPage(until: string | null): Promise<{ started: boolean; reason?: string }>;
   stopRun(): Promise<void>;
   state(): Promise<PopupState>;
   savePrefs(p: Prefs): Promise<void>;
   openOptions(): void;
 }
 
-export const PLATFORM_LABEL: Record<Platform, string> = { whatsapp: "WhatsApp Web", discord: "Discord DMs", instagram: "Instagram DMs" };
+export const PLATFORM_LABEL: Record<Platform, string> = { whatsapp: "WhatsApp Web", discord: "Discord DMs", instagram: "Instagram DMs", tinder: "Tinder", grindr: "Grindr" };
 export const DISCORD_NOTE = "Discord's rules prohibit automating account actions. The account risk is yours.";
 
 export const STOP_LABEL: Record<string, string> = {
@@ -44,6 +45,8 @@ export const STOP_LABEL: Record<string, string> = {
   anchor_found: "caught up",
   no_anchor: "nothing to compare against",
   stopped: "stopped by you",
+  done: "imported what is on screen",
+  upload_failed: "upload failed, nothing was saved",
 };
 
 type Child = Node | string | null | false;
@@ -152,6 +155,7 @@ export async function mountPopup(root: HTMLElement, d: PopupDeps): Promise<void>
     else if (summary) {
       body.append(summaryBox(summary, st, platform));
       body.append(backfillBox(chat, st, d, render));
+      body.append(importBox(chat, st, d, render));
     }
     body.append(platformsBox(st, d, render));
     body.append(
@@ -198,7 +202,7 @@ async function linkBox(d: PopupDeps, platform: Platform, chatKey: string, render
   } }, "Link this chat");
   return box(
     "link chat",
-    h("div", { class: "note" }, "Nothing is read from this chat until you link it to a person."),
+    h("div", { class: "note" }, "Nothing is read from this chat (including Import this page) until you link it to a person."),
     h("label", { class: "lbl", for: "person" }, "Person"),
     h("div", { class: "field" }, select),
     err ? h("div", { class: "note" }, err) : people.length === 0 ? h("div", { class: "note" }, "No people yet. Create one in the app first.") : null,
@@ -234,6 +238,76 @@ function backfillBox(chat: ChatContext, st: PopupState, d: PopupDeps, render: ()
       await d.stopRun();
       await render();
     } }, "Stop") : null,
+    msg,
+  );
+}
+
+/** Tiny animated vector sum: two vectors (me, them) and their resultant. Static under reduced motion. */
+export function vectorSum(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext?.("2d");
+  if (!ctx) return; // jsdom has no canvas
+  const css = getComputedStyle(canvas);
+  const col = (v: string) => css.getPropertyValue(v).trim() || "currentColor";
+  const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const w = canvas.width, hgt = canvas.height;
+  const arrow = (x0: number, y0: number, x1: number, y1: number, c: string) => {
+    ctx.strokeStyle = c;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x1, y1, 2.5, 0, 7);
+    ctx.fillStyle = c;
+    ctx.fill();
+  };
+  const draw = (t: number) => {
+    if (!canvas.isConnected) return;
+    ctx.clearRect(0, 0, w, hgt);
+    const a = t / 900, b = t / 1300 + 2;
+    const ox = w * 0.2, oy = hgt * 0.7;
+    const m = [Math.cos(a) * 18 + 14, -Math.abs(Math.sin(a)) * 18 - 4];
+    const th = [Math.cos(b) * 14 + 14, -Math.abs(Math.sin(b * 1.3)) * 22 - 4];
+    arrow(ox, oy, ox + m[0], oy + m[1], col("--me"));
+    arrow(ox + m[0], oy + m[1], ox + m[0] + th[0], oy + m[1] + th[1], col("--them"));
+    arrow(ox, oy, ox + m[0] + th[0], oy + m[1] + th[1], col("--link"));
+    if (!reduce) requestAnimationFrame(draw);
+  };
+  draw(0);
+}
+
+function importBox(chat: ChatContext, st: PopupState, d: PopupDeps, render: () => Promise<void>): HTMLElement {
+  const run = st.runs[chat.platform];
+  const running = run?.kind === "import" && run.status === "running";
+  const input = h("input", { id: "import-back", type: "date", "aria-label": "Import back to date (optional)" });
+  const msg = h("div", { class: "note", "aria-live": "polite" });
+  const start = h("button", { class: "btn pri", type: "button", id: "import", disabled: running || !chat.health.ok, onclick: async () => {
+    const v = (input as HTMLInputElement).value;
+    const r = await d.importPage(v || null);
+    if (!r.started) msg.textContent = `Not started: ${r.reason ?? "unknown"}`;
+    else await render();
+  } }, running ? "Importing…" : "Import this page");
+  const canvas = h("canvas", { width: "64", height: "64", "aria-label": "Vector sum loading animation" });
+  const progress = running
+    ? h("div", { class: "run", "aria-live": "polite" }, canvas,
+        h("div", { class: "tx" }, span("acc", "IMPORTING…"), span("dim", `step ${run.step}/${run.maxSteps}`),
+          h("button", { class: "btn", type: "button", id: "import-stop", onclick: async () => {
+            await d.stopRun();
+            await render();
+          } }, "Stop")))
+    : null;
+  queueMicrotask(() => vectorSum(canvas as HTMLCanvasElement));
+  return box(
+    "import this page",
+    h("div", { class: "note" }, "One-time read of this open chat, sent as one import. Works without live capture. Leave the date empty to read only what is on screen."),
+    h("label", { class: "lbl", for: "import-back" }, "Back to (optional)"),
+    h("div", { class: "field" }, input),
+    run?.kind === "import" && run.status === "stopped"
+      ? h("div", { class: "kv" }, span("dim", "Last import"), span("", `${STOP_LABEL[run.reason ?? ""] ?? run.reason} · ${run.imported ?? 0} messages`))
+      : null,
+    start,
+    progress,
     msg,
   );
 }

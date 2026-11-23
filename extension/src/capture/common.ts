@@ -15,7 +15,9 @@ export type StopReason =
   | "chat_closed"
   | "anchor_found"
   | "no_anchor"
-  | "stopped";
+  | "stopped"
+  | "done"
+  | "upload_failed";
 
 export interface LoopDeps {
   sink: MessageSink;

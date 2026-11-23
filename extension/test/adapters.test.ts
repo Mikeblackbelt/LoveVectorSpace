@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter } from "../src/adapters/discord";
 import { createInstagramAdapter } from "../src/adapters/instagram";
+import { createGrindrAdapter } from "../src/adapters/grindr";
+import { createTinderAdapter } from "../src/adapters/tinder";
+import { runImport } from "../src/capture/import";
 import { createWhatsAppAdapter } from "../src/adapters/whatsapp";
 import { parseLooseTimestamp, parseWhatsAppMeta } from "../src/adapters/time";
 import type { Platform, SiteAdapter } from "../src/adapters/types";
@@ -8,14 +11,18 @@ import { runBackfill } from "../src/capture/backfill";
 import { runCatchup } from "../src/capture/catchup";
 import { startLiveCapture } from "../src/capture/live";
 import { RateLimiter, RunGuard } from "../src/ratelimit";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { CollectSink, fakeAdapter, loadFixture, msg } from "./helpers";
 
 const fast = () => new RateLimiter(2000, 4000, async () => undefined);
-const mk: Record<Platform, () => SiteAdapter> = {
+const mk: Partial<Record<Platform, () => SiteAdapter>> & Record<"whatsapp" | "discord" | "instagram", () => SiteAdapter> = {
   whatsapp: () => createWhatsAppAdapter({ doc: document, url: () => "https://web.whatsapp.com/", loadWaitMs: 60 }),
   discord: () => createDiscordAdapter({ doc: document, url: () => "https://discord.com/channels/@me/900", loadWaitMs: 60 }),
   instagram: () => createInstagramAdapter({ doc: document, url: () => "https://www.instagram.com/direct/t/555/", loadWaitMs: 60, now: () => new Date(2026, 10, 23) }),
 };
+mk.tinder = () => createTinderAdapter({ doc: document, url: () => "https://tinder.com/app/messages/abc123", loadWaitMs: 60, now: () => new Date(2026, 10, 23) });
+mk.grindr = () => createGrindrAdapter({ doc: document, url: () => "https://web.grindr.com/messages/u77", loadWaitMs: 60, now: () => new Date(2026, 10, 23) });
 const extractAll = (a: SiteAdapter) => a.rows().map((r) => a.extract(r)).filter((m) => m !== null);
 
 describe("extract text/direction/ts per platform", () => {
@@ -57,10 +64,83 @@ describe("extract text/direction/ts per platform", () => {
   });
 });
 
+describe("tinder and grindr", () => {
+  it("tinder: both sides, approx time, date-only separator at noon, gif and notice skipped", () => {
+    loadFixture("tinder");
+    const msgs = extractAll(mk.tinder!());
+    expect(msgs.map((m) => [m.direction, m.text, m.ts_local, m.ts_precision])).toEqual([
+      ["incoming", "hey, nice to match", "2026-11-22T15:45", "approx"],
+      ["outgoing", "likewise! coffee sometime?", "2026-11-22T15:45", "approx"],
+      ["incoming", "sure, thursday?", "2026-11-23T12:00", "approx"],
+    ]);
+    expect(mk.tinder!().currentChat()).toEqual({ chat_key: "abc123", title: "Jo Example" });
+    expect(mk.tinder!().matches("https://tinder.com/app/messages/abc123")).toBe(true);
+    expect(mk.tinder!().matches("https://tinder.com/app/recs")).toBe(false);
+  });
+  it("grindr: both sides, approx time, media skipped", () => {
+    loadFixture("grindr");
+    const msgs = extractAll(mk.grindr!());
+    expect(msgs.map((m) => [m.direction, m.text, m.ts_local])).toEqual([
+      ["incoming", "hi there", "2026-11-22T20:10"],
+      ["outgoing", "hey! how are you", "2026-11-22T20:10"],
+      ["incoming", "good, you?", "2026-11-22T20:10"],
+    ]);
+    expect(mk.grindr!().currentChat()?.chat_key).toBe("u77");
+    expect(mk.grindr!().matches("https://web.grindr.com/messages/u77")).toBe(true);
+  });
+});
+
+describe("whatsapp date format setting", () => {
+  it("auto / month-first / day-first change ambiguous dates", () => {
+    expect(parseWhatsAppMeta("[3:45 PM, 05/06/2026] A: ")?.ts_local).toBe("2026-05-06T15:45");
+    expect(parseWhatsAppMeta("[3:45 PM, 05/06/2026] A: ", "month_first")?.ts_local).toBe("2026-05-06T15:45");
+    expect(parseWhatsAppMeta("[3:45 PM, 05/06/2026] A: ", "day_first")?.ts_local).toBe("2026-06-05T15:45");
+    expect(parseWhatsAppMeta("[3:45 PM, 22/11/2026] A: ", "auto")?.ts_local).toBe("2026-11-22T15:45");
+  });
+  it("the adapter uses the configured format", () => {
+    document.body.innerHTML = readFileSync(resolve(__dirname, "fixtures/whatsapp/chat.html"), "utf8").replaceAll("11/22/2026", "03/04/2026");
+    const a = createWhatsAppAdapter({ doc: document, url: () => "https://web.whatsapp.com/", dateFormat: () => "day_first" });
+    expect(extractAll(a)[0].ts_local).toBe("2026-04-03T15:45");
+  });
+});
+
+describe("import this page", () => {
+  const dep = { tz: "UTC" };
+  it("reads what is on screen and uploads once", async () => {
+    loadFixture("whatsapp");
+    const up = vi.fn(async () => undefined);
+    const r = await runImport(mk.whatsapp(), null, fast(), new RunGuard(300, 0), dep, up);
+    expect(r).toEqual({ reason: "done", count: 4 });
+    expect(up).toHaveBeenCalledTimes(1);
+  });
+  it("scrolls back to a date, and still uploads when stopped early", async () => {
+    const a = fakeAdapter([[msg("9", "2026-11-20T00:00:00Z")], [msg("7", "2026-11-10T00:00:00Z")], [msg("5", "2026-11-01T00:00:00Z")]]);
+    const up = vi.fn(async () => undefined);
+    const r = await runImport(a, new Date("2026-11-12T00:00:00Z"), fast(), new RunGuard(300, 0), dep, up);
+    expect(r).toEqual({ reason: "until_date", count: 2 });
+    a.setAnomaly("captcha");
+    const r2 = await runImport(a, new Date("2020-01-01"), fast(), new RunGuard(300, 0), dep, up);
+    expect(r2.reason).toBe("captcha");
+  });
+  it("reports upload failure", async () => {
+    loadFixture("tinder");
+    const r = await runImport(mk.tinder!(), null, fast(), new RunGuard(300, 0), dep, async () => {
+      throw new Error("x");
+    });
+    expect(r.reason).toBe("upload_failed");
+  });
+  it("does not modify the page", async () => {
+    loadFixture("grindr");
+    const before = document.documentElement.outerHTML;
+    await runImport(mk.grindr!(), new Date("2020-01-01"), fast(), new RunGuard(300, 0), dep, async () => undefined);
+    expect(document.documentElement.outerHTML).toBe(before);
+  });
+});
+
 describe("system and media lines skipped", () => {
-  it.each(["whatsapp", "discord", "instagram"] as Platform[])("%s: no empty or system text", (p) => {
+  it.each(["whatsapp", "discord", "instagram", "tinder", "grindr"] as Platform[])("%s: no empty or system text", (p) => {
     loadFixture(p);
-    const a = mk[p]();
+    const a = mk[p]!();
     const msgs = extractAll(a);
     expect(msgs.length).toBeLessThan(a.rows().length);
     for (const m of msgs) {
@@ -86,11 +166,11 @@ describe("time parsing", () => {
 });
 
 describe("health check and selector drift", () => {
-  it.each(["whatsapp", "discord", "instagram"] as Platform[])("%s: healthCheck fails on changed fixture, capture disabled, nothing queued", async (p) => {
+  it.each(["whatsapp", "discord", "instagram", "tinder", "grindr"] as Platform[])("%s: healthCheck fails on changed fixture, capture disabled, nothing queued", async (p) => {
     loadFixture(p);
-    expect(mk[p]().healthCheck()).toEqual({ ok: true });
+    expect(mk[p]!().healthCheck()).toEqual({ ok: true });
     loadFixture(p, "changed");
-    const a = mk[p]();
+    const a = mk[p]!();
     const h = a.healthCheck();
     expect(h.ok).toBe(false);
     const sink = new CollectSink();
@@ -238,10 +318,10 @@ describe("catchup", () => {
 });
 
 describe("no DOM mutation by extension", () => {
-  it.each(["whatsapp", "discord", "instagram"] as Platform[])("%s: fixture unchanged after live capture and backfill", async (p) => {
+  it.each(["whatsapp", "discord", "instagram", "tinder", "grindr"] as Platform[])("%s: fixture unchanged after live capture and backfill", async (p) => {
     loadFixture(p);
     const before = document.documentElement.outerHTML;
-    const a = mk[p]();
+    const a = mk[p]!();
     const sink = new CollectSink();
     const live = startLiveCapture(a, sink, { tz: "UTC", isLinked: () => true, isAllowed: () => true, pollMs: 60_000 });
     await live.scan();

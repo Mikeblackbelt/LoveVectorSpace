@@ -13,6 +13,7 @@ export async function ensureOrigin(apiBase: string): Promise<boolean> {
 
 async function main() {
   document.body.style.width = "auto";
+  document.body.style.overflow = "auto";
   const s = await getSettings();
   document.documentElement.setAttribute("data-theme", s.theme);
   const field = (id: string, label: string, el: HTMLElement) => {
@@ -38,6 +39,9 @@ async function main() {
   tok.value = s.token;
   const theme = document.createElement("select");
   for (const t of THEMES) theme.append(new Option(t, t, false, t === s.theme));
+  const waFmt = document.createElement("select");
+  for (const [v, l] of [["auto", "Auto (guess)"], ["month_first", "Month first (11/22/2026)"], ["day_first", "Day first (22/11/2026)"]] as const)
+    waFmt.append(new Option(l, v, false, v === s.waDateFormat));
   const status = document.createElement("div");
   status.className = "note";
   status.setAttribute("aria-live", "polite");
@@ -59,7 +63,7 @@ async function main() {
         return;
       }
     }
-    await setKey("settings", { apiBase: base, token: tok.value.trim(), theme: theme.value });
+    await setKey("settings", { apiBase: base, token: tok.value.trim(), theme: theme.value, waDateFormat: waFmt.value });
     document.documentElement.setAttribute("data-theme", theme.value);
     status.textContent = "Saved.";
   });
@@ -75,6 +79,7 @@ async function main() {
     field("api", "API base URL", api),
     field("token", "Extension token", tok),
     field("theme", "Theme", theme),
+    field("wafmt", "Date format on WhatsApp", waFmt),
     save,
     status,
   );

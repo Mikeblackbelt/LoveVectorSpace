@@ -31,7 +31,7 @@ export function createWhatsAppAdapter(ctx: PageCtx = defaultCtx()): SiteAdapter 
       const textEl = node.querySelector(sel.text);
       const text = textOf(textEl);
       if (!metaEl || !text) return null; // media-only or unreadable
-      const meta = parseWhatsAppMeta(metaEl.getAttribute("data-pre-plain-text") ?? "");
+      const meta = parseWhatsAppMeta(metaEl.getAttribute("data-pre-plain-text") ?? "", ctx.dateFormat?.() ?? "auto");
       if (!meta) return null;
       return {
         ts_local: meta.ts_local,

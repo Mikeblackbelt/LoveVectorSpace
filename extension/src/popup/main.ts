@@ -45,6 +45,10 @@ const deps: PopupDeps = {
     const r = await tabCall({ type: "startBackfill", until });
     return r && r.ok ? { started: !!r.started, reason: r.reason } : { started: false, reason: "no_page" };
   },
+  importPage: async (until) => {
+    const r = await tabCall({ type: "importPage", until });
+    return r && r.ok ? { started: !!r.started, reason: r.reason } : { started: false, reason: "no_page" };
+  },
   stopRun: async () => void (await tabCall({ type: "stopRun" })),
   state: async () => ({
     prefs: await getPrefs(),

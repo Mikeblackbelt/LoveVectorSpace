@@ -1,3 +1,4 @@
+import type { DateFormat } from "./time";
 import type { Anomaly, Health, Selectors } from "./types";
 
 /** Where an adapter reads the page from. Injectable so tests can run against fixtures. */
@@ -7,6 +8,8 @@ export interface PageCtx {
   /** how long scrollStep waits for older messages to load, ms */
   loadWaitMs?: number;
   now?: () => Date;
+  /** WhatsApp numeric date order; default auto */
+  dateFormat?: () => DateFormat;
 }
 
 export const defaultCtx = (): PageCtx => ({ doc: document, url: () => location.href });

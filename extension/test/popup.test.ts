@@ -3,6 +3,7 @@ import { DEFAULT_PREFS } from "../src/storage";
 import { mountPopup, type PopupDeps, type PopupState } from "../src/popup/view";
 import type { ExtSummary } from "../src/api";
 
+HTMLCanvasElement.prototype.getContext = () => null; // jsdom has no canvas
 const state: PopupState = { prefs: DEFAULT_PREFS, health: {}, runs: {}, queueLength: 2, queueFull: false, lastFlush: null };
 const chat = { platform: "whatsapp" as const, chat_key: "Yu Cheng", title: "Yu Cheng", health: { ok: true }, cooldown_left_ms: 0 };
 const base: ExtSummary = { linked: true, person: { id: 1, pseudonym: "Yu Cheng" }, total: 4812, today: 23, last7d: 184, my_share_30d: 0.66, last_captured_ts: null, last_captured_ids: [] };
@@ -16,6 +17,7 @@ function deps(over: Partial<PopupDeps> = {}): PopupDeps {
     link: vi.fn(async () => undefined),
     unlink: vi.fn(async () => undefined),
     startBackfill: async () => ({ started: true }),
+    importPage: vi.fn(async () => ({ started: true })),
     stopRun: async () => undefined,
     state: async () => state,
     savePrefs: async () => undefined,
@@ -40,7 +42,7 @@ describe("popup", () => {
     const root = document.createElement("div");
     await mountPopup(root, deps());
     expect(root.textContent).toContain("prohibit automating account actions");
-    for (const id of ["tgl-whatsapp", "tgl-discord", "tgl-instagram", "tgl-catchup", "pause", "backfill"]) {
+    for (const id of ["tgl-whatsapp", "tgl-discord", "tgl-instagram", "tgl-tinder", "tgl-grindr", "tgl-catchup", "import", "pause", "backfill"]) {
       expect(root.querySelector(`#${id}`), id).not.toBeNull();
     }
   });
@@ -52,6 +54,31 @@ describe("popup", () => {
     expect(root.querySelector("#backfill")).toBeNull();
     (root.querySelector("#link") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(d.link).toHaveBeenCalledWith(1, "whatsapp", "Yu Cheng", "Yu Cheng"));
+  });
+
+  it("import this page needs a linked chat and calls importPage with the optional date", async () => {
+    const root = document.createElement("div");
+    const d = deps({ summary: async () => ({ ...base, linked: false, person: null }) });
+    await mountPopup(root, d);
+    expect(root.querySelector("#import")).toBeNull();
+    expect(root.textContent).toContain("until you link it");
+    const root2 = document.createElement("div");
+    const d2 = deps();
+    await mountPopup(root2, d2);
+    (root2.querySelector("#import-back") as HTMLInputElement).value = "2026-10-01";
+    (root2.querySelector("#import") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(d2.importPage).toHaveBeenCalledWith("2026-10-01"));
+  });
+
+  it("shows progress and a stop button while importing", async () => {
+    const root = document.createElement("div");
+    const runs = { whatsapp: { kind: "import" as const, status: "running" as const, step: 4, maxSteps: 300, at: 0 } };
+    const d = deps({ state: async () => ({ ...state, runs }) });
+    await mountPopup(root, d);
+    expect(root.textContent).toContain("step 4/300");
+    expect(root.querySelector("canvas")).not.toBeNull();
+    (root.querySelector("#import-stop") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(root.querySelector("#import-stop")).not.toBeNull());
   });
 
   it("warns about selectors and a full queue", async () => {

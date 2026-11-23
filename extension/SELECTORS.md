@@ -12,6 +12,8 @@ Sites change their markup. When the health check fails, the popup shows "update 
 | WhatsApp Web | not yet verified |
 | Discord DMs | not yet verified |
 | Instagram DMs | not yet verified |
+| Tinder web | not yet verified |
+| Grindr web | not yet verified |
 
 Use a throwaway chat for testing. Never paste real message text into an issue or commit.
 
@@ -52,3 +54,19 @@ Last verified: not yet verified
 - [ ] Link a throwaway chat, send yourself a message from another device, and confirm the popup count rises after the next flush (about 30 s).
 - [ ] Confirm no element, style or attribute was added to the page (the unit tests check this against fixtures; check once on the real page in the Elements panel).
 - [ ] Run a short backfill (back to yesterday) and confirm it stops with a readable reason.
+
+## Tinder web (`tinder.selectors.json`)
+Last verified: not yet verified
+- [ ] Open a match under `tinder.com/app/messages/<match id>`. `shell`, `messageList` and `scroller` resolve. The `data-lvs` selectors are placeholders; replace them with the real markup.
+- [ ] `row` matches each message and each timestamp line; `timeSeparator` text parses (for example `Nov 22, 2026 3:45 PM`; a date-only line is read as noon).
+- [ ] `bubble` matches text bubbles and `outgoing` only your own (look for a stable attribute or class, not alignment guesses).
+- [ ] `text` matches the text inside a bubble; GIFs, photos and notices have none.
+- [ ] `chatTitle` returns the match's name. The `chat_key` is the match id from the URL.
+- [ ] `login`, `captcha`, `errorBanner` match nothing in normal use (`[role='alert']` may match harmless toasts; narrow it if backfill stops for no reason).
+
+## Grindr web (`grindr.selectors.json`)
+Last verified: not yet verified
+- [ ] Open a conversation under `web.grindr.com/messages/<id>`. `shell`, `messageList` and `scroller` resolve. The `data-lvs` selectors are placeholders.
+- [ ] `row`, `timeSeparator`, `bubble`, `outgoing`, `text` and `chatTitle`: same checks as Tinder.
+- [ ] `login`, `captcha`, `errorBanner` match nothing in normal use.
+- [ ] Grindr data is sensitive: use a throwaway chat and never paste real messages anywhere.

@@ -23,7 +23,9 @@ function parseClock(t: string): { h: number; mi: number } | null {
  * WhatsApp's per-message metadata: "[3:45 PM, 11/22/2026] Name: " (US) or "[15:45, 22/11/2026] Name: ".
  * Numeric dates are read as M/D/Y unless the first field can only be a day (> 12) or the year comes first.
  */
-export function parseWhatsAppMeta(meta: string): { ts_local: string; speaker: string } | null {
+export type DateFormat = "auto" | "month_first" | "day_first";
+
+export function parseWhatsAppMeta(meta: string, fmt: DateFormat = "auto"): { ts_local: string; speaker: string } | null {
   const m = /^\s*\[([^\]]+?),\s*([^\]]+?)\]\s*(.*?):\s*$/s.exec(meta);
   if (!m) return null;
   const clock = parseClock(m[1]);
@@ -34,7 +36,7 @@ export function parseWhatsAppMeta(meta: string): { ts_local: string; speaker: st
   if (dm[1].length === 4) [y, mo, d] = [a, b, c];
   else {
     y = c < 100 ? 2000 + c : c;
-    if (a > 12) [d, mo] = [a, b];
+    if (fmt === "day_first" || (fmt === "auto" && a > 12)) [d, mo] = [a, b];
     else [mo, d] = [a, b];
   }
   if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
@@ -50,9 +52,11 @@ const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
  */
 export function parseLooseTimestamp(text: string, now: Date): string | null {
   const t = text.trim();
-  const clock = parseClock(t);
-  if (!clock) return null;
+  const parsed = parseClock(t);
   const word = t.toLowerCase();
+  const hasDate = /[a-z]{3}[a-z]*\.?\s+\d{1,2}/.test(word) || word.startsWith("today") || word.startsWith("yesterday");
+  const clock = parsed ?? (hasDate ? { h: 12, mi: 0 } : null); // date-only separators: noon, approx
+  if (!clock) return null;
   const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const mon = /([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?/.exec(word);
   if (mon && MONTHS.includes(mon[1])) {

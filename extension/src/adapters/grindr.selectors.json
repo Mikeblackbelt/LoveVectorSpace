@@ -1,0 +1,14 @@
+{
+  "shell": "#root, #app",
+  "chatTitle": "[data-lvs='grindr-chat-title'], main header h1, main header h2",
+  "messageList": "[data-lvs='grindr-messages'], [aria-label='Conversation']",
+  "scroller": "[data-lvs='grindr-messages'], [aria-label='Conversation']",
+  "row": "[data-lvs='grindr-row'], [role='row']",
+  "timeSeparator": "[data-lvs='grindr-timestamp'], [class*='timestamp-separator']",
+  "bubble": "[data-lvs='grindr-bubble'], [class*='bubble']",
+  "outgoing": "[data-lvs='grindr-bubble'][data-outgoing='true'], [class*='bubble'][class*='sent']",
+  "text": "[data-lvs='grindr-text'], span[class*='text']",
+  "login": "form[action*='login'], [data-testid='login']",
+  "captcha": "iframe[src*='captcha'], iframe[src*='recaptcha'], [class*='captcha']",
+  "errorBanner": "[role='alert'], [data-testid='error-banner']"
+}
