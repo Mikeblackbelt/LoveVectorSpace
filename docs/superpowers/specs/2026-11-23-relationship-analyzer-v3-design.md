@@ -165,3 +165,21 @@
 - No iOS share extension for now.
 - Admin bootstrap through `ADMIN_EMAIL`.
 - Demo seeding through `SEED_DEMO`.
+
+## 9. Dating-app imports (owner request)
+
+New importers for **Tinder**, **Hinge** and **Grindr** data exports:
+- Each export holds many matches, so the import dialog lists them (match id, first and last message dates, message count) and the user picks which match maps to which person. Each imported match gets its own unit.
+- Formats must be confirmed from current public documentation or user reports. They are believed to contain only the user's own sent messages (Tinder, Hinge).
+- When a format is one-sided, the import is marked `one_sided` and the signals that need both sides are marked partial, as with Discord.
+- Unknown or changed formats fail with a clear `invalid_input` error naming the expected file (e.g. "expected data.json from Tinder's Download My Data").
+- Source names: `tinder_import`, `hinge_import`, `grindr_import`.
+
+**Optional extension adapters, added after the merge:** `tinder.com` (web messages) and `web.grindr.com`. They follow the same rules as the other adapters: read-only, opt-in per chat, rate-limited backfill, health checks.
+
+**Neutrality:** scoring, labels and agent prompts stay gender-neutral and make no assumptions about orientation. Sancheti et al. (2024) found LLMs under-predict romance for same-gender pairs, and the agent prompt states that explicitly. Grindr data is sensitive, so no logging and no analytics, as everywhere.
+
+## 10. Themes and scaling (owner request)
+- **Nine themes:** signal, pulse, riso, blueprint, journal, matcha, midnight, inkwell (high-contrast, accessible), crt. `Settings.theme` and `auto_theme.day`/`night` accept all nine; AUTO defaults are day = journal, night = signal.
+- **Device scaling:** every screen follows the design-system scaling rules (fluid `clamp()` type, no fixed-width page containers, canvases redrawn on resize and orientation change, no horizontal scroll from 320 to 1920px, safe areas).
+- **Post-merge follow-ups** for the build streams (applied at merge time, not mid-stream): the theme enum in the API, core and frontend; the frontend's 9-theme support plus the scaling rules; the extension's 9-theme select.
