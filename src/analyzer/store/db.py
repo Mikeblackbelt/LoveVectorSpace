@@ -13,7 +13,7 @@ def open_db(path: Path, key: str):
     """Open (or create) the encrypted DB. Fails closed; never creates a plaintext file."""
     if not key:
         raise DatabaseKeyError("DB_KEY is missing")
-    conn = sqlcipher3.connect(str(path))
+    conn = sqlcipher3.connect(str(path), check_same_thread=False)
     try:
         conn.execute("PRAGMA key = '" + key.replace("'", "''") + "'")
         conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
