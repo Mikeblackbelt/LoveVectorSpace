@@ -226,6 +226,40 @@ v1 plan Task 7, plus these deltas:
 - [ ] **Step 4: Run** the same command. Expected: PASS.
 - [ ] **Step 5: Commit:** `feat: interaction signals`
 
+### Task 8b: Uncalibrated "chance of success" estimate (v2 §7c)
+
+**Files:**
+- Create: `src/analyzer/signals/success.py`, `src/analyzer/signals/success_weights.yaml`
+- Test: `tests/signals/test_success.py`
+
+**Interfaces:**
+- Consumes: `Metric` lists from Task 5 (`core_report`), Task 8 (`interaction_metrics`), and `Fact` (Task 2b)
+- Produces:
+  - `SuccessEstimate(mode, status: Literal["ok","insufficient_data"], percent: float | None, low: float | None, high: float | None, tag: str, top_contributors: list[tuple[str, float]], definition: str, calibrated: CalibratedSlot)`
+  - `CalibratedSlot(status: Literal["not_available","ok"], percent, low, high, n_outcomes, needed: int)`
+  - `uncalibrated_success(mode, chat_metrics, interaction_metrics, facts) -> SuccessEstimate`
+- Rules:
+  - Weights and intercept per mode live in YAML, with a comment per weight citing the direction source.
+  - Each signal is standardised to [-1, 1] around "balanced" (e.g. initiation share 0.5 → 0). Missing or insufficient signals drop out, and the range widens by 5 points per missing core signal.
+  - The base range is ±15 points.
+  - `insufficient_data` if fewer than 3 core signals (lsm, initiation_share, message_share, question_rate, meetup_initiation_share) are ok.
+  - The tag text is exactly "uncalibrated estimate: hand-set weights, not fitted to outcomes".
+  - `calibrated` is always `not_available` with `needed=20` in v1.
+  - The definitions are exactly v2 §7c's.
+
+- [ ] **Step 1: Write failing tests:**
+  - `test_balanced_signals_near_intercept`;
+  - `test_one_sided_initiation_lowers_estimate`;
+  - `test_missing_signals_widen_range`;
+  - `test_insufficient_when_few_core_signals`;
+  - `test_tag_and_definition_exact`;
+  - `test_calibrated_slot_not_available`;
+  - `test_percent_within_0_100`.
+- [ ] **Step 2: Run** `python -m uv run pytest tests/signals/test_success.py -v`. Expected: FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** the same command. Expected: PASS.
+- [ ] **Step 5: Commit:** `feat: uncalibrated success estimate`
+
 ### Task 9: Service layer, ingest, re-analysis jobs, material change, events
 
 **Files:**
@@ -235,7 +269,7 @@ v1 plan Task 7, plus these deltas:
 **Interfaces:**
 - Consumes: Tasks 2a–8
 - Produces:
-  - `Analyzer` (v1 plan Task 8 API, with roles and coverage), plus `overview(person_id) -> PersonOverview(mode, sources, metrics, interaction_metrics, scales, safety, coverage)`
+  - `Analyzer` (v1 plan Task 8 API, with roles and coverage), plus `overview(person_id) -> PersonOverview(mode, sources, metrics, interaction_metrics, scales, safety, coverage, success: SuccessEstimate)`
   - `IngestService.ingest_capture(person_id, batch: CaptureBatch) -> IngestResult`
     - Converts local→UTC with `batch.tz` and sets roles from `direction`.
     - Unit id: `capture:<platform>:<YYYY-MM-DD UTC>`.
@@ -581,7 +615,7 @@ v1 plan Task 12, plus these deltas:
 
 ## Execution order and parallelism
 
-Order: 1 → 2a → 2b → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 12 → 11 → 13 → 14 → 15 → 16 → 17 → 18 → 19.
+Order: 1 → 2a → 2b → 3 → 4 → 5 → 6 → 7 → 8 → 8b → 9 → 10 → 12 → 11 → 13 → 14 → 15 → 16 → 17 → 18 → 19.
 
 Once Task 10's route shapes are committed, the frontend (14–16) and the extension (17–18) touch only their own folders. They may run in parallel with Tasks 12–13, in separate worktrees.
 

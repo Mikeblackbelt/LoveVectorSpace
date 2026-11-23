@@ -254,3 +254,24 @@ The main purpose is helping the owner **establish and maintain a healthy relatio
    - then the other signals.
 
    The potential-mode dashboard leads with a "Reciprocity at a glance" panel of those signals with their evidence tags. It shows no single score and no probability.
+
+## 7c. Headline "chance of success" (owner decision, 2026-11-23)
+
+The owner chose a headline outcome metric, overriding v1 §2's "no outcome probability" non-goal for this one place. It is shown as **two numbers**:
+
+1. **Uncalibrated estimate (available now).**
+   - A logistic combination of reciprocity signals with hand-set weights whose directions come from the literature: LSM, initiation balance, message balance, question rate, disclosure balance, meetup initiation share, plan follow-through, closeness trend, and the owner's interview context.
+   - Output: a percentage with a wide range (± at least 15 points, wider with less data or coverage). It is always tagged "uncalibrated estimate: hand-set weights, not fitted to outcomes", and it lists the top 3 contributing signals.
+   - `insufficient_data` when the core reciprocity signals are insufficient.
+2. **Calibrated estimate (phase 2).**
+   - Fitted with sigmoid calibration on the owner's labelled past outcomes (phase-2 labelled-history import).
+   - Until at least 20 labelled outcomes exist, it shows "not available yet: needs N more labelled outcomes".
+   - Once available, it shows the percentage, a confidence interval, and the number of outcomes it was fitted on.
+
+**Definition of success per mode:**
+- Potential: "interest is mutual and moves toward dating".
+- Established: "still together and satisfied in 3 months".
+
+The headline appears first on the dashboard, right under the safety warning, with the supporting metrics (the reciprocity panel) beneath it. It is never shown without its tag and range. The agent may quote it only together with its tag and range.
+
+The research caveat is shown as a one-line info tooltip on the headline: real outcomes are only weakly predictable from chats; LLMs reading real speed dates reached r ≈ 0.12–0.23.
