@@ -216,3 +216,21 @@ def test_scan_is_fast_on_adversarial_input():
         t0 = time.perf_counter()
         run([mk(0, "them", s)])
         assert time.perf_counter() - t0 < 0.5
+
+
+def test_breakup_and_game_talk_not_flagged():
+    for t in ["We ended things last year", "I want to end things with him",
+              "I can totally beat you at mario kart", "I'll beat you in chess tonight"]:
+        assert run([mk(0, "me", t)]).flags == [], t
+        if "beat" not in t:  # fact-value rules are deliberately broad ("beat")
+            assert run([], facts=[fact("safety.control_experienced", t)]).flags[0].severity != "urgent", t
+
+
+def test_fact_negation_does_not_hide_disclosures():
+    for v in ["No, he hit me", "Nope, she choked me", "not really, he hit me",
+              "No, I am not safe at home", "no he hit me"]:
+        flags = run([], facts=[fact("safety.threats_experienced", v)]).flags
+        assert flags and flags[0].severity == "urgent", v
+    for v in ["No, he has never hit me", "no, not abusive", "no, he did not threaten me",
+              "no, never", "He doesn't hurt me"]:
+        assert run([], facts=[fact("safety.threats_experienced", v)]).flags == [], v

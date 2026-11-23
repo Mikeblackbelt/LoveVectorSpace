@@ -172,18 +172,19 @@ def _fact_category(key: str, value: str) -> str:
 
 _NEG_START = re.compile(r"^(no|never|not|none|nope|nah)\b")
 _NEG_SENT = re.compile(r"\b(has|have|had|did|does|do|was|is|were)(n'?t| not| never)\b|\bnever (\w+ )?(hit|threatened|hurt|touched|abused|harmed|scared)\b")
-_CONTRAST = re.compile(r"\b(but|except|although|though|however)\b")
+_VERBS = (r"(hit|slap(ped)?|punch(ed)?|chok(e|ed)|shov(e|ed)|kick(ed)?|strangl(e|ed)|push(ed)?|hurt|beat"
+          r"|threat\w*|abus\w*|violen\w*|harm(ed)?|touch(ed)?|scar(e|ed)|kill(ed)?)")
+_NEG_VP = re.compile(r"\b(never|not|(has|have|had|did|does|do|was|is|were)(n'?t| not))\s+(\w+\s+)?" + _VERBS + r"\b")
 
 
 def _is_negated(v: str) -> bool:
-    """Negated answer ("no, he has never hit me") unless a contrast marker introduces
-    urgent language ("no, but he threatened me")."""
-    if not (_NEG_START.search(v) or _NEG_SENT.search(v)):
+    """Negated answer ("no, he has never hit me", "no, not abusive"). Negation is dropped
+    when urgent language survives outside a negated verb phrase ("no, he hit me",
+    "no, but he threatened me", "no, I am not safe at home")."""
+    remaining = _NEG_VP.sub(" ", v)
+    if any(p.search(remaining) for p in FACT_URGENT):
         return False
-    m = _CONTRAST.search(v)
-    if m and any(p.search(v[m.end():]) for p in FACT_URGENT):
-        return False
-    return True
+    return bool(_NEG_START.search(v) or _NEG_SENT.search(v) or remaining != v)
 
 
 def _fact_severity(value: str) -> str | None:

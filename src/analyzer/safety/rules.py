@@ -63,7 +63,7 @@ _RAW: dict[str, list[str]] = {
         r"\byou'?re nothing\b",
     ],
     "threat": [
-        r"\b(i'?ll|i will|i'?m going to|i'?m gonna|im gonna|gonna|going to|i could|i can|i'?d|i want to|i wanna|i swear i'?ll) (\w+ ){0,2}(kill|hurt|beat|hit|punch|strangle|choke|stab|shoot|destroy|ruin) (\w+ )?(you|ya|u|her|him|them)\b",
+        r"\b(i'?ll|i will|i'?m going to|i'?m gonna|im gonna|gonna|going to|i could|i can|i'?d|i want to|i wanna|i swear i'?ll) (\w+ ){0,2}(kill|hurt|beat|hit|punch|strangle|choke|stab|shoot|destroy|ruin) (?!you (at|in)\b)(\w+ )?(you|ya|u|her|him|them)\b",
         r"\bi swear i'?ll (kill|hurt|end)\b",
         r"\byou'?ll (regret|pay for|be sorry)\b",
         r"\byou will (regret|pay for|be sorry)\b",
@@ -83,7 +83,7 @@ _RAW: dict[str, list[str]] = {
     ],
     "self_harm": [
         r"\bkill(ing|ed|s)? (my ?self)\b",
-        r"\bend(ing|ed)? (it all|things|my life|my own life)\b",
+        r"\bend(ing|ed)? (it all|my life|my own life)\b",
         r"\bending my life\b",
         r"\btake my own life\b",
         r"\bwant(ed)? to die\b",
