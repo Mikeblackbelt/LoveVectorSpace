@@ -35,7 +35,7 @@ export const THEMES = ["signal", "pulse", "riso", "blueprint", "journal", "match
 
 export const DEFAULT_SETTINGS: Settings = { apiBase: "", token: "", theme: "signal", waDateFormat: "auto" };
 export const DEFAULT_PREFS: Prefs = {
-  enabled: { whatsapp: true, discord: true, instagram: true, tinder: true, grindr: true },
+  enabled: { whatsapp: true, discord: true, instagram: true, tinder: true, grindr: true, bumble: true },
   catchup: true,
   paused: false,
 };

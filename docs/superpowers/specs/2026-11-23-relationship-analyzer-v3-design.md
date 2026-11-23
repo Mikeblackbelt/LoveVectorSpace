@@ -168,18 +168,19 @@
 
 ## 9. Dating-app imports (owner request)
 
-New importers for **Tinder**, **Hinge** and **Grindr** data exports:
+New importers for **Tinder**, **Hinge**, **Grindr** and **Bumble** data exports:
 - Each export holds many matches, so the import dialog lists them (match id, first and last message dates, message count) and the user picks which match maps to which person. Each imported match gets its own unit.
 - Formats must be confirmed from current public documentation or user reports. They are believed to contain only the user's own sent messages (Tinder, Hinge).
 - When a format is one-sided, the import is marked `one_sided` and the signals that need both sides are marked partial, as with Discord.
 - Unknown or changed formats fail with a clear `invalid_input` error naming the expected file (e.g. "expected data.json from Tinder's Download My Data").
-- Source names: `tinder_import`, `hinge_import`, `grindr_import`.
+- Source names: `tinder_import`, `hinge_import`, `grindr_import`, `bumble_import`.
+- The Bumble export format is unconfirmed, so its parser is tolerant like Grindr's and documented in `DATING_FORMATS.md`.
 
 **Primary path: the extension reads the web app's HTML (owner request).**
 - New site adapters for **Tinder** (`tinder.com`, the messages view) and **Grindr** (`web.grindr.com`) capture BOTH sides of a chat from the rendered page. They follow every existing adapter rule: read-only, opt-in per chat, direction read from the page, timestamps with `ts_precision`, selectors in JSON with health checks, rate-limited backfill and catch-up, and no page modification or platform API calls.
 - The popup gets an **"Import this page"** action. It does a one-shot read of the open chat (optionally backfilling to a chosen date) and sends it as one import unit (`unit_id = capture:<platform>:<chat_key>:<YYYY-MM-DD>`), even if the chat isn't set to live capture.
 - **Hinge** has no web app, so it is export-only (one-sided).
-- **Bumble** web may be added later the same way.
+- **Bumble** (`bumble.com/app`) gets a web adapter the same way, capturing both sides. `CaptureBatch.platform` gains `"bumble"`.
 - The export importers above stay as a fallback.
 - **Merge-time follow-up** for the extension stream:
   - the `tinder` and `grindr` adapters, fixtures and tests;
@@ -206,21 +207,28 @@ The desktop extension can't run on phones. The mobile apps get these capture pat
    - New source: `screenshot_import`.
    - New API route: `POST /api/people/{pid}/imports/messages` with body `{source, tz, messages: [{ts_local?|ts_utc?, ts_precision, role: "me"|"them", text}]}`, returning `ImportResult`. It is the same pipeline as file import, just with pre-parsed messages.
 2. **Android notification reader (sideload build only).**
-   - An opt-in `NotificationListenerService` (a custom Capacitor plugin) reads **incoming** message notifications from WhatsApp, Instagram, Tinder, Grindr and Discord, but only for contacts the user linked to a person.
+   - An opt-in `NotificationListenerService` (a custom Capacitor plugin) reads **incoming** message notifications from WhatsApp, Instagram, Tinder, Grindr, Bumble and Discord, but only for contacts the user linked to a person.
    - **Unlinked contacts:** their notifications are ignored and never stored.
    - **Queue:** messages are held locally and encrypted, then flushed to `/api/people/{pid}/imports/messages` with source `android_notify_<app>`. They count as one-sided (them only) unless combined with another source.
    - **Off switch:** a persistent "capturing" indicator and a one-tap pause.
 3. **Android SMS reader (sideload build only).** Opt-in `READ_SMS` for linked phone numbers only, which gives both sides of SMS and MMS-text threads. Source `android_sms`.
-4. **Not built:**
-   - An Android Accessibility-service screen reader. It reads every app on screen, Google Play bans that use, and it would add liability.
-   - Any direct reading of other apps on iOS, which is impossible.
+4. **Android accessibility chat reader (sideload build only; owner decision, overriding the designer's earlier exclusion).** An opt-in `AccessibilityService` (custom Capacitor plugin) with these guardrails:
+   - **Package allowlist:** WhatsApp, Instagram, Tinder, Hinge, Grindr, Bumble, Discord and Google Messages. It is declared in the service config (`packageNames`), so other apps' events never reach the service.
+   - **Linked chats only:** capture happens only while a chat whose title matches a contact linked to a person is in the foreground.
+   - **Never reads** password nodes (`isPassword`) or editable text fields.
+   - **On the phone:** bubble text and side (left = them, right = me) and visible time separators are parsed on the device, and only those messages are queued (encrypted) and uploaded via `/api/people/{pid}/imports/messages` with source `android_a11y_<app>`. Duplicates from scrolling are merged by the server.
+   - **Controls:** a persistent "capturing" notification, one-tap pause, auto-pause after 30 minutes without a linked chat open, and per-contact delete.
+   - **Consent:** off by default, behind an explanation screen.
+   - **Coverage:** it gives both sides on all allowlisted apps, including **Hinge** (which has no web version).
+   - **Accepted trade-offs:** this is not allowed on Google Play, so it exists only in the `sideload` flavour, and the owner accepts the added liability.
+5. **Not possible:** directly reading other apps on iOS.
 
 **Store vs. sideload builds.**
-- The Android build has two flavours. `store` contains screenshot import plus the share sheet and file import. `sideload` adds the notification and SMS readers, and is the demo APK for judges.
+- The Android build has two flavours. `store` contains screenshot import plus the share sheet and file import. `sideload` adds the notification, SMS and accessibility readers, and is the demo APK for judges.
 - iOS gets screenshot import plus the Files picker.
 
 **Privacy.** Every capture path has a clear in-app explanation, per-contact opt-in, pause, and "delete captured data for this contact". As everywhere, there is no logging of message text.
 
 **Merge-time follow-ups:**
-- **Frontend/mobile:** screenshot OCR import with a review step; the Android notification and SMS plugins; build flavours.
-- **API and core:** the `/imports/messages` route and the `screenshot_import`, `android_notify_*` and `android_sms` sources.
+- **Frontend/mobile:** screenshot OCR import with a review step; the Android notification, SMS and accessibility plugins (with the guardrails above); build flavours.
+- **API and core:** the `/imports/messages` route and the `screenshot_import`, `android_notify_*`, `android_sms` and `android_a11y_*` sources.

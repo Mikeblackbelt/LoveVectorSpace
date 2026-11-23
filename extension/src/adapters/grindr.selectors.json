@@ -10,5 +10,7 @@
   "text": "[data-lvs='grindr-text'], span[class*='text']",
   "login": "form[action*='login'], [data-testid='login']",
   "captcha": "iframe[src*='captcha'], iframe[src*='recaptcha'], [class*='captcha']",
-  "errorBanner": "[role='alert'], [data-testid='error-banner']"
+  "errorBanner": "[data-testid='error-banner']",
+  "errorContainer": "[role='alert']",
+  "errorPattern": "something went wrong|could(n't| not) (load|send)|connection (lost|error)|try again later|network error"
 }

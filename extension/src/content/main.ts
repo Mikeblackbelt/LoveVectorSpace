@@ -2,6 +2,7 @@ import { createDiscordAdapter } from "../adapters/discord";
 import { createInstagramAdapter } from "../adapters/instagram";
 import { createWhatsAppAdapter } from "../adapters/whatsapp";
 import { createTinderAdapter } from "../adapters/tinder";
+import { createBumbleAdapter } from "../adapters/bumble";
 import { createGrindrAdapter } from "../adapters/grindr";
 import type { DateFormat } from "../adapters/time";
 import type { MessageSink, SiteAdapter } from "../adapters/types";
@@ -24,6 +25,7 @@ chrome.storage.onChanged.addListener((c) => {
 
 function pickAdapter(): SiteAdapter | null {
   const host = location.hostname;
+  if (host === "bumble.com") return createBumbleAdapter();
   if (host === "tinder.com") return createTinderAdapter();
   if (host === "web.grindr.com") return createGrindrAdapter();
   if (host === "web.whatsapp.com") return createWhatsAppAdapter({ doc: document, url: () => location.href, dateFormat: () => waDateFormat });

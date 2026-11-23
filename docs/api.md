@@ -196,12 +196,12 @@ CORS allows only `chrome-extension://$EXTENSION_ID`.
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/api/ext/people` | — | `[{id, pseudonym}]` |
-| POST | `/api/ext/link` | `{person_id, platform: "whatsapp"|"discord"|"instagram"|"tinder"|"grindr", chat_key}` | 204 |
+| POST | `/api/ext/link` | `{person_id, platform: "whatsapp"|"discord"|"instagram"|"tinder"|"grindr"|"bumble", chat_key}` | 204 |
 | DELETE | `/api/ext/link` | `{platform, chat_key}` | 204 |
 | GET | `/api/ext/summary?platform=&chat_key=` | — | `{linked, person: {id, pseudonym}|null, total, today, last7d, my_share_30d, last_captured_ts, last_captured_ids: [≤20]}` (counts only, never message text) |
 | POST | `/api/ingest` | `CaptureBatch` (≤2 MB, ≤10k msgs/min) | `{added, merged, skipped}`. Returns 409 `chat_not_linked` if the chat isn't linked. |
 
-`CaptureBatch` is `{platform: "whatsapp"|"discord"|"instagram"|"tinder"|"grindr", chat_key, tz, unit_id?, messages: [{platform_msg_id?, ts_local?|ts_utc?, ts_precision: "second"|"minute"|"approx", direction: "outgoing"|"incoming", speaker_raw, text}]}`.
+`CaptureBatch` is `{platform: "whatsapp"|"discord"|"instagram"|"tinder"|"grindr"|"bumble", chat_key, tz, unit_id?, messages: [{platform_msg_id?, ts_local?|ts_utc?, ts_precision: "second"|"minute"|"approx", direction: "outgoing"|"incoming", speaker_raw, text}]}`.
 
 `unit_id` is optional. The popup's "Import this page" sets it to `capture:<platform>:<chat_key>:<YYYY-MM-DD>` on every batch of one import, so the server groups them as one import unit. Live-capture batches omit it.
 

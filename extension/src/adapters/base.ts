@@ -24,6 +24,11 @@ export function anomalyOf(doc: Document, sel: Selectors): Anomaly | null {
   if (qs(doc, sel.captcha)) return "captcha";
   if (qs(doc, sel.login)) return "login";
   if (qs(doc, sel.errorBanner)) return "error_banner";
+  // Generic containers (toasts, alerts) only count when their text looks like an error.
+  if (sel.errorContainer && sel.errorPattern) {
+    const re = new RegExp(sel.errorPattern, "i");
+    for (const el of Array.from(doc.querySelectorAll(sel.errorContainer))) if (re.test(el.textContent ?? "")) return "error_banner";
+  }
   return null;
 }
 

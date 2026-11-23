@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter } from "../src/adapters/discord";
 import { createInstagramAdapter } from "../src/adapters/instagram";
+import { createBumbleAdapter } from "../src/adapters/bumble";
 import { createGrindrAdapter } from "../src/adapters/grindr";
 import { createTinderAdapter } from "../src/adapters/tinder";
 import { runImport } from "../src/capture/import";
@@ -23,6 +24,7 @@ const mk: Partial<Record<Platform, () => SiteAdapter>> & Record<"whatsapp" | "di
 };
 mk.tinder = () => createTinderAdapter({ doc: document, url: () => "https://tinder.com/app/messages/abc123", loadWaitMs: 60, now: () => new Date(2026, 10, 23) });
 mk.grindr = () => createGrindrAdapter({ doc: document, url: () => "https://web.grindr.com/messages/u77", loadWaitMs: 60, now: () => new Date(2026, 10, 23) });
+mk.bumble = () => createBumbleAdapter({ doc: document, url: () => "https://bumble.com/app/connections/k9", loadWaitMs: 60, now: () => new Date(2026, 10, 23) });
 const extractAll = (a: SiteAdapter) => a.rows().map((r) => a.extract(r)).filter((m) => m !== null);
 
 describe("extract text/direction/ts per platform", () => {
@@ -90,6 +92,37 @@ describe("tinder and grindr", () => {
   });
 });
 
+describe("bumble", () => {
+  it("both sides, approx time, gif and notice skipped", () => {
+    loadFixture("bumble");
+    const msgs = extractAll(mk.bumble!());
+    expect(msgs.map((m) => [m.direction, m.text, m.ts_local, m.ts_precision])).toEqual([
+      ["incoming", "hi, saw your profile", "2026-11-22T15:45", "approx"],
+      ["outgoing", "hey! thanks for the opener", "2026-11-22T15:45", "approx"],
+      ["incoming", "free this weekend?", "2026-11-23T12:00", "approx"],
+    ]);
+    expect(mk.bumble!().currentChat()).toEqual({ chat_key: "k9", title: "Kai Example" });
+    expect(mk.bumble!().matches("https://bumble.com/app/connections/k9")).toBe(true);
+    expect(mk.bumble!().matches("https://bumble.com/")).toBe(false);
+  });
+});
+
+describe("error banner detection", () => {
+  it.each(["tinder", "grindr", "instagram", "bumble"] as Platform[])("%s: a generic alert toast does not stop a run, an error-text alert does", (p) => {
+    loadFixture(p);
+    const a = mk[p]!();
+    document.body.insertAdjacentHTML("beforeend", '<div role="alert">Link copied to clipboard</div>');
+    expect(a.anomaly()).toBeNull();
+    document.body.insertAdjacentHTML("beforeend", '<div role="alert">Something went wrong. Try again later.</div>');
+    expect(a.anomaly()).toBe("error_banner");
+  });
+  it("a site-specific error container always counts", () => {
+    loadFixture("tinder");
+    document.body.insertAdjacentHTML("beforeend", '<div data-testid="error-banner"></div>');
+    expect(mk.tinder!().anomaly()).toBe("error_banner");
+  });
+});
+
 describe("whatsapp date format setting", () => {
   it("auto / month-first / day-first change ambiguous dates", () => {
     expect(parseWhatsAppMeta("[3:45 PM, 05/06/2026] A: ")?.ts_local).toBe("2026-05-06T15:45");
@@ -138,7 +171,7 @@ describe("import this page", () => {
 });
 
 describe("system and media lines skipped", () => {
-  it.each(["whatsapp", "discord", "instagram", "tinder", "grindr"] as Platform[])("%s: no empty or system text", (p) => {
+  it.each(["whatsapp", "discord", "instagram", "tinder", "grindr", "bumble"] as Platform[])("%s: no empty or system text", (p) => {
     loadFixture(p);
     const a = mk[p]!();
     const msgs = extractAll(a);
@@ -166,7 +199,7 @@ describe("time parsing", () => {
 });
 
 describe("health check and selector drift", () => {
-  it.each(["whatsapp", "discord", "instagram", "tinder", "grindr"] as Platform[])("%s: healthCheck fails on changed fixture, capture disabled, nothing queued", async (p) => {
+  it.each(["whatsapp", "discord", "instagram", "tinder", "grindr", "bumble"] as Platform[])("%s: healthCheck fails on changed fixture, capture disabled, nothing queued", async (p) => {
     loadFixture(p);
     expect(mk[p]!().healthCheck()).toEqual({ ok: true });
     loadFixture(p, "changed");
@@ -318,7 +351,7 @@ describe("catchup", () => {
 });
 
 describe("no DOM mutation by extension", () => {
-  it.each(["whatsapp", "discord", "instagram", "tinder", "grindr"] as Platform[])("%s: fixture unchanged after live capture and backfill", async (p) => {
+  it.each(["whatsapp", "discord", "instagram", "tinder", "grindr", "bumble"] as Platform[])("%s: fixture unchanged after live capture and backfill", async (p) => {
     loadFixture(p);
     const before = document.documentElement.outerHTML;
     const a = mk[p]!();

@@ -27,7 +27,7 @@ export interface PopupDeps {
   openOptions(): void;
 }
 
-export const PLATFORM_LABEL: Record<Platform, string> = { whatsapp: "WhatsApp Web", discord: "Discord DMs", instagram: "Instagram DMs", tinder: "Tinder", grindr: "Grindr" };
+export const PLATFORM_LABEL: Record<Platform, string> = { whatsapp: "WhatsApp Web", discord: "Discord DMs", instagram: "Instagram DMs", tinder: "Tinder", grindr: "Grindr", bumble: "Bumble" };
 export const DISCORD_NOTE = "Discord's rules prohibit automating account actions. The account risk is yours.";
 
 export const STOP_LABEL: Record<string, string> = {

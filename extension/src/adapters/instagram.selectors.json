@@ -10,5 +10,7 @@
   "text": "div[dir='auto']",
   "login": "form#loginForm, input[name='username']",
   "captcha": "iframe[src*='captcha'], [data-testid='challenge'], form[action*='challenge']",
-  "errorBanner": "[data-testid='error-banner'], div[role='alert']"
+  "errorBanner": "[data-testid='error-banner']",
+  "errorContainer": "[role='alert']",
+  "errorPattern": "something went wrong|could(n't| not) (load|send)|connection (lost|error)|try again later|network error"
 }

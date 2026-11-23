@@ -1,5 +1,5 @@
-export type Platform = "whatsapp" | "discord" | "instagram" | "tinder" | "grindr";
-export const PLATFORMS: Platform[] = ["whatsapp", "discord", "instagram", "tinder", "grindr"];
+export type Platform = "whatsapp" | "discord" | "instagram" | "tinder" | "grindr" | "bumble";
+export const PLATFORMS: Platform[] = ["whatsapp", "discord", "instagram", "tinder", "grindr", "bumble"];
 export type TsPrecision = "second" | "minute" | "approx";
 export type Direction = "outgoing" | "incoming";
 

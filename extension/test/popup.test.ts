@@ -42,7 +42,7 @@ describe("popup", () => {
     const root = document.createElement("div");
     await mountPopup(root, deps());
     expect(root.textContent).toContain("prohibit automating account actions");
-    for (const id of ["tgl-whatsapp", "tgl-discord", "tgl-instagram", "tgl-tinder", "tgl-grindr", "tgl-catchup", "import", "pause", "backfill"]) {
+    for (const id of ["tgl-whatsapp", "tgl-discord", "tgl-instagram", "tgl-tinder", "tgl-grindr", "tgl-bumble", "tgl-catchup", "import", "pause", "backfill"]) {
       expect(root.querySelector(`#${id}`), id).not.toBeNull();
     }
   });

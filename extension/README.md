@@ -1,7 +1,7 @@
 # LoveVectorSpace capture extension
 
 Chromium (Chrome, Edge) Manifest V3 extension. It captures messages from chats you explicitly link, on WhatsApp Web,
-Discord DMs, Instagram DMs, Tinder web and Grindr web, and uploads them in batches to your own LoveVectorSpace server.
+Discord DMs, Instagram DMs, Tinder web, Grindr web and Bumble web, and uploads them in batches to your own LoveVectorSpace server.
 
 It never sends, reacts, marks as read, calls the platforms' APIs, or injects any UI or style into the pages.
 Nothing is read from a chat until you link it to a person in the popup.

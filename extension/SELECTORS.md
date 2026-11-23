@@ -14,6 +14,7 @@ Sites change their markup. When the health check fails, the popup shows "update 
 | Instagram DMs | not yet verified |
 | Tinder web | not yet verified |
 | Grindr web | not yet verified |
+| Bumble web | not yet verified |
 
 Use a throwaway chat for testing. Never paste real message text into an issue or commit.
 
@@ -70,3 +71,12 @@ Last verified: not yet verified
 - [ ] `row`, `timeSeparator`, `bubble`, `outgoing`, `text` and `chatTitle`: same checks as Tinder.
 - [ ] `login`, `captcha`, `errorBanner` match nothing in normal use.
 - [ ] Grindr data is sensitive: use a throwaway chat and never paste real messages anywhere.
+
+## Bumble web (`bumble.selectors.json`)
+Last verified: not yet verified
+- [ ] Open a connection under `bumble.com/app/connections/<id>` (confirm the real path; the adapter expects `/app/connections/<id>`). `shell`, `messageList` and `scroller` resolve. The `data-lvs` selectors are placeholders.
+- [ ] `row`, `timeSeparator`, `bubble`, `outgoing`, `text`, `chatTitle`: same checks as Tinder.
+- [ ] `login`, `captcha`, `errorBanner` match nothing in normal use.
+
+## Error banners (all dating/Instagram adapters)
+`errorBanner` must be a site-specific container. Generic `[role='alert']` toasts are matched through `errorContainer` and only count when their text matches `errorPattern`. Confirm a normal toast (for example "link copied") does not stop a backfill.
