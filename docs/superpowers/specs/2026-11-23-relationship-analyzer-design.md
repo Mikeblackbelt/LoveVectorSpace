@@ -1,6 +1,6 @@
 # Relationship Analyzer — design
 
-*2026-11-23. Personal-use tool. Status: approved by owner 2026-11-23 (with the answers in §10).*
+*2026-11-23. Personal-use tool. Status: approved by owner 2026-11-23, pending confirmation of two readings in §10 ("API calls" = token-only access; "override" = the LLM may see the other person's words).*
 
 ## 1. Intent
 
@@ -57,8 +57,8 @@ The owner picked A for v1 with B as an experiment (2026-11-23).
 ## 5. Architecture
 
 ```
-            browser (phone/laptop)            Claude client (Desktop / Code / claude.ai connector)
-                    │ HTTPS + session                         │ HTTPS + bearer/OAuth
+            browser (phone/laptop)            scripts / Claude API (MCP connector)
+                    │ HTTPS + session                         │ HTTPS + bearer token
                     ▼                                         ▼
  ┌───────────────────────── Docker container on host ─────────────────────────┐
  │  FastAPI app                                                                │
@@ -139,13 +139,13 @@ Each output carries its evidence tag, so neither the UI nor the LLM can present 
 | `get_history` | person_id, metric | Time series of snapshots |
 | `explain_metric` | metric_id | What it measures, evidence, caveats, citation |
 
-Resources: scale definitions and the evidence notes (from `research/`). Tool outputs are numbers and short text, never the whole chat. That keeps the other person's messages out of the LLM's context unless the owner pastes them in.
+Resources: scale definitions and the evidence notes (from `research/`). Tool outputs are mostly numbers and short text. Per the owner override in §10a.1, `safety_check` includes snippets and `analyze_chat` can return excerpts on request (`include_excerpts`, default false).
 
 ### 6.5 Optional LLM agent
 
 - **Default: off in the web UI.** The UI shows scores and templated explanations without any LLM.
-- **Path 1 (recommended): Claude as the MCP client.** The owner connects Claude Desktop, Claude Code or a claude.ai custom connector to `/mcp`. Claude calls the tools and coaches. The server holds no LLM API key, and only tool outputs (metrics) reach the LLM.
-- **Path 2: server-side narrative.** A per-request toggle sends the metrics (not the raw chat) to the Claude API for a written summary. The key is stored as a host secret.
+- **Path 1 (recommended): Claude as the MCP client.** The owner calls Claude through the API with the MCP connector pointed at `/mcp` (bearer token), or from scripts. Claude calls the tools and coaches. The server holds no LLM API key for this path.
+- **Path 2: server-side narrative.** A per-request toggle sends the metrics, scale results and safety block (with snippets, per §10a.1) to the Claude API for a written summary. The key is stored as a host secret. Refusal fallback is enabled on this call.
 - **Path 3: self-hosted small LLM.** Out of scope on Railway (no GPU). Revisit only if the host changes.
 - **Agent rules (system prompt / tool descriptions):** cite evidence tags; no probability-of-outcome claims; never override the safety block; suggest talking to the person or a professional where relevant; refuse to help monitor the other person's activity.
 
@@ -194,14 +194,14 @@ Resolved by the owner on 2026-11-23:
 - Language: English only.
 - Access: API calls (scripts and the Claude API), so a bearer token is enough and there is no OAuth.
 - Host: Railway.
-- Safety snippets and chat text: the owner overrides §10a.1 (see there).
+- Safety snippets and chat text: the owner overrides §10a.1 (see there). This reading is pending confirmation.
 - Training compute: smoke test on the owner's own CPU; one or two full runs on a school research GPU server or an owner-provided GPU (see §10a.6).
 
 Still open: the exact chat export formats (first parsers: WhatsApp `.txt` and plain text).
 
 ## 10a. Decisions settled after builder review (designer's calls — owner may override)
 
-1. **What the LLM sees (owner override).** The LLM may receive evidence snippets and chat text. `safety_check` over MCP and the Path 2 narrative include the snippets. `analyze_chat` may return representative excerpts when asked (`include_excerpts=true`, default false, to keep token use down). "Verbatim" still means the LLM must relay the category and severity unchanged. The owner accepts that the other person's words go to the LLM provider. The UI shows a one-line reminder of this when Path 2 is switched on.
+1. **What the LLM sees (owner override).** The LLM may receive evidence snippets and chat text. `safety_check` over MCP and the Path 2 narrative include the snippets. `analyze_chat` may return representative excerpts when asked (`include_excerpts=true`, default false, to keep token use down). "Verbatim" still means the LLM must relay the category and severity unchanged. The other person's words then go to the LLM provider (pending the owner's confirmation of this reading). The UI shows a one-line reminder of this when Path 2 is switched on.
 2. **Bands.** Only scales with published norms or cut-offs get bands (e.g. CSI-16 distress cut-off 51.5). Un-normed metrics (message share, latency, initiation, custom checklists, the Joel-predictor items) show "no reference band". They are reported descriptively and against the owner's own history. The builder fetches and verifies item wording and scoring keys from the primary sources: IMS commitment aggregation, the ECR-R reverse-keyed items, CDAQ item text. Anything unverifiable is left out, not guessed. The builder drafts the custom item wording and the owner approves it before it ships.
 3. **v1 scope by step.** Step 1 covers all §6.1 scales and items (CSI-16, IMS commitment, PRQC, ECR-R, Joel-predictor items, reciprocity, self-disclosure balance, PPR, breadcrumbing items, CDAQ-derived items). The self-disclosure classifier moves to phase 2; v1 uses a lexicon. Path 2 narrative (Claude API) ships in step 4, off by default. Path 3 (self-hosted LLM) is deferred until a host with enough RAM or a GPU is chosen.
 4. **Safety behaviour.**

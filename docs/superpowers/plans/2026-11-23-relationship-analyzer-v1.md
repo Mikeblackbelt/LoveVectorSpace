@@ -6,9 +6,9 @@
 
 **Architecture:** One Python package (`analyzer`) holds the engine: parsers, encrypted store, scales, signals, safety, narrate. A FastAPI app in the same process serves `/ui`, `/api` and `/mcp`. Models are ONNX int8, baked into the Docker image and loaded once. Data lives in a SQLCipher database on a Railway volume.
 
-**Tech Stack:** Python 3.11, uv, FastAPI, Jinja2, pydantic v2, PyYAML, `sqlcipher3-binary`, `onnxruntime`, `tokenizers`, `argon2-cffi`, `pyotp`, `itsdangerous`, `mcp` (official Python SDK v2), `anthropic`, pytest. Dev-only: `optimum[onnxruntime]` for model export.
+**Tech Stack:** Python 3.13, uv, FastAPI, Jinja2, pydantic v2, PyYAML, `sqlcipher3-wheels` (import name `sqlcipher3`; has Windows and Linux wheels, unlike `sqlcipher3-binary`), `onnxruntime`, `tokenizers`, `argon2-cffi`, `pyotp`, `itsdangerous`, `mcp` (official Python SDK v2), `anthropic`, pytest. Dev-only: `optimum[onnxruntime]` for model export.
 
-**Spec:** `docs/superpowers/specs/2026-11-23-relationship-analyzer-design.md` (read §6, §7, §10, §10a before starting). Phase 2 (§6.6, approach B) is **out of scope** here and gets its own plan once v1 runs.
+**Spec:** `docs/superpowers/specs/2026-11-23-relationship-analyzer-design.md` (read §6, §7, §10, §10a before starting; where §10/§10a conflict with earlier sections, §10/§10a win). Phase 2 (§6.6, approach B) is **out of scope** here and gets its own plan once v1 runs.
 
 ## Global Constraints
 
@@ -33,7 +33,7 @@
 2. **Legitimate duplicate messages in the same minute.** WhatsApp has minute resolution, so "ok" sent twice in one minute must survive de-duplication. The hash includes the occurrence index. Test in Task 2.
 3. **Too little data.** An empty chat, a one-speaker chat, or fewer than 20 messages must return `insufficient_data` per metric, not crash or divide by zero. Test in Task 5.
 4. **Wrong or missing DB key.** Startup fails with a clear error and no new database file is created. Test in Task 2.
-5. **Large uploads.** About 100k messages must finish analysis in under 2 minutes on 2 vCPU with models batched. The upload limit is 50 MB, with a 413 above it. Test in Tasks 6 and 9.
+5. **Large uploads.** Years of chat (about 100k messages) must not time out the request. Model scores are cached per message, so re-uploads only score new messages. Analysis runs as a background job with a status endpoint. The throughput target is set from the Task 6 benchmark. The upload limit is 50 MB, with a 413 above it. Test in Tasks 6, 8 and 9.
 
 ---
 
@@ -124,7 +124,8 @@ def test_is_english():
     - `delete_person(person_id: int) -> None`, which cascades and then runs `VACUUM`
     - `save_snapshot(person_id: int, kind: str, payload: dict) -> int`
     - `snapshots(person_id: int, kind: str) -> list[Snapshot]`
-- Schema: `people`, `uploads`, `messages(id, person_id, upload_id, ts, speaker, text, msg_hash UNIQUE(person_id,msg_hash))`, `snapshots(id, person_id, kind, created_at, payload_json)`.
+- Schema: `people`, `uploads`, `messages(id, person_id, upload_id, ts, speaker, text, msg_hash UNIQUE(person_id,msg_hash))`, `message_scores(message_id PK, model TEXT, scores_json)` (cache of per-message model outputs, deleted with the message), `snapshots(id, person_id, kind, created_at, payload_json)`, `jobs(id, person_id, kind, status, created_at, finished_at, error)`.
+  - Also: `get_scores(message_ids, model) -> dict[int, list[float]]`, `put_scores(model, {message_id: scores})`, `create_job(person_id, kind) -> int`, `update_job(id, status, error=None)`, `get_job(id) -> Job`.
 - `msg_hash = sha256(f"{ts.isoformat()}|{speaker}|{text}|{n}")`, where `n` is the 0-based index of identical (ts, speaker, text) messages within that upload.
 
 - [ ] **Step 1: Write failing tests**
@@ -170,17 +171,18 @@ def test_delete_person_cascades(repo, person): ...
 **Interfaces:**
 - Produces:
   - `class ScaleDef(BaseModel)`: `id, name, mode: list[str], items: list[Item], subscales: dict[str, Subscale], response: ResponseFormat(min, max), norms: list[Band] | None, cutoffs: list[Cutoff] | None, source: Source(citation, url), verified: bool, custom: bool, owner_approved: bool, measures: str, does_not_measure: str`
-  - `Item(id, text, reverse: bool = False)`; `Subscale(items: list[str], aggregate: Literal["sum","mean"])`
+  - `Item(id, text, reverse: bool = False, min: int | None = None, max: int | None = None)`. Item-level `min`/`max` override the scale's `response` range; CSI-16 likely needs this (first item wider than the rest, total 0–81), so confirm it from the source in Task 4. `Subscale(items: list[str], aggregate: Literal["sum","mean"])`
   - `score(defn: ScaleDef, answers: dict[str, int]) -> ScaleResult(subscales: dict[str, float], bands: dict[str, str], cutoff_flags: dict[str, bool], status: Literal["ok","draft","unverified"], notes: list[str])`
   - `load_scales(dir: Path) -> dict[str, ScaleDef]`
 - Rules:
-  - reverse score = `min + max − x`;
-  - an answer that is missing or out of range raises `AnswerError(item_id)`;
+  - reverse score = `item_min + item_max − x`, using the item's own range;
+  - an answer that is missing or outside the item's range raises `AnswerError(item_id)`;
   - `status` is "unverified" if `verified` is false, "draft" if `custom` is true and `owner_approved` is false, and "ok" otherwise;
   - no norms gives the band "no reference band".
 
 - [ ] **Step 1: Write failing tests:**
   - `test_reverse_key_and_sum`
+  - `test_item_level_range_overrides_scale_range` (an item with range 0–6 inside a 0–5 scale reverse-scores as 6 − x and accepts 6)
   - `test_mean_aggregate`
   - `test_cutoff_flag_at_boundary`: a score equal to the cut-off counts as not distressed, matching the CSI convention "below 51.5"
   - `test_missing_answer_raises`
@@ -202,18 +204,21 @@ def test_delete_person_cascades(repo, person): ...
 - Consumes: `ScaleDef`, `load_scales`, `score` (Task 3)
 - Produces: scale ids exactly as the file stems above, used by the API and MCP tools.
 
-- [ ] **Step 1: Fetch item wording and scoring keys from the primary sources.** Sources: Funk & Rogge 2007 for CSI-16; Rusbult et al. 1998 appendix for IMS commitment; Fletcher et al. 2000 for PRQC; Fraley's ECR-R page for ECR-R items and reverse keys; the Reis lab measures page for PPR; Borrajo et al. 2015 for CDAQ. Set `verified: true` only where the item text and keys were read from the source. Record the URL in `source`.
+- [ ] **Step 1: Fetch item wording and scoring keys from the primary sources. Never write items from memory.** If a source can't be opened (paywall, dead link), do not create that YAML: list the scale as "not verified" in the commit message and report it. Spec §10a.2 says unverifiable scales are left out. Sources: Funk & Rogge 2007 for CSI-16; Rusbult et al. 1998 appendix for IMS commitment; Fletcher et al. 2000 for PRQC; Fraley's ECR-R page for ECR-R items and reverse keys; the Reis lab measures page for PPR; Borrajo et al. 2015 for CDAQ. Set `verified: true` only where the item text and keys were read from the source. Record the URL in `source`.
 - [ ] **Step 2: Draft the custom item sets** (`joel_predictors`, `reciprocity`, `disclosure_balance`, `breadcrumbing`) with `custom: true, owner_approved: false`, 4–8 items each on a 1–7 scale. Each item cites the paper that motivates it (spec §6.1).
 - [ ] **Step 3: Write tests**
 
 ```python
-def test_all_defs_load(): assert set(load_scales(DEFS)) >= {"csi16","ims_commitment","prqc","ecr_r","cdaq_items"}
+def test_all_defs_load_and_validate(): assert load_scales(DEFS)   # whatever exists validates
+def test_verified_defs_have_source_url():
+    assert all(d.source.url for d in load_scales(DEFS).values() if d.verified)
+@pytest.mark.skipif("csi16" not in load_scales(DEFS), reason="CSI-16 not verified")
 def test_csi16_cutoff():
     d = load_scales(DEFS)["csi16"]
     assert d.cutoffs[0].value == 51.5
     assert score(d, answers_summing_to(51)).cutoff_flags["total"] is True
     assert score(d, answers_summing_to(52)).cutoff_flags["total"] is False
-def test_ecr_r_has_two_subscales_of_18(): ...   # anxiety, avoidance
+def test_ecr_r_has_two_subscales_of_18(): ...   # anxiety, avoidance; skip if ecr_r absent
 def test_custom_scales_are_draft(): ...
 ```
 
@@ -282,9 +287,10 @@ def test_every_metric_has_evidence_tag(): ...
   - `change_points(series, z: float = 2.0) -> list[date]`
 - Models:
   - `SamLowe/roberta-base-go_emotions-onnx` (int8 file), 28 labels, MIT.
-  - Detoxify `original` exported to ONNX int8 via optimum in `fetch_models.py`, Apache-2.0.
+  - Detoxify `original` exported to ONNX int8 via optimum in `fetch_models.py`, Apache-2.0. `fetch_models.py` takes `--export`; the export needs torch + optimum (the `export` extra, or a separate Docker stage in Task 12), and the runtime image never installs them.
   - Record both in `models/PROVENANCE.md`.
   - No torch at runtime.
+  - Score through the per-message cache (`Repo.get_scores`/`put_scores`): only uncached messages go to the model.
 
 - [ ] **Step 1: Write failing tests:**
   - `test_classifier_batches` (fake session records batch sizes ≤ 64)
@@ -293,10 +299,11 @@ def test_every_metric_has_evidence_tag(): ...
   - `test_weekly_trends_gaps_are_none`
   - `test_change_point_detects_step`
   - `models`: `test_real_toxicity_ranks_insult_above_greeting`
-  - `slow`: `test_100k_messages_under_120s`
+  - `test_cached_scores_not_recomputed` (a fake session sees only the new messages on the second run)
+  - `slow`: `test_benchmark_messages_per_second`, which prints msgs/s for each model on this CPU and asserts nothing. Record the numbers in `models/PROVENANCE.md`; Task 8's job design uses them.
 - [ ] **Step 2: Run** `uv run pytest tests/ml tests/signals/test_trends.py -v -m "not models and not slow"`. Expected: FAIL.
 - [ ] **Step 3: Implement.** Write `fetch_models.py` to download and export into `models/{emotion,toxicity}/` with `model.onnx`, `tokenizer.json` and `labels.json`. Then implement the classes.
-- [ ] **Step 4: Run** `uv run python scripts/fetch_models.py && uv run pytest tests/ml tests/signals -v -m "not slow"`. Expected: PASS. Then run `uv run pytest -m slow` once and record the timing in the commit message.
+- [ ] **Step 4: Run** `uv run --extra export python scripts/fetch_models.py --export && uv run pytest tests/ml tests/signals -v -m "not slow"`. Expected: PASS. Then run `uv run pytest -m slow -s` once and record msgs/s in `models/PROVENANCE.md` and the commit message.
 - [ ] **Step 5: Commit:** `git commit -m "feat: onnx emotion/toxicity and trends"`
 
 ### Task 7: Safety module
@@ -347,7 +354,10 @@ def test_resources_present_when_any_flag(): ...
 - Consumes: `Repo` (Task 2), `load_scales`/`score` (Tasks 3 and 4), `core_report` (Task 5), ML functions and `weekly_trends` (Task 6), `safety_check` (Task 7)
 - Produces:
   - `class Analyzer(repo, scales, emotion_clf, tox_clf)` with:
-    - `analyze_chat(person_id, include_excerpts: bool = False) -> ChatReport(metrics, trends, skipped_non_english, excerpts | None)`, which saves a snapshot of kind "chat"
+    - `start_chat_analysis(person_id) -> int` (job id). Runs `analyze_chat` in a background thread (one worker, so jobs queue) and updates `jobs`.
+    - `analyze_chat(person_id, include_excerpts: bool = False) -> ChatReport(metrics, trends, skipped_non_english, excerpts | None)`. Synchronous; uses the per-message score cache; saves a snapshot of kind "chat".
+    - `latest_chat_report(person_id, include_excerpts=False) -> ChatReport | None` (from the last snapshot, plus excerpts on request)
+    - `job_status(job_id) -> Job`
     - `score_questionnaire(person_id, scale_id, answers) -> ScaleResult`, which saves a snapshot of kind `f"scale:{scale_id}"`
     - `safety(person_id) -> SafetyBlock`
     - `history(person_id, metric_id) -> list[tuple[datetime, float | None]]`
@@ -356,6 +366,8 @@ def test_resources_present_when_any_flag(): ...
 
 - [ ] **Step 1: Write failing tests:**
   - `test_analyze_chat_saves_snapshot`
+  - `test_background_job_completes_and_status_updates`
+  - `test_job_error_recorded_not_raised`
   - `test_non_english_skipped_count_reported`
   - `test_excerpts_only_when_requested`
   - `test_history_orders_snapshots`
@@ -385,7 +397,8 @@ def test_resources_present_when_any_flag(): ...
     - `/api/people` (GET/POST)
     - `/api/people/{id}/uploads` (POST multipart, 50 MB cap → 413)
     - `/api/people/{id}/questionnaires/{scale_id}` (POST)
-    - `/api/people/{id}/chat-report` (GET, `?include_excerpts=`)
+    - `POST /api/people/{id}/analyze` → 202 + `{job_id}`; `GET /api/jobs/{id}`
+    - `/api/people/{id}/chat-report` (GET latest snapshot, `?include_excerpts=`; 404 if none yet)
     - `/api/people/{id}/safety` (GET)
     - `/api/people/{id}/history/{metric}` (GET)
     - `DELETE /api/uploads/{id}` and `DELETE /api/people/{id}`
@@ -458,7 +471,7 @@ def test_results_page_safety_block_first(client, session): ...
 **Interfaces:**
 - Consumes: `ChatReport`, `ScaleResult`, `SafetyBlock` (Tasks 7 and 8)
 - Produces: `narrate(report: ChatReport, scales: list[ScaleResult], safety: SafetyBlock, client: anthropic.Anthropic | None = None) -> Narrative(text: str, model: str, refused: bool)`
-- Call: `client.beta.messages.create(model="claude-opus-5-5", max_tokens=4000, betas=["server-side-fallback-2026-07-01"], fallbacks="default", output_config={"effort": "medium"}, system=SYSTEM_PROMPT, messages=[{"role": "user", "content": json_payload}])`
+- Call: `client.beta.messages.create(model="claude-opus-5-5", max_tokens=16000, betas=["server-side-fallback-2026-07-01"], fallbacks="default", output_config={"effort": "medium"}, system=SYSTEM_PROMPT, messages=[{"role": "user", "content": json_payload}])`
   - If `stop_reason == "refusal"`, return `refused=True` with the text "Narrative unavailable."
   - Catch errors most-specific first: `anthropic.RateLimitError`, then `anthropic.APIStatusError`, then `anthropic.APIConnectionError`.
 - `SYSTEM_PROMPT` encodes the §6.5 agent rules. The safety block goes into the prompt first, and the UI renders it separately above the narrative, never through the narrative.
@@ -483,9 +496,9 @@ def test_results_page_safety_block_first(client, session): ...
 **Interfaces:**
 - Consumes: `create_app` (Task 9), `fetch_models.py` (Task 6)
 - Image:
-  - Multi-stage, based on `python:3.11-slim`.
-  - `uv sync --frozen --no-dev`.
-  - Models fetched at build time into `/app/models`.
+  - Multi-stage, based on `python:3.13-slim`.
+  - Stage `models`: installs the `export` extra (torch CPU + optimum) and runs `fetch_models.py --export`. Only `/app/models` is copied out of it.
+  - Stage `runtime`: `uv sync --frozen --no-dev` (no torch), `COPY --from=models /app/models /app/models`.
   - `.dockerignore` excludes `data/ uploads/ *.db .env tests/fixtures/chats/ research/`.
   - Runs as a non-root user.
   - `CMD uvicorn analyzer.web.app:app --host 0.0.0.0 --port $PORT --workers 1`.
@@ -499,11 +512,12 @@ def test_results_page_safety_block_first(client, session): ...
   - `/api/people` without a token returns 401.
   - With the token, create a person, upload a synthetic fixture, then get the chat report and safety block.
   - Delete the person.
+  - `--mcp` flag: one real Claude API call through the Messages API MCP connector (`mcp_servers=[{"type": "url", "url": f"{base}/mcp", "name": "analyzer", "authorization_token": token}]`, `tools=[{"type": "mcp_toolset", "mcp_server_name": "analyzer"}]`, `betas=["mcp-client-2025-11-20"]`, model `claude-opus-5-5`) asking it to call `list_people`. It passes if the response contains an MCP tool-use result. Confirm the connector's token field name and the MCP spec revision it speaks against the live docs first.
 
 - [ ] **Step 1: Build:** `docker build -t analyzer .`. Expected: success. Record the image size in `README-deploy.md`.
 - [ ] **Step 2: Run locally:** `docker run --rm -e DB_KEY=test -e API_TOKEN=t ... -p 8000:8000 analyzer`, then `uv run python scripts/smoke.py http://localhost:8000 t`. Expected: all checks PASS.
 - [ ] **Step 3: Check fail-closed behaviour:** run without `DB_KEY`. Expected: the container exits non-zero with "DB_KEY missing".
-- [ ] **Step 4: Deploy:** `railway up` (owner logs in with `railway login`). Set the variables and the volume, then `uv run python scripts/smoke.py https://<app>.up.railway.app $API_TOKEN`. Expected: PASS.
+- [ ] **Step 4: Deploy:** `railway up` (owner logs in with `railway login`). Set the variables and the volume, then `uv run python scripts/smoke.py https://<app>.up.railway.app $API_TOKEN --mcp`. Expected: PASS, including the MCP connector call.
 - [ ] **Step 5: Commit:** `git commit -m "chore: docker + railway deploy"`
 
 ---
