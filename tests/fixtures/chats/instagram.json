@@ -1,0 +1,6 @@
+{"participants": [{"name": "Alex"}, {"name": "Sam"}],
+ "messages": [
+  {"sender_name": "Sam", "timestamp_ms": 1709413800000, "content": "cafÃ© ð\u009f\u0098\u0082"},
+  {"sender_name": "Alex", "timestamp_ms": 1709413700000, "photos": [{"uri": "x.jpg"}]},
+  {"sender_name": "Alex", "timestamp_ms": 1709413600000, "content": "plain text"}
+ ]}
