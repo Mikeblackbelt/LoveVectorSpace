@@ -43,6 +43,10 @@
   - `self-report heuristic` for interaction metrics.
 - Un-normed metrics show "no reference band".
 - The safety block is never softened by the LLM. Snippets may reach the LLM (owner override).
+- Product focus (v2 §7b): healthy relationships and reciprocity. Unhealthy dynamics get **warnings only**:
+  - no safety plans, no abuse counselling, no diagnosis of the other person;
+  - resources are `action: suggestion_only`, with no `tel:` links, no auto-dial and no contact initiated by the app or agent;
+  - the fixed disclaimer "This tool offers reflection and pattern warnings. It is not therapy, counselling, or a crisis service." appears in the footer, in Settings and under the safety block.
 - "Agent may read message text" setting defaults on; when off, `search_messages` is not offered to the model.
 - Groq:
   - `GROQ_API_KEY` and `GROQ_MODEL` come from env;
@@ -343,7 +347,8 @@ v1 plan Task 10, plus these deltas:
     - At most 8 tool rounds per turn.
     - Tool errors return `{"error": ...}` to the model.
     - Persists all messages.
-  - `SYSTEM_PROMPT` (in `prompts.py`) encodes v1 §6.5 and v2 §5.4 rules, and `INTERVIEW_RULES` encodes v2 §5.5 question rules: one question per turn, skippable, behaviour before interpretation, no leading questions, sensitive topics opt-in, no covert information-gathering.
+  - `SYSTEM_PROMPT` (in `prompts.py`) encodes v1 §6.5, v2 §5.4 and v2 §7b rules. When the safety block has flags, the agent mentions them once in neutral words, points to the dashboard warning and resources, and suggests talking to someone trusted or a professional. It never counsels on abuse, plans confrontations or exits, escalates, or claims to be a therapist or crisis service. Its focus is reciprocity, communication and healthy-relationship skills.
+  - `INTERVIEW_RULES` encodes v2 §5.5 question rules: one question per turn, skippable, behaviour before interpretation, no leading questions, sensitive topics opt-in, no covert information-gathering.
   - Routes:
     - `POST /api/people/{id}/agent/threads {kind}`
     - `POST /api/agent/threads/{tid}/messages {text}`, which streams SSE `AgentEvent`s
@@ -359,7 +364,7 @@ v1 plan Task 10, plus these deltas:
   - `test_tool_error_returned_to_model`;
   - `test_messages_persisted`;
   - `test_agent_disabled_without_key_404`;
-  - `test_system_prompt_contains_rules`: asserts the key phrases are present.
+  - `test_system_prompt_contains_rules`: asserts the key phrases are present, including the §7b warnings-only rule and the disclaimer.
 - [ ] **Step 2: Run** `uv run pytest tests/agent -v`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** the same command. Expected: PASS.
@@ -379,7 +384,8 @@ v1 plan Task 10, plus these deltas:
     - Runs the agent in a background mode that may only call read tools plus `propose_next_step`.
     - Drops cards for which `NextSteps.recent_similar(...)` is true.
     - Publishes a `next_steps` event.
-  - `INTERVIEW_TOPICS: dict[mode, list[TopicId]]` (v2 §5.5 lists).
+  - `INTERVIEW_TOPICS: dict[mode, list[TopicId]]` (v2 §5.5 lists, **excluding** the safety questions removed by v2 §7b).
+  - Next-step card kinds are only `talk`, `plan`, `reflect` and `pause` (no `safety` kind, v2 §7b). A proposed card of any other kind is rejected.
     - `interview_progress(person_id) -> {covered, open}`, judged from fact keys prefixed with a topic id, e.g. `met.how`.
     - `POST /api/people/{id}/interview` creates an `interview` thread whose first agent turn asks the first open topic.
   - `start_hangout_checkin(person_id) -> thread_id`: a `checkin` thread. The agent asks the §5.5 follow-up questions, then calls `log_interaction` with structured fields.
@@ -392,7 +398,9 @@ v1 plan Task 10, plus these deltas:
   - `test_background_mode_cannot_write_facts`;
   - `test_interview_resumes_at_first_open_topic`;
   - `test_hangout_checkin_logs_interaction_fields`;
-  - `test_checkin_trigger_after_10_days`.
+  - `test_checkin_trigger_after_10_days`;
+  - `test_no_safety_kind_cards`;
+  - `test_interview_has_no_safety_topics`.
 - [ ] **Step 2: Run** `uv run pytest tests/agent -v`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** the same command. Expected: PASS.
@@ -417,6 +425,7 @@ v1 plan Task 10, plus these deltas:
   - agent on/off; "Agent may read message text"; catch-up on/off;
   - create or revoke the extension token, shown once with a copy button;
   - a link to the Groq Data Controls with a ZDR reminder;
+  - the v2 §7b disclaimer (also in a global footer);
   - Delete everything, behind a typed confirmation.
 
 - [ ] **Step 1: Write failing tests:**
@@ -438,6 +447,9 @@ v1 plan Task 10, plus these deltas:
 - Consumes: `GET /overview`, `/history`, `/next-steps`; `useEvents()`
 - Rules:
   - `SafetyBlock` renders first and is never collapsed when `concern` or `urgent`.
+    - Resources are shown as plain text (name, number, text code, website). No `tel:`/`sms:` links and no action buttons.
+    - The disclaimer sits under the block.
+  - A "Reciprocity at a glance" panel comes next. It shows initiation share, message share, question rate, disclosure balance, LSM, meetup initiation share and plan follow-through, with evidence tags, no single score and no probability (v2 §7b.6). In potential mode it is the lead panel.
   - `WeeklyChart` shows messages per week by me and them, with uncovered weeks shaded.
   - `SignalTable` shows value, evidence tag, band or "no reference band", and the "can't tell you" note.
   - `NextStepCards` shows each card with links to its evidence refs (`metric:`, `scale:`, `fact:`, `interaction:`) and Done / Dismiss / Discuss buttons. Discuss opens a chat seeded with the card.
@@ -445,6 +457,8 @@ v1 plan Task 10, plus these deltas:
 
 - [ ] **Steps 1–5:** Write the tests first:
   - `safety block first`;
+  - `resources have no tel or sms links`;
+  - `reciprocity panel second`;
   - `uncovered weeks shaded`;
   - `no reference band text`;
   - `card evidence links`;
