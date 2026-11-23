@@ -1,0 +1,16 @@
+{
+  "shell": "div[role='main']",
+  "chatTitle": "div[role='main'] header h2, div[role='main'] header [data-testid='thread-title']",
+  "messageList": "div[role='main'] [data-testid='message-list']",
+  "scroller": "div[role='main'] [data-testid='message-list']",
+  "row": "div[role='row']",
+  "timeSeparator": "[data-testid='message-timestamp']",
+  "bubble": "[data-testid='message-bubble']",
+  "outgoing": "[data-testid='message-bubble'][data-outgoing='true']",
+  "text": "div[dir='auto']",
+  "login": "form#loginForm, input[name='username']",
+  "captcha": "iframe[src*='captcha'], [data-testid='challenge'], form[action*='challenge']",
+  "errorBanner": "[data-testid='error-banner']",
+  "errorContainer": "[role='alert']",
+  "errorPattern": "something went wrong|could(n't| not) (load|send)|connection (lost|error)|try again later|network error"
+}
