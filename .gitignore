@@ -10,3 +10,4 @@ __pycache__/
 models/*/
 .superdesign/tmp/
 .superdesign/resume.json
+.worktrees/
