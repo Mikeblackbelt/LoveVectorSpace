@@ -1,115 +1,131 @@
-# LoveVectorSpace — design system
+# LoveVectorSpace — design system (v3: "AMBER PHOSPHOR TERMINAL")
 
 ## Product context
-LoveVectorSpace is a private, single-user web app. It helps one person:
-- read **reciprocation** with someone they like ("potential" mode);
-- keep a relationship they're in **healthy** ("established" mode).
+LoveVectorSpace is an invite-only web and mobile app shown to hackathon judges. It helps a person read **reciprocation** with someone they like ("potential" mode), or keep a relationship **healthy** ("established" mode).
 
-Data comes from three places: a browser extension that captures WhatsApp Web, Discord and Instagram DMs; manual chat imports; and questionnaires. The app shows evidence-tagged signals, a headline **chance of success**, next-step cards, and a planning chat with an AI agent that also interviews the owner and logs in-person hangouts.
+Data comes from a desktop browser extension (WhatsApp Web, Discord and Instagram DMs), manual imports, questionnaires, and an AI agent that interviews the user and logs in-person hangouts.
 
-**Tone:** precise and calm, like an instrument console, never cutesy. Unhealthy dynamics get **warnings only**: a warning block with a plain-text resource list. No call buttons, no `tel:` links, no alarms.
+The headline is a **chance of success**, shown as two numbers: **uncalibrated** (now) and **calibrated** (later, after about 20 labelled outcomes). Unhealthy dynamics get **warnings only**: plain-text resources, never call buttons.
 
-### Key screens
-1. **People:** person cards with mode, sources (WhatsApp / Discord / Instagram / import, with last-sync time) and safety status. Plus a **Sources & import** view: upload dialog, speaker mapping ("which name is you?"), and a units list with delete.
-2. **Person dashboard**, top to bottom:
-   - safety warning block (only when flags exist);
-   - **headline: chance of success**, shown as two numbers: uncalibrated estimate (big %, with a range bar and an "UNCALIBRATED" tag) and calibrated estimate ("NOT AVAILABLE — needs N labelled outcomes" until phase 2);
-   - **Reciprocity at a glance** panel (the supporting metrics);
-   - weekly messages chart (me vs them, uncovered weeks hatched);
-   - signal table with evidence tags;
-   - questionnaire results;
-   - next-step cards.
-3. **Agent chat + interview:** streaming chat, tool-call chips, an Interview mode with a topic progress rail, and a "Log a hangout" guided check-in.
-4. **Extension popup** (360×560): current chat link status, rough stats (counts and share only), backfill controls (date picker, rate-limited, with a stop reason), per-platform health and toggles.
+### Screens
+1. Boot sequence.
+2. Login, sign-up (invite code) and password reset, with Google and Apple sign-in.
+3. People and sources.
+4. Person dashboard (MISSION CONTROL).
+5. Agent chat and interview, with "Log a hangout".
+6. Extension popup.
 
-## Visual language: "Operating Console"
-**Industrial/technical minimalist.** Function and precision over decoration.
+All web screens are responsive: desktop 1440px and phone 390px. They're also packaged as Android and iPhone apps.
 
-### Colour
+## Aesthetic
+**A real terminal, not a "dark SaaS dashboard".** Think a 1980s amber CRT reimagined as a modern instrument. The screen is a terminal session: everything is text-first, laid out on a character grid, framed with box-drawing characters, and driven by keyboard commands. It must NOT look like a generic AI-generated dark dashboard: no glassmorphism, no neon acid green, no purple gradients, no soft cards.
+
+### Colour (warm phosphor)
 | Token | Value | Use |
 |---|---|---|
-| `--bg` | `#0f1115` | app background |
-| `--bg-deep` | `#050608` | canvases, inputs, terminal boxes |
-| `--panel` | `#14161a` | sidebars and panels |
-| `--node` | `#151b23` | cards and nodes |
-| `--border` | `#2d333b` | 1px borders everywhere |
-| `--text` | `#cbd5e1` | primary text |
-| `--text-dim` | `#64748b` | secondary text and labels |
-| `--accent` | `#d4ff00` | acid green: the ONLY brand accent (primary actions, active state, headline numbers) |
-| `--them` | `#38bdf8` | cyan: the other person's series in charts |
-| `--me` | `#d4ff00` | the owner's series in charts |
-| `--warn` | `#f59e0b` | amber: "concern" warnings, "partial coverage" tags |
-| `--urgent` | `#ef4444` | red: "urgent" warnings only |
-| `--ok` | `#4ade80` | green: healthy sync, ok status |
+| `--crt-black` | `#0b0a08` | screen background (warm black) |
+| `--crt-panel` | `#13110d` | inset panes |
+| `--rule` | `#3a3226` | box-drawing lines and rules |
+| `--paper` | `#f2e6d0` | primary text (warm paper white) |
+| `--ash` | `#8a7b63` | secondary text, labels, comments |
+| `--amber` | `#ffb000` | PRIMARY phosphor: the owner's ("ME") series, prompts, cursor, headline numerals, active state |
+| `--amber-dim` | `#7a5400` | amber at low intensity: grid, inactive ticks, burn-in ghost text |
+| `--ice` | `#a8d8ff` | the other person's ("THEM") series |
+| `--rose` | `#ff5470` | "connection": resultant vectors, the closing vectors in the intro, live markers. Sparingly. |
+| `--ok` | `#9bd17a` | sync ok / healthy (muted phosphor green) |
 
-| `--pulse` | `#ff3d8b` | hot pink: used sparingly for the "connection" moments — the resultant vector, the headline's live marker, the active nav glow. Never for warnings. |
-
-**Depth palette (v2: less flat):**
-- Glass panels: `rgba(20,22,26,0.72)` with `backdrop-filter: blur(12px)` over the animated background.
-- Glow: `0 0 24px rgba(212,255,0,.18)` on headline and active elements; `0 0 18px rgba(255,61,139,.22)` on pulse elements.
-- Gradients are allowed ONLY as light, not as decoration:
-  - radial vignettes behind the headline;
-  - a 1px accent→transparent edge highlight on panel tops;
-  - fading trails on moving vectors.
+**Warnings use terminal reverse video, not new hues:**
+- **Concern:** a `--paper` background block with `--crt-black` text, label `[ CONCERN ]`.
+- **Urgent:** a `#ff3b3b` background block with `--crt-black` text, label `[ URGENT ]`.
 
 ### Type
-- **UI labels and headers:** Inter 600, UPPERCASE, `tracking-wider`, 10–12px for labels.
-- **Data, values, IDs, timestamps, evidence tags:** JetBrains Mono 400. The headline percentage is JetBrains Mono at 64–80px in `--accent`.
-- **Body text** in chat and notes: Inter 400, 14px, sentence case.
+- **IBM Plex Mono** for everything: UI, labels, body, data. Labels are UPPERCASE at 11px with `letter-spacing: .12em`.
+- **VT323** (pixel CRT font) for big numerals and the wordmark only. The headline % is VT323 at 160–200px in `--amber` with phosphor bloom.
+- No sans-serif anywhere.
 
-### Shape and effects
-- 1px solid borders. **Border radius is 0px everywhere.** No soft shadows.
-- 40px background grid in `--border` at 20% opacity on canvas areas.
-- Corner ticks (4×4px L-shapes) on major containers.
-- Evidence tags are small mono chips with a 1px border:
-  - `MODERATE` in `--accent` text;
-  - `HEURISTIC` in `--text-dim`;
-  - `DESCRIPTIVE` in `--text-dim`;
-  - `SELF-REPORT` in `--them`;
-  - `UNCALIBRATED` in `--warn`.
+### Structure and texture
+- Panels are framed with **box-drawing characters** or 1px `--rule` lines with corner glyphs: titles sit in the top border like `┌─[ RECIPROCITY ]──────┐`. Radius is 0. No shadows except phosphor bloom.
+- **CRT layer** over the whole screen:
+  - faint horizontal scanlines (`repeating-linear-gradient`, 2px period, about 6% opacity);
+  - a very slight vignette;
+  - text bloom (`text-shadow: 0 0 6px rgba(255,176,0,.55)` on amber text, `0 0 6px rgba(168,216,255,.45)` on ice);
+  - an occasional subtle flicker (opacity 0.97–1.0).
+- **Character-grid layout.** Spacing in multiples of 8px.
+- **ASCII instruments:** sparklines with block glyphs `▁▂▃▄▅▆▇█`, bars as `████░░░░`, hatched gaps as `╱╱╱` or `···`, and tables with `│` separators and `─` rules.
+- **Navigation** is a command bar, e.g. `[1]PEOPLE [2]DASH [3]CHAT [4]CONTEXT [5]FORMS [6]SOURCES [7]SET`, with the active item in reverse video amber. There's a prompt line at the bottom: `riley@lvs:~/dashboard $ ▌`.
+- **Buttons** are bracketed text: `[ ENTER ] DISCUSS`, `[ D ] DONE`, `[ X ] DISMISS`. The primary action is in reverse-video amber.
+- **Inputs** look like terminal fields: `PASSWORD › ••••••••▌`.
 
 ### Motion
-- Mechanical, snappy transitions (linear or fast cubic-bezier, 120–180ms). Nothing bouncy.
-- Live/streaming indicators use a 1px expanding border pulse.
-- **INTRO / BOOT SEQUENCE (plays before startup and during any full-screen load)**, a 3D vector-addition animation:
-  - **Scene:** a black (`--bg-deep`) viewport with a faint perspective 3D grid floor and an x/y/z axis gizmo at the origin labelled in 10px mono. The camera slowly orbits (about 8° per second).
-  - **Mechanic:**
-    - Random 3D vectors are drawn **head-to-tail**. Each new vector starts at the tip of the previous one, so the chain is a running vector sum.
-    - Each vector animates in: a line grows from its tail to its head in 350–500 ms, with an arrowhead, a fading trail, a glow, and a mono label like `v₃ = (0.42, −1.10, 0.87)`.
-    - Colours alternate between `--accent` and `--them`.
-    - A live readout in the corner shows `Σv = (x, y, z)  |Σv| = 2.31` in mono.
-  - **Count:** at least **5 vectors**. While loading continues, more random vectors keep appending, one every ~600 ms, with no fixed maximum.
-  - **Convergence:**
-    - When loading finishes, one or two final vectors are computed as the exact negative of the running sum (split across them for elegance) and drawn in `--pulse` pink. They bring the chain back to **(0, 0, 0)**.
-    - `|Σv|` counts down to `0.00`.
-    - The origin flashes, a ring pulses out, the vectors collapse into the origin point, and the wordmark `LOVEVECTORSPACE` types in beside the origin in mono with a blinking cursor.
-    - Then everything cross-fades into the app.
-  - **Randomness:** each vector's direction is uniform on the sphere, with length 0.6–1.6 units. A new random seed is used each launch.
-  - **Status line:** a boot log under the canvas in 11px mono, typed in: `> mounting encrypted store… ok` / `> loading signal models… ok` / `> syncing extension… 3 new messages`.
-- **Loading animation (signature):** a 3D vector field. Several thin arrows (1px lines with small arrowheads) in `--accent` and `--them` float and slowly rotate around a shared origin inside a wireframe cube or axis gizmo (x/y/z ticks). They drift, converge, rotate as one group, then diverge — vectors finding alignment. It's drawn with CSS 3D transforms or canvas.
-  - Used full-panel while analysis jobs run, with a mono caption like `COMPUTING SIGNALS… 42%`.
-  - A small 24px version is used inline for streaming and agent typing.
-- Terminal scanline: a 2px horizontal bar sweeps vertically across terminal/chat boxes every 4s, very subtle.
+- Text types in character by character for headings and logs (fast, 8–12ms per character). The block cursor `▌` blinks.
+- Numbers count up with a slot-machine digit roll.
+- The radar sweep is a rotating amber line with a phosphor afterglow trail.
+- Screen changes use a quick CRT "line wipe": a 120ms horizontal scan reveal.
 
-## Components
-- **Headline Success Module:** a large mono % in `--accent`, with a horizontal range bar (low–high band, point marker) under it. It carries an `UNCALIBRATED` tag and the definition line ("interest is mutual and moves toward dating"), plus an ⓘ tooltip with the research caveat. Beside it sits a second, dimmer box: "CALIBRATED — NOT AVAILABLE · needs 20 labelled outcomes", with a progress tick bar (0/20). Below both, a "TOP CONTRIBUTORS" list of 3 signals with signed ±pp values.
-- **Reciprocity panel:** a grid of compact metric cells. Each cell has an uppercase label, a mono value, a me/them split bar (acid vs cyan), an evidence tag, and a one-line "can't tell you" note revealed on hover.
-- **Safety Warning Block:** a full-width panel with a `--warn` (concern) or `--urgent` (urgent) left border bar and an icon. It shows a flag list (category, severity, count, dates) and evidence snippets in mono. Under it, a "RESOURCES — suggestions only" plain-text list (name · number · text code · website) with **no buttons and no links that dial**. Last comes the disclaimer line: "This tool offers reflection and pattern warnings. It is not therapy, counselling, or a crisis service."
-- **Next-step card:** a node-style card with a kind tag (TALK / PLAN / REFLECT / PAUSE), title, "why" text and evidence ref chips (`metric:lsm`, `fact:12`). Actions: DONE / DISMISS / DISCUSS as sharp outline buttons. DISCUSS is the accent-filled primary.
-- **Primary button:** `--accent` background, black bold text, sharp; on hover it moves 1px down with a glow of `0 0 15px rgba(212,255,0,.3)`. Secondary buttons are 1px-border outlines.
-- **Inputs:** `--bg-deep` background, 1px `--border`, with 10px mono labels above.
-- **Chat:** owner messages right-aligned in `--node` blocks; agent messages left-aligned with a 1px `--accent` left rule. Tool calls show as collapsible mono chips (`▸ get_person_overview(person_id=3)`). The composer is a terminal-style prompt (`> _`).
-- **Status bar:** a top bar with `SYSTEM_ONLINE`-style status chips (extension sync, last analysis time, Groq ZDR reminder).
+## The boot sequence (intro, plays before startup and during full-screen loads)
+- **Scene:** a CRT viewport. A perspective 3D grid floor in `--amber-dim`, and an x/y/z axis gizmo at the origin labelled in Plex Mono 10px. The camera orbits slowly (about 8° per second).
+- **Head-to-tail vector sum:** random 3D vectors are drawn tail-to-head as a running sum.
+  - **They wander through different octants.** Each new vector aims the chain's tip into a different octant around the origin from the one it is in, cycling through all 8 octants in a random order. It never just drifts one way.
+  - Lengths are about 0.8–2.4 units.
+- **Pronounced lines:**
+  - each vector is a 3px phosphor line with strong bloom and a solid arrowhead;
+  - a node dot sits at every joint;
+  - a dashed drop-line runs from each tip to the floor, with a small floor marker, so the depth reads;
+  - each vector has a typed label like `v3 = ( 0.42, −1.10, 0.87 )`.
+- **Colours:** vectors alternate `--amber` and `--ice`.
+- **Count:** at least 5. A new one is added every ~600ms while loading continues, with no maximum.
+- **Readout box:** `Σv = (x, y, z)` and `|Σv| = n.nn`, plus the octant currently being visited (`OCTANT +−+`).
+- **Convergence:**
+  - When loading completes, two `--rose` closing vectors whose sum is exactly −Σv bring the chain back to **(0, 0, 0)**. `|Σv|` rolls down to `0.00`.
+  - The origin flashes and a ring pulses out.
+  - The vectors collapse into the point, and `LOVEVECTORSPACE` types in beside it in VT323 with a blinking block cursor.
+  - A typed boot log runs underneath (`> mounting encrypted store… ok`).
+
+## Dashboard (MISSION CONTROL, terminal edition)
+1. A top command bar plus a status line: sync states, last analysis, `[R] ANALYZE`.
+2. A telemetry ticker: a single line of scrolling log entries.
+3. **Centre stage: the RADAR.**
+   - Concentric rings drawn in `--amber-dim`, with tick marks. The sweep line has a phosphor afterglow.
+   - Each reciprocity metric is a **spoke vector**: ME in amber, THEM in ice, with the resultant in rose.
+   - The headline `64%` sits in the centre in VT323, with the range drawn as an arc on the rim, and a reverse-video `[ UNCALIBRATED ]` stamp.
+4. **Left:** `NEXT STEPS` as command cards with key hints.
+5. **Right:** a locked `CALIBRATED` pane (`0/20 ░░░░░░░░░░`) and `TOP CONTRIBUTORS` as signed ASCII bars.
+6. **Bottom:** an oscilloscope messages/week trace with `╱╱╱` hatching for no-coverage weeks, and the signal table with `│` columns and evidence tags like `[MOD]`, `[HEUR]`, `[DESC]`, `[SELF]`, `[UNCAL]`.
 
 ## Rules
-- MUST: 0px radius, 1px borders, uppercase mono IDs, evidence tags on every metric, headline always with its tag and range.
-- MUST NOT: rounded corners, decorative gradients (light-only gradients per the depth palette are fine), heavy drop shadows, photography, hearts or emoji as decoration, call or SMS action buttons, a single unqualified score without its range.
-- **Make it alive, not flat:**
-  - an ambient, very slow 3D vector-field background behind glass panels;
-  - the headline number counts up on load;
-  - the range bar has a breathing glow;
-  - charts draw in;
-  - hover states reveal mono detail;
-  - strong typographic hierarchy (oversized mono numerals vs tiny uppercase labels);
-  - asymmetric layouts with one dominant hero element per screen rather than equal-weight boxes.
-- Footer on every screen: the disclaimer line in `--text-dim` at 11px.
+- MUST:
+  - monospace only (Plex Mono, plus VT323 for numerals);
+  - 0 radius;
+  - box-drawing frames;
+  - an evidence tag on every metric;
+  - the headline always shown with its range and `[ UNCALIBRATED ]` tag;
+  - the disclaimer in the footer: `// This tool offers reflection and pattern warnings. It is not therapy, counselling, or a crisis service.`
+- MUST NOT:
+  - glassmorphism, blur panels, rounded corners or drop shadows;
+  - acid green, purple, or gradient fills;
+  - emoji or hearts;
+  - call or SMS buttons;
+  - generic "AI dashboard" card grids.
+
+---
+
+## v4 THEMES (owner request, 2026-11-23). This overrides the colour, font and effect sections above.
+The layout, terminal structure (box-drawing frames, command bar, bracketed keys, ASCII instruments, prompt line) and every rule above stay. **Colours, fonts and effects are now theme tokens.** All screens include `.superdesign/themes.css` (inline in each file's `<style>`), set `data-theme` on the single root `<div>`, and use ONLY the CSS variables — no raw hex in component styles.
+
+| Theme | Character | Display font | Effect layer |
+|---|---|---|---|
+| `signal` (**default**) | Swiss-print terminal: ink, warm paper, vermilion ME, cobalt THEM, saffron "connection" | Instrument Serif (tall editorial numerals; the headline % in italic serif) | print: no bloom, crisp, optional faint paper grain |
+| `riso` (**playful**) | Risograph zine: cream paper, fluorescent pink ME, teal THEM, yellow highlights | Bricolage Grotesque 800 | misregistered 2px offset in the second ink, halftone-dot fills, sticker tags tilted −1.5°, 2px rules |
+| `blueprint` (**technical**) | Engineering drawing: navy, white ink, highlighter-yellow ME, sky THEM, safety-orange markers | IBM Plex Mono | 24px blueprint grid, dimension lines with tick ends on charts, callout leaders, a title-block footer (`DWG LVS-002 · REV C · SCALE 1:1`) |
+| `crt` (optional retro) | The amber phosphor look | VT323 | scanlines, vignette, flicker, bloom |
+
+- **Theme switcher:**
+  - `[T] THEME` in the command bar cycles themes, with a small popover listing all four, a swatch strip (`■ ■ ■`) and the active one in reverse video.
+  - Settings has a "THEME" section with four preview tiles.
+  - The choice persists per user.
+- **The intro animation follows the theme:**
+  - the vectors alternate `--me` and `--them`;
+  - the closing vectors use `--link`;
+  - the grid floor uses `--rule`;
+  - bloom only in `crt`, halftone trail in `riso`, dimensioned axes in `blueprint`.
+- **Every theme meets 4.5:1 text contrast** and has visible `--focus` rings.

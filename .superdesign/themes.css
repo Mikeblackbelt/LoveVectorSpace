@@ -1,0 +1,90 @@
+/* LoveVectorSpace theme tokens — paste into every screen's <style>; set data-theme on the root <div>.
+   Components must use ONLY these variables (no raw hex in component CSS).
+   Themes: signal (default) · riso (playful) · blueprint (technical) · crt (retro, optional) */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;600&family=Space+Mono:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=VT323&family=Instrument+Serif:ital@0;1&display=swap');
+
+[data-theme] {
+  /* shared shape */
+  --radius: 0px;
+  --rule-w: 1px;
+}
+
+/* 1 · SIGNAL — default. Swiss-print terminal: ink, paper, vermilion, cobalt, saffron. */
+[data-theme="signal"] {
+  --bg: #101114;            /* ink */
+  --panel: #17181c;
+  --rule: #34363d;
+  --text: #ece6d9;          /* warm paper */
+  --text-dim: #a29c90;      /* ≥4.5:1 on --bg */
+  --me: #ff4b2b;            /* vermilion */
+  --them: #5b8cff;          /* cobalt */
+  --link: #f2b705;          /* saffron: resultant / connection / live marker */
+  --ok: #7bc96f;
+  --concern-bg: #ece6d9; --concern-fg: #101114;   /* reverse video */
+  --urgent-bg: #ff3b3b;  --urgent-fg: #101114;
+  --focus: #f2b705;
+  --font-ui: 'IBM Plex Mono', monospace;
+  --font-data: 'IBM Plex Mono', monospace;
+  --font-display: 'Instrument Serif', serif;     /* headline numerals: tall editorial serif, italic for the % sign */
+  --glow-me: none; --glow-them: none;             /* print look: no bloom */
+  --texture: none;                                 /* optional: 0.03 opacity paper grain */
+  --effect: "print";
+}
+
+/* 2 · RISO — playful, light. Risograph zine: cream paper, pink + teal inks, misregistration offsets. */
+[data-theme="riso"] {
+  --bg: #f6efe0;            /* cream paper */
+  --panel: #fffaf0;
+  --rule: #1d1a17;
+  --rule-w: 2px;
+  --text: #1d1a17;
+  --text-dim: #5e564c;
+  --me: #ff3e8e;            /* fluorescent pink ink */
+  --them: #0094a8;          /* teal ink */
+  --link: #ffd23f;          /* yellow ink */
+  --ok: #2e9e4f;
+  --concern-bg: #1d1a17; --concern-fg: #f6efe0;
+  --urgent-bg: #e0312b;  --urgent-fg: #fffaf0;
+  --focus: #ff3e8e;
+  --font-ui: 'Space Mono', monospace;
+  --font-data: 'Space Mono', monospace;
+  --font-display: 'Bricolage Grotesque', sans-serif;  /* chunky, wide, friendly */
+  --glow-me: none; --glow-them: none;
+  --misregister: 2px 2px 0 var(--them);           /* text/box offset shadow in the second ink */
+  --effect: "riso";                                /* halftone dots on fills, stickers for tags, slight -1.5deg tilt on badges */
+}
+
+/* 3 · BLUEPRINT — technical. Engineering drawing on blueprint navy. */
+[data-theme="blueprint"] {
+  --bg: #0b2545;            /* blueprint navy */
+  --panel: #0e2c52;
+  --rule: #3f6a9a;
+  --text: #e8f1ff;          /* white ink */
+  --text-dim: #9fbbe0;
+  --me: #ffe066;            /* highlighter yellow */
+  --them: #8fd3ff;          /* sky */
+  --link: #ff8a5b;          /* safety orange for resultants / markers */
+  --ok: #8be3a5;
+  --concern-bg: #e8f1ff; --concern-fg: #0b2545;
+  --urgent-bg: #ff5d5d;  --urgent-fg: #0b2545;
+  --focus: #ffe066;
+  --font-ui: 'IBM Plex Sans Condensed', sans-serif;
+  --font-data: 'IBM Plex Mono', monospace;
+  --font-display: 'IBM Plex Mono', monospace;
+  --glow-me: none; --glow-them: none;
+  --grid: linear-gradient(var(--rule) 1px, transparent 1px) 0 0/24px 24px, linear-gradient(90deg, var(--rule) 1px, transparent 1px) 0 0/24px 24px;
+  --effect: "blueprint";                           /* 24px grid at ~25% opacity, dimension lines with tick ends on charts, callout leaders, title-block footer */
+}
+
+/* 4 · CRT — retro amber phosphor (optional legacy look). */
+[data-theme="crt"] {
+  --bg: #0b0a08; --panel: #13110d; --rule: #3a3226;
+  --text: #f2e6d0; --text-dim: #a8977a;
+  --me: #ffb000; --them: #a8d8ff; --link: #ff5470; --ok: #9bd17a;
+  --concern-bg: #f2e6d0; --concern-fg: #0b0a08;
+  --urgent-bg: #ff3b3b;  --urgent-fg: #0b0a08;
+  --focus: #ffb000;
+  --font-ui: 'IBM Plex Mono', monospace; --font-data: 'IBM Plex Mono', monospace; --font-display: 'VT323', monospace;
+  --glow-me: 0 0 6px rgba(255,176,0,.55); --glow-them: 0 0 6px rgba(168,216,255,.45);
+  --effect: "crt";                                 /* scanlines, vignette, flicker, bloom */
+}
