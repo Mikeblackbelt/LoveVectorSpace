@@ -1,0 +1,16 @@
+# Verified against each organisation's official site on 2026-11-23.
+- name: 988 Suicide & Crisis Lifeline
+  phone: "988"
+  text: "Text 988"
+  url: https://988lifeline.org/
+  description: Free, 24/7 support for suicidal thoughts or emotional distress. Chat at chat.988lifeline.org.
+- name: National Domestic Violence Hotline
+  phone: 1-800-799-7233
+  text: Text START to 88788
+  url: https://www.thehotline.org/
+  description: Support for anyone experiencing abuse or unsafe control in a relationship, with live chat.
+- name: love is respect
+  phone: 1-866-331-9474
+  text: Text LOVEIS to 22522
+  url: https://www.loveisrespect.org/
+  description: Support on healthy and unhealthy relationships, aimed at young people.

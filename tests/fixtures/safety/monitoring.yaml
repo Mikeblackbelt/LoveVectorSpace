@@ -1,0 +1,10 @@
+- {id: monitoring-01, role: them, text: "Send me your live location right now"}
+- {id: monitoring-02, role: them, text: "Who were you with last night? Be honest."}
+- {id: monitoring-03, role: them, text: "Give me your password so I can check"}
+- {id: monitoring-04, role: them, text: "Let me see your phone"}
+- {id: monitoring-05, role: them, text: "I went through your messages while you were in the shower"}
+- {id: monitoring-06, role: them, text: "Why was your phone off for two hours?"}
+- {id: monitoring-07, role: me, text: "Keep your location on at all times so I know where you are"}
+- {id: monitoring-08, role: them, text: "Show me your texts with her"}
+- {id: monitoring-09, role: me, text: "I checked your phone again and saw the chat"}
+- {id: monitoring-10, role: them, text: "Turn your location on or I will assume the worst"}

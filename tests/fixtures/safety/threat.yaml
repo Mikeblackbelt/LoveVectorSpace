@@ -1,0 +1,12 @@
+- {id: threat-01, role: them, text: "I will hurt you if you leave"}
+- {id: threat-02, role: them, text: "You'll regret this, I promise"}
+- {id: threat-03, role: me, text: "I'm going to make you pay for what you did"}
+- {id: threat-04, role: them, text: "Watch your back from now on"}
+- {id: threat-05, role: them, text: "I know where you live"}
+- {id: threat-06, role: them, text: "I'll find you wherever you go"}
+- {id: threat-07, role: them, text: "He hit me again last night"}
+- {id: threat-08, role: them, text: "I'm scared of him and what he might do"}
+- {id: threat-09, role: them, text: "You'll be sorry you ever left me"}
+- {id: threat-10, role: them, text: "If you leave me I'll ruin you"}
+- {id: threat-11, role: me, text: "I could hurt you right now"}
+- {id: threat-12, role: them, text: "She choked me during the argument"}

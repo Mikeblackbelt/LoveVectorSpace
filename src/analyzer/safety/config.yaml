@@ -1,0 +1,16 @@
+# Safety thresholds. Tuned for recall on urgent cases.
+window_days: 30          # rolling window for repeated monitoring/control/isolation/hostility hits
+concern_hits: 3          # hits inside the window that turn info into concern
+toxicity:
+  threshold: 0.8         # per-message toxicity score counted as high
+  min_messages: 3        # high-toxicity messages (per speaker) for a hostility concern
+snippets:
+  max_per_flag: 3
+  max_chars: 200
+questionnaire:           # CDAQ subscales (0-5 frequency items, summed)
+  concern_at: 3          # any *_experienced / *_done subscale at or above this
+  aggression_urgent_at: 8
+facts:                   # interview answers with keys prefixed "safety."
+  numeric_concern_at: 3
+  concern_words: [often, always, frequently, constantly, daily, every day, all the time]
+  negative_words: [no, never, none, not at all, nope, n/a, "0"]
