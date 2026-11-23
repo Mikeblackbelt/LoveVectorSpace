@@ -296,3 +296,14 @@ def test_shared_verb_negation_cases():
                    ("no, he never stabbed me", None), ("he never pushed me", None)]:
         flags = run([], facts=[fact("safety.threats_experienced", v)]).flags
         assert (flags[0].severity if flags else None) == sev, v
+
+
+def test_continuative_verbs_are_not_denials():
+    for v in ["he never stopped hitting me", "he did not stop beating me", "she never quit hurting me",
+              "he hasn't ceased threatening me", "he never kept from hitting me",
+              "he didn't finish hurting me", "he never once hit me, he kicked me"]:
+        flags = run([], facts=[fact("safety.threats_experienced", v)]).flags
+        assert flags and flags[0].severity == "urgent", v
+    for v in ["No, he has never hit me", "he never really hurt me", "he didn't ever hit me",
+              "no, he never stabbed me", "he did not physically hurt me"]:
+        assert run([], facts=[fact("safety.threats_experienced", v)]).flags == [], v

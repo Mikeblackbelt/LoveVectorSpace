@@ -180,10 +180,11 @@ def _fact_category(key: str, value: str) -> str:
 _NEG_START = re.compile(r"^(no|never|not|none|nope|nah)\b")
 # strippable verbs = the shared violence verbs plus nouns/adjectives that FACT_URGENT also matches
 _VERBS = "(" + "|".join(VIOLENCE_VERBS + [r"threat\w*", r"abus\w*", r"violen\w*", r"harm(ed|s|ing)?"]) + ")"
-# explicit denial directly governing the verb; intensifiers ("didn't just threaten") are not denials
+# explicit denial directly governing the verb. Only filler adverbs may intervene: intensifiers
+# (just/only/once/even) and continuative verbs (stop/quit/cease/keep...) are not denials.
 _NEG_VP = re.compile(
     r"\b(never|not|(has|have|had|did|does|do|was|is|were)(n'?t| not))\s+"
-    r"(?:(?!(?:just|only|merely|simply|once|even)\b)\w+\s+)?" + _VERBS + r"\b")
+    r"(?:(?:ever|really|actually|physically)\s+)?" + _VERBS + r"\b")
 
 
 def _is_negated(v: str) -> bool:
