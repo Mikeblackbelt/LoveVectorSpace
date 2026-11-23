@@ -141,6 +141,16 @@ STEPS: list[str] = [
         value TEXT NOT NULL
     );
     """,
+    """
+    -- message_scores is a pure cache: recreate it to hold a JSON vector per message.
+    DROP TABLE message_scores;
+    CREATE TABLE message_scores (
+        message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        model TEXT NOT NULL,
+        scores_json TEXT NOT NULL,
+        PRIMARY KEY (message_id, model)
+    );
+    """,
 ]
 
 SCHEMA_VERSION = len(STEPS)

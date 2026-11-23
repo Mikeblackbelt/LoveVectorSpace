@@ -5,3 +5,6 @@ uploads/
 __pycache__/
 .venv/
 .superpowers/
+
+# downloaded/exported model files (models/PROVENANCE.md is committed)
+models/*/

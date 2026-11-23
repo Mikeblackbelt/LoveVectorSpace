@@ -188,9 +188,9 @@ def test_scores_round_trip(conn, pid):
     ms.ingest(pid, [mk("a", 0), mk("b", 1)], "u1")
     ids = [m.id for m in ms.messages(pid)]
     s = Scores(conn)
-    s.put("m1", {ids[0]: 0.5, ids[1]: -0.25})
-    s.put("m1", {ids[0]: 0.75})
-    assert s.get(ids, "m1") == {ids[0]: 0.75, ids[1]: -0.25}
+    s.put("m1", {ids[0]: [0.5, 1.0], ids[1]: [-0.25]})
+    s.put("m1", {ids[0]: [0.75]})
+    assert s.get(ids, "m1") == {ids[0]: [0.75], ids[1]: [-0.25]}
     assert s.get(ids, "other") == {}
     assert s.get([], "m1") == {}
 
@@ -223,7 +223,7 @@ def test_delete_person_cascades_everything(conn, pid):
     for p in (pid, other):
         MessageStore(conn).ingest(p, [mk("a", 0), mk("b", 1, "them")], f"u{p}")
         ids = [m.id for m in MessageStore(conn).messages(p)]
-        Scores(conn).put("m", {i: 1.0 for i in ids})
+        Scores(conn).put("m", {i: [1.0] for i in ids})
         SpeakerMap(conn).set(p, "s", "x", "me")
         ChatLinks(conn).link(p, "wa", f"c{p}")
         Facts(conn).upsert(p, "k", "v", "interview", "owner_sure")
