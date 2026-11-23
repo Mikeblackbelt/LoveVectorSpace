@@ -1,0 +1,54 @@
+id: ecr_r
+name: Experiences in Close Relationships-Revised (ECR-R)
+mode: [established, early]
+item_text: local_overlay
+response: {min: 1, max: 7}
+items:
+  - {id: ecr_r_01}
+  - {id: ecr_r_02}
+  - {id: ecr_r_03}
+  - {id: ecr_r_04}
+  - {id: ecr_r_05}
+  - {id: ecr_r_06}
+  - {id: ecr_r_07}
+  - {id: ecr_r_08}
+  - {id: ecr_r_09, reverse: true}
+  - {id: ecr_r_10}
+  - {id: ecr_r_11, reverse: true}
+  - {id: ecr_r_12}
+  - {id: ecr_r_13}
+  - {id: ecr_r_14}
+  - {id: ecr_r_15}
+  - {id: ecr_r_16}
+  - {id: ecr_r_17}
+  - {id: ecr_r_18}
+  - {id: ecr_r_19}
+  - {id: ecr_r_20, reverse: true}
+  - {id: ecr_r_21}
+  - {id: ecr_r_22, reverse: true}
+  - {id: ecr_r_23}
+  - {id: ecr_r_24}
+  - {id: ecr_r_25}
+  - {id: ecr_r_26, reverse: true}
+  - {id: ecr_r_27, reverse: true}
+  - {id: ecr_r_28, reverse: true}
+  - {id: ecr_r_29, reverse: true}
+  - {id: ecr_r_30, reverse: true}
+  - {id: ecr_r_31, reverse: true}
+  - {id: ecr_r_32}
+  - {id: ecr_r_33, reverse: true}
+  - {id: ecr_r_34, reverse: true}
+  - {id: ecr_r_35, reverse: true}
+  - {id: ecr_r_36, reverse: true}
+subscales:
+  anxiety: {items: [ecr_r_01, ecr_r_02, ecr_r_03, ecr_r_04, ecr_r_05, ecr_r_06, ecr_r_07, ecr_r_08, ecr_r_09, ecr_r_10, ecr_r_11, ecr_r_12, ecr_r_13, ecr_r_14, ecr_r_15, ecr_r_16, ecr_r_17, ecr_r_18], aggregate: mean}
+  avoidance: {items: [ecr_r_19, ecr_r_20, ecr_r_21, ecr_r_22, ecr_r_23, ecr_r_24, ecr_r_25, ecr_r_26, ecr_r_27, ecr_r_28, ecr_r_29, ecr_r_30, ecr_r_31, ecr_r_32, ecr_r_33, ecr_r_34, ecr_r_35, ecr_r_36], aggregate: mean}
+source:
+  citation: "Fraley, R. C., Waller, N. G., & Brennan, K. A. (2000). An item response theory analysis of self-report measures of adult attachment. Journal of Personality and Social Psychology, 78, 350-365."
+  url: "https://labs.psychology.illinois.edu/~rcfraley/measures/ecrr.htm"
+  terms: "No permission needed for non-commercial research; the scales may not be used for commercial purposes without permission."
+verified: true
+custom: false
+owner_approved: false
+measures: "Attachment anxiety and attachment avoidance as two continuous dimensions (security is low on both). Each subscale is the mean of its 18 items after reverse keying (8 minus the response)."
+does_not_measure: "A categorical attachment style (the author advises against classifying), or the quality of any one relationship. Un-normed here: no reference band."

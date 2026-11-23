@@ -1,0 +1,22 @@
+id: reciprocity
+name: Effort and initiative balance
+mode: [early, established]
+item_text: inline
+response: {min: 1, max: 7}
+items:
+  - {id: reciprocity_01, text: "We take turns starting conversations."}
+  - {id: reciprocity_02, text: "We both put in effort to make plans."}
+  - {id: reciprocity_03, text: "When one of us says we will do something, it usually happens."}
+  - {id: reciprocity_04, text: "I am usually the one who reaches out first.", reverse: true}
+  - {id: reciprocity_05, text: "My partner is usually the one who reaches out first.", reverse: true}
+  - {id: reciprocity_06, text: "I feel the effort in this relationship is shared fairly."}
+subscales:
+  total: {items: [reciprocity_01, reciprocity_02, reciprocity_03, reciprocity_04, reciprocity_05, reciprocity_06], aggregate: mean}
+source:
+  citation: "Teichmann, Petrowsky, Boecker, Soliman, & Loschelder (2026), on the timing of texting and romantic interest. Original items motivated by the paper; not a published instrument."
+  url: "https://fis.leuphana.de/en/publications/how-the-timing-of-texting-triggers-romantic-interest-after-the-fi/"
+verified: true
+custom: true
+owner_approved: false
+measures: "How evenly initiating, planning and following through are shared. Higher means a more even split; items about one side doing most of it are reverse-keyed. Responses run from 1 (strongly disagree) to 7 (strongly agree)."
+does_not_measure: "Whether an uneven split is a problem for you, or why it exists."

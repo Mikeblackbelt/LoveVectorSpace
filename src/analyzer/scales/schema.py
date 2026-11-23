@@ -10,7 +10,7 @@ class ResponseFormat(BaseModel):
 
 class Item(BaseModel):
     id: str
-    text: str
+    text: str | None = None
     reverse: bool = False
     min: int | None = None
     max: int | None = None
@@ -38,6 +38,7 @@ class Cutoff(BaseModel):
 class Source(BaseModel):
     citation: str
     url: str | None = None
+    terms: str | None = None
 
 
 class ScaleDef(BaseModel):
@@ -53,6 +54,7 @@ class ScaleDef(BaseModel):
     verified: bool = False
     custom: bool = False
     owner_approved: bool = False
+    item_text: Literal["inline", "local_overlay"] = "inline"
     measures: str = ""
     does_not_measure: str = ""
 
@@ -83,3 +85,11 @@ class ScaleResult(BaseModel):
     cutoff_flags: dict[str, bool]
     status: Literal["ok", "draft", "unverified"]
     notes: list[str] = []
+
+
+def display_text(item: Item, scale: ScaleDef) -> str:
+    """Item wording, or a placeholder when the text lives in a local overlay."""
+    if item.text:
+        return item.text
+    n = scale.items.index(item) + 1
+    return f"{scale.name} item {n} (enter text from the official form)"

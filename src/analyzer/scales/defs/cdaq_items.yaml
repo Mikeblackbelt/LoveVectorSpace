@@ -1,0 +1,32 @@
+id: cdaq_items
+name: Digital monitoring and aggression screen
+mode: [early, established]
+item_text: inline
+response: {min: 0, max: 5}
+items:
+  - {id: cdaq_monitoring_experienced_1, text: "My partner checks my messages or phone without asking."}
+  - {id: cdaq_monitoring_experienced_2, text: "My partner wants to know where I am at all times through my phone or apps."}
+  - {id: cdaq_monitoring_experienced_3, text: "My partner gets upset if I do not answer straight away."}
+  - {id: cdaq_monitoring_done_1, text: "I check my partner's messages or phone without asking."}
+  - {id: cdaq_monitoring_done_2, text: "I use my phone or apps to keep track of where my partner is."}
+  - {id: cdaq_monitoring_done_3, text: "I get upset if my partner does not answer straight away."}
+  - {id: cdaq_aggression_experienced_1, text: "My partner sends me insulting or threatening messages."}
+  - {id: cdaq_aggression_experienced_2, text: "My partner posts or shares something online to humiliate me."}
+  - {id: cdaq_aggression_experienced_3, text: "My partner threatens to share private things about me."}
+  - {id: cdaq_aggression_done_1, text: "I send my partner insulting or threatening messages."}
+  - {id: cdaq_aggression_done_2, text: "I post or share something online to humiliate my partner."}
+  - {id: cdaq_aggression_done_3, text: "I threaten to share private things about my partner."}
+subscales:
+  monitoring_experienced: {items: [cdaq_monitoring_experienced_1, cdaq_monitoring_experienced_2, cdaq_monitoring_experienced_3], aggregate: sum}
+  monitoring_done: {items: [cdaq_monitoring_done_1, cdaq_monitoring_done_2, cdaq_monitoring_done_3], aggregate: sum}
+  aggression_experienced: {items: [cdaq_aggression_experienced_1, cdaq_aggression_experienced_2, cdaq_aggression_experienced_3], aggregate: sum}
+  aggression_done: {items: [cdaq_aggression_done_1, cdaq_aggression_done_2, cdaq_aggression_done_3], aggregate: sum}
+  sum: {items: [cdaq_monitoring_experienced_1, cdaq_monitoring_experienced_2, cdaq_monitoring_experienced_3, cdaq_monitoring_done_1, cdaq_monitoring_done_2, cdaq_monitoring_done_3, cdaq_aggression_experienced_1, cdaq_aggression_experienced_2, cdaq_aggression_experienced_3, cdaq_aggression_done_1, cdaq_aggression_done_2, cdaq_aggression_done_3], aggregate: sum}
+source:
+  citation: "Borrajo, E., Gamez-Guadix, M., Pereda, N., & Calvete, E. (2015). The development and validation of the Cyber Dating Abuse Questionnaire among young couples. Computers in Human Behavior, 48, 358-365. Note: original items motivated by the CDAQ; not the published items."
+  url: "https://diposit.ub.edu/items/8715a427-3b10-4cf3-8c34-40f50cd63e7a/full"
+verified: true
+custom: true
+owner_approved: false
+measures: "How often, in the past year, monitoring/control and direct aggression happen in both directions: experienced from the partner and done by you. Responses run from 0 (never) to 5 (very often). Frequency only, with no bands or cut-offs."
+does_not_measure: "Intent, severity, or whether a relationship is abusive. Monitoring is common in young couples, so read these as frequency and impact, not as a verdict."
