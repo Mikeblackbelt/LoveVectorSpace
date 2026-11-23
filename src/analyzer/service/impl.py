@@ -137,6 +137,7 @@ class _UserState:
     def __init__(self):
         self.lock = threading.RLock()
         self.pending: dict[int, threading.Timer] = {}
+        self.firing = 0  # debounce timers that fired but have not yet queued their job
 
 
 class ServiceFactoryImpl:
@@ -200,11 +201,21 @@ class ServiceFactoryImpl:
         deadline = datetime.now() + timedelta(seconds=timeout)
         while datetime.now() < deadline:
             with self._states_lock:
-                pending = any(t.is_alive() for s in self._states.values() for t in s.pending.values())
+                pending = any(s.firing or any(t.is_alive() for t in s.pending.values())
+                              for s in self._states.values())
             if not pending and self._queue.unfinished_tasks == 0:
                 return True
             end.wait(0.02)
         return False
+
+    def shutdown(self, timeout: float = 30.0) -> None:
+        """Cancel debounce timers and drain the worker. Call before closing user connections."""
+        with self._states_lock:
+            for st in self._states.values():
+                for t in st.pending.values():
+                    t.cancel()
+                st.pending.clear()
+        self.wait_idle(timeout)
 
     # -- facade --
     def for_user(self, user_id: str, conn: Any, events: EventSink) -> "UserServiceImpl":
@@ -476,15 +487,19 @@ class UserServiceImpl:
             def fire():
                 with self._lock:
                     self._state.pending.pop(pid, None)
-                    try:
+                    self._state.firing += 1
+                try:
+                    with self._lock:
                         if People(self.conn).get(pid) is None:
                             return
                         job_id = Jobs(self.conn).create(pid, "reanalysis")
-                    except Exception as e:
-                        log.warning("debounced job failed: %s", e.__class__.__name__)
-                        return
-                self._publish({"type": "job", "person_id": pid, "job_id": job_id, "status": "queued"})
-                self._submit(lambda svc: svc._exec_analysis(job_id, pid))
+                    self._publish({"type": "job", "person_id": pid, "job_id": job_id, "status": "queued"})
+                    self._submit(lambda svc: svc._exec_analysis(job_id, pid))
+                except Exception as e:
+                    log.warning("debounced job failed: %s", e.__class__.__name__)
+                finally:
+                    with self._lock:
+                        self._state.firing -= 1
 
             t = threading.Timer(delay, fire)
             t.daemon = True

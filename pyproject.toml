@@ -36,7 +36,7 @@ packages = ["src/analyzer"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "tests/support"]
 markers = [
     "models: needs the downloaded ONNX models in models/ (skipped when absent)",
     "slow: long-running benchmark / large-upload tests",
