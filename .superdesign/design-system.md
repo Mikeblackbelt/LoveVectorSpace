@@ -151,3 +151,14 @@ The layout, terminal structure (box-drawing frames, command bar, bracketed keys,
   - **AUTO mode:** follows system `prefers-color-scheme` (light → journal, dark → signal), or a time-of-day schedule (07–19 day theme, otherwise night theme). The user picks the day and night themes.
   - **Accessibility controls:** reduced motion, contrast boost and text size.
   - Fully responsive: a specimen grid on desktop, swipeable full-bleed cards on phone.
+- **Themes 7–9 (owner request: more themes):**
+  - `inkwell`: high-contrast black and white e-ink, Atkinson Hyperlegible and Newsreader fonts. It's the accessibility theme: 7:1+ contrast, THEM drawn hatched so charts never rely on colour, 3px focus outlines, essential motion only.
+  - `matcha`: a calm light theme in tea green and clay, with Manrope and Newsreader fonts, 8px radius and soft cards.
+  - `midnight`: a refined dark theme, navy with gold and moonlight blue, with Outfit, Cormorant Garamond and JetBrains Mono fonts, gold hairlines and a faint star field.
+- **Cycle order:** signal → pulse → riso → blueprint → journal → matcha → midnight → inkwell → crt.
+- **AUTO defaults:** day = journal, night = signal. Each theme sets `--radius` (only inkwell, signal, riso, blueprint, pulse and crt are 0).
+- **Device scaling rules (every screen):**
+  - a viewport meta tag; fluid type with `clamp()`; layout in `rem`, `%` or `fr`, never fixed-width page containers;
+  - canvases sized from their container with DPR handling, redrawn on `resize` and `orientationchange` (debounced);
+  - no horizontal scroll at 320–1920px; tap targets ≥44px under 768px;
+  - honour `env(safe-area-inset-*)`, `prefers-reduced-motion` and `prefers-color-scheme` (for AUTO).
