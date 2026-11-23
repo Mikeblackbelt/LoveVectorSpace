@@ -211,16 +211,23 @@ The desktop extension can't run on phones. The mobile apps get these capture pat
    - **Queue:** messages are held locally and encrypted, then flushed to `/api/people/{pid}/imports/messages` with source `android_notify_<app>`. They count as one-sided (them only) unless combined with another source.
    - **Off switch:** a persistent "capturing" indicator and a one-tap pause.
 3. **Android SMS reader (sideload build only).** Opt-in `READ_SMS` for linked phone numbers only, which gives both sides of SMS and MMS-text threads. Source `android_sms`.
-4. **Not built:**
-   - An Android Accessibility-service screen reader. It reads every app on screen, Google Play bans that use, and it would add liability.
-   - Any direct reading of other apps on iOS, which is impossible.
+4. **Android accessibility chat reader (sideload build only; owner decision, overriding the designer's earlier exclusion).** An opt-in `AccessibilityService` (custom Capacitor plugin) with these guardrails:
+   - **Package allowlist:** WhatsApp, Instagram, Tinder, Hinge, Grindr, Discord and Google Messages. It is declared in the service config (`packageNames`), so other apps' events never reach the service.
+   - **Linked chats only:** capture happens only while a chat whose title matches a contact linked to a person is in the foreground.
+   - **Never reads** password nodes (`isPassword`) or editable text fields.
+   - **On the phone:** bubble text and side (left = them, right = me) and visible time separators are parsed on the device, and only those messages are queued (encrypted) and uploaded via `/api/people/{pid}/imports/messages` with source `android_a11y_<app>`. Duplicates from scrolling are merged by the server.
+   - **Controls:** a persistent "capturing" notification, one-tap pause, auto-pause after 30 minutes without a linked chat open, and per-contact delete.
+   - **Consent:** off by default, behind an explanation screen.
+   - **Coverage:** it gives both sides on all allowlisted apps, including **Hinge** (which has no web version).
+   - **Accepted trade-offs:** this is not allowed on Google Play, so it exists only in the `sideload` flavour, and the owner accepts the added liability.
+5. **Not possible:** directly reading other apps on iOS.
 
 **Store vs. sideload builds.**
-- The Android build has two flavours. `store` contains screenshot import plus the share sheet and file import. `sideload` adds the notification and SMS readers, and is the demo APK for judges.
+- The Android build has two flavours. `store` contains screenshot import plus the share sheet and file import. `sideload` adds the notification, SMS and accessibility readers, and is the demo APK for judges.
 - iOS gets screenshot import plus the Files picker.
 
 **Privacy.** Every capture path has a clear in-app explanation, per-contact opt-in, pause, and "delete captured data for this contact". As everywhere, there is no logging of message text.
 
 **Merge-time follow-ups:**
-- **Frontend/mobile:** screenshot OCR import with a review step; the Android notification and SMS plugins; build flavours.
-- **API and core:** the `/imports/messages` route and the `screenshot_import`, `android_notify_*` and `android_sms` sources.
+- **Frontend/mobile:** screenshot OCR import with a review step; the Android notification, SMS and accessibility plugins (with the guardrails above); build flavours.
+- **API and core:** the `/imports/messages` route and the `screenshot_import`, `android_notify_*`, `android_sms` and `android_a11y_*` sources.
