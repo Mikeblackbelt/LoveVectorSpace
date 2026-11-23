@@ -8,3 +8,7 @@
 - {id: self_harm-08, role: them, text: "There is no reason to live"}
 - {id: self_harm-09, role: them, text: "I can't go on like this"}
 - {id: self_harm-10, role: them, text: "I might take my own life"}
+- {id: self_harm-11, role: me, text: "I'm thinking about killing myself"}
+- {id: self_harm-12, role: them, text: "I've been thinking of ending it all"}
+- {id: self_harm-13, role: them, text: "I almost killed myself last week"}
+- {id: self_harm-14, role: me, text: "I keep thinking about ending things for good, like ending my life"}

@@ -10,3 +10,6 @@
 - {id: threat-10, role: them, text: "If you leave me I'll ruin you"}
 - {id: threat-11, role: me, text: "I could hurt you right now"}
 - {id: threat-12, role: them, text: "She choked me during the argument"}
+- {id: threat-13, role: them, text: "I will fucking kill you"}
+- {id: threat-14, role: me, text: "I want to kill her"}
+- {id: threat-15, role: them, text: "I'll really hurt you if you tell anyone"}

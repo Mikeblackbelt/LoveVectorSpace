@@ -14,3 +14,9 @@
   text: Text LOVEIS to 22522
   url: https://www.loveisrespect.org/
   description: Support on healthy and unhealthy relationships, aimed at young people.
+- name: Emergency services
+  phone: "911"
+  text: ""
+  url: ""
+  description: If you are in immediate danger, call 911.
+  urgent_threat_only: true

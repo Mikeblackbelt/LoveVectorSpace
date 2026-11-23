@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
@@ -20,6 +21,7 @@ DISCLAIMER = (
     "both directions. They are not a judgement about you or the other person."
 )
 _HERE = Path(__file__).parent
+POOLED = frozenset({"monitoring", "control", "isolation"})
 _RANK = {"info": 0, "concern": 1, "urgent": 2}
 _FACT_CATEGORY_KEYS = [
     ("monitor", "monitoring"), ("control", "control"), ("isolat", "isolation"),
@@ -46,6 +48,7 @@ class Resource:
     text: str
     url: str
     description: str
+    urgent_threat_only: bool = False
 
 
 @dataclass
@@ -90,11 +93,19 @@ def _message_flags(msgs: list[StoredMessage], tox: list[float] | None) -> list[S
     for m in msgs:
         for cat in sorted(scan(m.text)):
             hits.setdefault((m.role or "unknown", cat), []).append(m)
+    pooled_concern: set[str] = set()  # speakers with repeated monitoring/control/isolation hits
+    for speaker in {sp for sp, _ in hits}:
+        distinct = {m.id: m for (sp, cat), ms in hits.items() if sp == speaker and cat in POOLED
+                    for m in ms}
+        if _repeated([m.ts for m in distinct.values()], need, window):
+            pooled_concern.add(speaker)
     flags: list[SafetyFlag] = []
     for (speaker, cat), ms in hits.items():
         if cat in URGENT_CATEGORIES:
             sev = "urgent"
-        elif _repeated([m.ts for m in ms], need, window):
+        elif cat in POOLED and speaker in pooled_concern:
+            sev = "concern"
+        elif cat not in POOLED and _repeated([m.ts for m in ms], need, window):
             sev = "concern"
         else:
             sev = "info"
@@ -156,12 +167,28 @@ def _fact_category(key: str, value: str) -> str:
     return "control"
 
 
+_NEG_START = re.compile(r"^(no|never|not|none|nope|nah)\b")
+_NEG_SENT = re.compile(r"\b(has|have|had|did|does|do|was|is|were)(n'?t| not| never)\b|\bnever (\w+ )?(hit|threatened|hurt|touched|abused|harmed|scared)\b")
+_CONTRAST = re.compile(r"\b(but|except|although|though|however)\b")
+
+
+def _is_negated(v: str) -> bool:
+    """Negated answer ("no, he has never hit me") unless a contrast marker introduces
+    urgent language ("no, but he threatened me")."""
+    if not (_NEG_START.search(v) or _NEG_SENT.search(v)):
+        return False
+    m = _CONTRAST.search(v)
+    if m and any(p.search(v[m.end():]) for p in FACT_URGENT):
+        return False
+    return True
+
+
 def _fact_severity(value: str) -> str | None:
     f = _config()["facts"]
     v = normalize(value).strip(".! ")
     if not v or v in f["negative_words"]:
         return None  # "never", "no", "0": nothing to flag
-    if v.startswith(("no ", "never ", "not ")) and not scan(v):
+    if _is_negated(v):
         return None
     if any(p.search(v) for p in FACT_URGENT):
         return "urgent"
@@ -197,4 +224,6 @@ def safety_check(msgs: list[StoredMessage], tox: list[float] | None,
     if facts:
         flags += _fact_flags(facts)
     flags.sort(key=lambda f: -_RANK[f.severity])
-    return SafetyBlock(flags=flags, resources=list(_resources()) if flags else [])
+    urgent_threat = any(f.category == "threat" and f.severity == "urgent" for f in flags)
+    res = [r for r in _resources() if urgent_threat or not r.urgent_threat_only] if flags else []
+    return SafetyBlock(flags=flags, resources=res)

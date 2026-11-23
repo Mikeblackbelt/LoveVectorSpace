@@ -150,3 +150,49 @@ def test_cdaq_questionnaire_mapping():
 def test_cdaq_none_subscales_ignored():
     assert run([], c=cdaq()).flags == []
     assert run([], c=cdaq(monitoring_done=None, aggression_done=None)).flags == []
+
+
+def test_pooled_concern_across_monitoring_control_isolation():
+    msgs = [mk(0, "them", "Send me your live location", days=0),
+            mk(1, "them", "You need my permission before you make plans", days=3),
+            mk(2, "them", "You only need me", days=6)]
+    flags = run(msgs).flags
+    assert {f.category for f in flags} == {"monitoring", "control", "isolation"}
+    assert all(f.severity == "concern" for f in flags)
+    msgs2 = [mk(0, "them", "Send me your live location", days=0),
+             mk(1, "them", "Show me your texts", days=2),
+             mk(2, "them", "You need my permission before you make plans", days=4)]
+    assert all(f.severity == "concern" for f in run(msgs2).flags)
+    # a message matching two categories counts once
+    both = [mk(0, "them", "Give me your password, you need my permission", days=0),
+            mk(1, "them", "Send me your live location", days=1)]
+    assert all(f.severity == "info" for f in run(both).flags)
+    # pooling is per speaker and respects the window
+    mixed = [mk(0, "them", "Send me your live location", days=0),
+             mk(1, "me", "You need my permission before you make plans", days=1),
+             mk(2, "them", "You only need me", days=2)]
+    assert all(f.severity == "info" for f in run(mixed).flags)
+    far = [mk(i, "them", t, days=i * 40) for i, t in
+           enumerate(["Send me your live location", "You only need me", "I forbid it"])]
+    assert all(f.severity == "info" for f in run(far).flags)
+
+
+def test_fact_negation():
+    for v in ["No, he has never hit me", "no, not abusive", "never hit me", "no, never",
+              "He didn't hit me", "None"]:
+        assert run([], facts=[fact("safety.threats_experienced", v)]).flags == [], v
+    for v in ["no, but he threatened me", "Not really, except he hit me once",
+              "he has hit me", "he never apologised, he hit me"]:
+        flags = run([], facts=[fact("safety.threats_experienced", v)]).flags
+        assert flags and flags[0].severity == "urgent", v
+
+
+def test_911_only_for_urgent_threat():
+    def names(b):
+        return [r.phone for r in b.resources]
+    assert "911" in names(run([mk(0, "them", "I will fucking kill you")]))
+    assert "911" not in names(run([mk(0, "them", "I want to kill myself")]))
+    assert "911" not in names(run([mk(0, "them", "Let me see your phone")]))
+    assert "988" in names(run([mk(0, "them", "I will fucking kill you")]))
+    r = [x for x in run([mk(0, "them", "I know where you live")]).resources if x.phone == "911"][0]
+    assert "immediate danger" in r.description
