@@ -1,5 +1,7 @@
 # Relationship Analyzer v1 Implementation Plan
 
+> **Superseded:** this plan is the base for `2026-11-23-relationship-analyzer-combined.md`, which reuses several of its task bodies. Execute the combined plan, not this one.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a single-user, Railway-hosted relationship analyzer. It covers validated questionnaires, explainable chat signals and a safety check, behind a web UI, a token-protected REST API and an MCP endpoint, with an optional Claude narrative.

@@ -1,6 +1,6 @@
 # Relationship Analyzer v2: frontend, capture extension, Groq agent
 
-*2026-11-23. Addendum to `2026-11-23-relationship-analyzer-design.md` (v1). Where the two conflict, this file wins. Status: draft for owner approval.*
+*2026-11-23. Addendum to `2026-11-23-relationship-analyzer-design.md` (v1). Where the two conflict, this file wins. Status: approved by owner 2026-11-23.*
 
 ## 1. What changes and why
 
