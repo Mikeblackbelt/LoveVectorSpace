@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-Evidence = Literal["moderate", "heuristic", "descriptive"]
+Evidence = Literal["moderate", "heuristic", "descriptive", "self-report heuristic"]
 Status = Literal["ok", "insufficient_data"]
 
 MIN_MESSAGES = 20
