@@ -108,7 +108,7 @@
   --rule: #e4d9cb;
   --text: #2b2622;
   --text-dim: #6b6157;      /* ≥4.5:1 on --bg */
-  --me: #c8553d;            /* terracotta */
+  --me: #b0442e;            /* terracotta */
   --them: #5f8a6e;          /* sage */
   --link: #d9a441;          /* mustard (fills only) */
   --ok: #4f8a5b;
@@ -169,8 +169,8 @@
 [data-theme="matcha"] {
   --radius: 8px; --rule-w: 1px;
   --bg: #f3f1e8; --panel: #fbfaf4; --rule: #d6d2c0;
-  --text: #22301f; --text-dim: #5c6852;
-  --me: #6a8f3f;            /* matcha green */
+  --text: #22301f; --text-dim: #4f5a46;
+  --me: #4f7030;            /* matcha green */
   --them: #b5654a;          /* clay */
   --link: #c9a227;          /* honey (fills only) */
   --ok: #4f7f3a;

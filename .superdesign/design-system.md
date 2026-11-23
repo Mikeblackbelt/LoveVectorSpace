@@ -162,3 +162,12 @@ The layout, terminal structure (box-drawing frames, command bar, bracketed keys,
   - canvases sized from their container with DPR handling, redrawn on `resize` and `orientationchange` (debounced);
   - no horizontal scroll at 320–1920px; tap targets ≥44px under 768px;
   - honour `env(safe-area-inset-*)`, `prefers-reduced-motion` and `prefers-color-scheme` (for AUTO).
+- **Contrast and motion fixes (owner bug report: "intro is not dynamic, many themes have way too low contrast"):**
+  - **Token fixes:** journal `--me` is now `#b0442e`; matcha `--me` is `#4f7030` and `--text-dim` is `#4f5a46`. Every token text pair is ≥4.9:1.
+  - **Rendered contrast is the bar, not token pairs.**
+    - Text must use the text tokens (`--text`, `--text-dim`, `-t` variants), never fill tokens or `--rule`.
+    - No `opacity` on text below 1. Effect overlays (scanlines, halftone, vignette, grid, star field, glow) must sit behind text or be weak enough that rendered text stays ≥4.5:1 (≥3:1 for text ≥24px, or ≥18.66px bold).
+  - **Motion:**
+    - A `prefers-reduced-motion` setting no longer freezes the intro or the screens. It switches to a gentle mode: vectors still draw and close, numbers still count, but there is no camera orbit, flicker, scan wipes, parallax or continuous loops.
+    - Every screen gets an explicit **Motion: Full / Gentle / Off** control (in the theme popover and on the Themes screen), stored as `lvs-motion`. The user's explicit choice overrides the OS setting.
+    - Inkwell defaults to Gentle, not Off.
