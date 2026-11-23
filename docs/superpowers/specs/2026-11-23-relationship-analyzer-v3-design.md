@@ -193,3 +193,34 @@ New importers for **Tinder**, **Hinge** and **Grindr** data exports:
 - **Nine themes:** signal, pulse, riso, blueprint, journal, matcha, midnight, inkwell (high-contrast, accessible), crt. `Settings.theme` and `auto_theme.day`/`night` accept all nine; AUTO defaults are day = journal, night = signal.
 - **Device scaling:** every screen follows the design-system scaling rules (fluid `clamp()` type, no fixed-width page containers, canvases redrawn on resize and orientation change, no horizontal scroll from 320 to 1920px, safe areas).
 - **Post-merge follow-ups** for the build streams (applied at merge time, not mid-stream): the theme enum in the API, core and frontend; the frontend's 9-theme support plus the scaling rules; the extension's 9-theme select.
+
+## 11. Reading messages on phones (owner request)
+
+The desktop extension can't run on phones. The mobile apps get these capture paths. Each is user-initiated or explicitly opted into, limited to linked contacts, and feeds the normal import pipeline (merging across sources, coverage tracking, `one_sided` / `approx` marking).
+
+1. **Screenshot import (iOS + Android).**
+   - The user picks chat screenshots (multi-select) in the Import flow, and on-device OCR extracts the text: Apple Vision via a Capacitor plugin on iOS, Google ML Kit text recognition on Android. **Images never leave the device; only the extracted messages are uploaded.**
+   - Each message becomes a bubble. A bubble's horizontal position decides its role (right-aligned = me, left-aligned = them), and the in-image date/time separators give approximate timestamps (`ts_precision: "approx"`).
+   - Overlapping screenshots are de-duplicated by text sequence.
+   - A review step shows the parsed bubbles before import, so the user can flip a bubble's side, fix the text, or drop it.
+   - New source: `screenshot_import`.
+   - New API route: `POST /api/people/{pid}/imports/messages` with body `{source, tz, messages: [{ts_local?|ts_utc?, ts_precision, role: "me"|"them", text}]}`, returning `ImportResult`. It is the same pipeline as file import, just with pre-parsed messages.
+2. **Android notification reader (sideload build only).**
+   - An opt-in `NotificationListenerService` (a custom Capacitor plugin) reads **incoming** message notifications from WhatsApp, Instagram, Tinder, Grindr and Discord, but only for contacts the user linked to a person.
+   - **Unlinked contacts:** their notifications are ignored and never stored.
+   - **Queue:** messages are held locally and encrypted, then flushed to `/api/people/{pid}/imports/messages` with source `android_notify_<app>`. They count as one-sided (them only) unless combined with another source.
+   - **Off switch:** a persistent "capturing" indicator and a one-tap pause.
+3. **Android SMS reader (sideload build only).** Opt-in `READ_SMS` for linked phone numbers only, which gives both sides of SMS and MMS-text threads. Source `android_sms`.
+4. **Not built:**
+   - An Android Accessibility-service screen reader. It reads every app on screen, Google Play bans that use, and it would add liability.
+   - Any direct reading of other apps on iOS, which is impossible.
+
+**Store vs. sideload builds.**
+- The Android build has two flavours. `store` contains screenshot import plus the share sheet and file import. `sideload` adds the notification and SMS readers, and is the demo APK for judges.
+- iOS gets screenshot import plus the Files picker.
+
+**Privacy.** Every capture path has a clear in-app explanation, per-contact opt-in, pause, and "delete captured data for this contact". As everywhere, there is no logging of message text.
+
+**Merge-time follow-ups:**
+- **Frontend/mobile:** screenshot OCR import with a review step; the Android notification and SMS plugins; build flavours.
+- **API and core:** the `/imports/messages` route and the `screenshot_import`, `android_notify_*` and `android_sms` sources.
