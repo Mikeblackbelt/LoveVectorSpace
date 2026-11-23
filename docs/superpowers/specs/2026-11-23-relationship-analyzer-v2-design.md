@@ -78,7 +78,8 @@ The numbers come from `GET /api/ext/summary?chat_key=…`, which returns counts 
      - signal table with evidence tags and "what it can't tell you" notes;
      - scale results;
      - **next-step cards** (§5.3).
-  3. **Agent chat** per person, with streaming replies and saved threads.
+  3. **Agent chat** per person, with streaming replies and saved threads. It has an "Interview" mode with a topic progress bar, and a "Log a hangout" button that starts a guided check-in (§5.5).
+  3a. **Context:** facts and the interaction log, each editable and deletable, with "unsure" toggles (§5.5).
   4. **Questionnaires:** take or retake a scale; results history.
   5. **Sources and import:**
      - manual upload (WhatsApp `.txt`, Instagram `message_*.json`, Discord `messages.json`, plain text);
@@ -121,9 +122,65 @@ The numbers come from `GET /api/ext/summary?chat_key=…`, which returns counts 
   - mark heuristic signals as heuristic.
 - Context is a short summary built per turn from `get_person_overview`; details come through tools.
 
+### 5.5 Agent interviews and in-person interaction log
+
+The agent asks the owner detailed questions, so guidance rests on what happens offline too, not only on chats.
+
+- **Intake interview**, offered when a person is added and resumable at any time:
+  - The agent asks adaptive questions one at a time.
+  - **Both modes:** how they met; how long they've known each other; how often they see each other in person and where; the owner's goals and worries; anything the owner is unsure how to read.
+  - **Potential mode:** who suggests meeting up; what signals the owner has noticed, described as concrete behaviour ("what did they say or do?"); mutual friends or shared settings; what the owner wants next.
+  - **Established mode:** length and stage of the relationship; living situation; what's going well; recurring disagreements and how they usually end; stressors; shared plans.
+  - **Established mode, optional safety questions** worded from the CDAQ items, which feed the safety block.
+  - Answers are saved as **context facts** `(person_id, key, value, source: interview|checkin|owner_edit, asked_at, confidence: owner_sure|owner_unsure)`. The full transcript is kept as an agent thread.
+- **"Log a hangout"** (a dashboard button, or saying it in chat):
+  - The agent asks follow-up questions:
+    - when, where and how long;
+    - who suggested it;
+    - what they did;
+    - how close and comfortable it felt (1–7 each);
+    - responsiveness moments (did they ask about the owner, remember details, share something personal);
+    - any tension and how it resolved;
+    - affection cues (optional, skippable, never pressed);
+    - whether a next meeting was proposed, and by whom;
+    - whether earlier plans were followed through.
+  - Saved as an `interactions` row with structured fields plus free-text notes.
+- **Check-ins:** the agent proposes a short check-in in two cases:
+  - 10 days with no logged interaction while chats continue;
+  - a chat signal shift, e.g. "their message share dropped this week; did anything happen in person?"
+
+  Check-ins appear as a `reflect` next-step card; the agent never pushes notifications.
+- **Interaction signals** (evidence tag `self-report heuristic`):
+  - meetups per month;
+  - share of meetups the owner initiated;
+  - plan follow-through rate;
+  - closeness and comfort trends;
+  - tension incidence.
+
+  They are shown on the dashboard next to the chat signals, with coverage noted (only logged hangouts count).
+- **Question rules** (in the system prompt and tool descriptions):
+  - one question per turn;
+  - every question skippable;
+  - ask for observable behaviour before interpretation;
+  - no leading questions;
+  - restate ambiguous answers to confirm;
+  - sensitive topics (sex, health, past abuse) only if the owner raises them or explicitly opts in;
+  - never suggest the owner covertly gather information about the other person.
+- **Personalised guidance:** next-step cards and chat replies draw on context facts and the interaction log alongside chat signals and scales. Each card's evidence refs may point to facts (`fact:<id>`) or interactions (`interaction:<id>`), so the owner sees what a suggestion rests on.
+- **Owner control:** a Context page lists every fact and interaction, each editable and deletable. Facts the owner marks "unsure" are weighted lower and flagged in replies.
+
+Additional agent tools (also exposed via `/mcp`):
+
+| Tool | Purpose |
+|---|---|
+| `get_context(person_id)` | All current facts plus a summary of recent interactions |
+| `save_context_fact(person_id, key, value, confidence)` | Record or update a fact from the conversation |
+| `log_interaction(person_id, fields, notes)` / `list_interactions(person_id, since)` | In-person interaction log |
+| `get_interview_progress(person_id)` | Which intake topics are covered or still open, so the interview resumes cleanly |
+
 ## 6. Data model and signal changes
 - `messages` gains `source` (`whatsapp_ext`, `discord_ext`, `instagram_ext`, `whatsapp_import`, `instagram_import`, `discord_import`, `plaintext`), `platform_msg_id` (nullable) and `ts_precision` (`second`, `minute` or `approx`).
-- New tables: `speaker_map(person_id, source, speaker_raw, role: me|them)`, `chat_links(person_id, platform, chat_key)`, `agent_threads`, `agent_messages`, `next_steps`, `tokens(kind, hash, created_at, revoked_at)`.
+- New tables: `speaker_map(person_id, source, speaker_raw, role: me|them)`, `chat_links(person_id, platform, chat_key)`, `agent_threads(kind: chat|interview|checkin)`, `agent_messages`, `next_steps`, `context_facts`, `interactions`, `tokens(kind, hash, created_at, revoked_at)`.
 - **Cross-source de-duplication:**
   - Key 1: `(platform, platform_msg_id)` when present.
   - Otherwise key 2: `(person, role, ts rounded to the minute, normalised text, occurrence index)`. Normalising means lower-casing, collapsing whitespace and stripping zero-width characters.
