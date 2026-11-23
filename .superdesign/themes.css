@@ -29,6 +29,8 @@
   --glow-me: none; --glow-them: none;             /* print look: no bloom */
   --texture: none;                                 /* optional: 0.03 opacity paper grain */
   --effect: "print";
+  /* text-safe accents (>=4.5:1 as text) and ink on a --me fill */
+  --me-t: var(--me); --them-t: var(--them); --link-t: var(--link); --ok-t: var(--ok); --on-me: var(--bg);
 }
 
 /* 2 · RISO — playful, light. Risograph zine: cream paper, pink + teal inks, misregistration offsets. */
@@ -44,7 +46,7 @@
   --link: #ffd23f;          /* yellow ink */
   --ok: #2e9e4f;
   --concern-bg: #1d1a17; --concern-fg: #f6efe0;
-  --urgent-bg: #e0312b;  --urgent-fg: #fffaf0;
+  --urgent-bg: #c8231d;  --urgent-fg: #fffaf0;
   --focus: #ff3e8e;
   --font-ui: 'Space Mono', monospace;
   --font-data: 'Space Mono', monospace;
@@ -52,6 +54,8 @@
   --glow-me: none; --glow-them: none;
   --misregister: 2px 2px 0 var(--them);           /* text/box offset shadow in the second ink */
   --effect: "riso";                                /* halftone dots on fills, stickers for tags, slight -1.5deg tilt on badges */
+  /* text-safe accents: pink/teal/green inks are too light as text on cream, so text uses darker inks; yellow is fill-only */
+  --me-t: #b8105a; --them-t: #006f80; --link-t: var(--text); --ok-t: #1a6e33; --on-me: var(--text);
 }
 
 /* 3 · BLUEPRINT — technical. Engineering drawing on blueprint navy. */
@@ -74,6 +78,8 @@
   --glow-me: none; --glow-them: none;
   --grid: linear-gradient(var(--rule) 1px, transparent 1px) 0 0/24px 24px, linear-gradient(90deg, var(--rule) 1px, transparent 1px) 0 0/24px 24px;
   --effect: "blueprint";                           /* 24px grid at ~25% opacity, dimension lines with tick ends on charts, callout leaders, title-block footer */
+  /* text-safe accents (>=4.5:1 as text) and ink on a --me fill */
+  --me-t: var(--me); --them-t: var(--them); --link-t: var(--link); --ok-t: var(--ok); --on-me: var(--bg);
 }
 
 /* 4 · CRT — retro amber phosphor (optional legacy look). */
@@ -87,4 +93,6 @@
   --font-ui: 'IBM Plex Mono', monospace; --font-data: 'IBM Plex Mono', monospace; --font-display: 'VT323', monospace;
   --glow-me: 0 0 6px rgba(255,176,0,.55); --glow-them: 0 0 6px rgba(168,216,255,.45);
   --effect: "crt";                                 /* scanlines, vignette, flicker, bloom */
+  /* text-safe accents (>=4.5:1 as text) and ink on a --me fill */
+  --me-t: var(--me); --them-t: var(--them); --link-t: var(--link); --ok-t: var(--ok); --on-me: var(--bg);
 }

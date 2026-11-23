@@ -129,3 +129,9 @@ The layout, terminal structure (box-drawing frames, command bar, bracketed keys,
   - the grid floor uses `--rule`;
   - bloom only in `crt`, halftone trail in `riso`, dimensioned axes in `blueprint`.
 - **Every theme meets 4.5:1 text contrast** and has visible `--focus` rings.
+- **Text-safe tokens (added during the refactor):**
+  - Use `--me-t`, `--them-t`, `--link-t` and `--ok-t` for TEXT coloured in those hues.
+  - Plain `--me`, `--them`, `--link` and `--ok` are for fills, strokes and vectors.
+  - `--on-me` is the ink colour on a `--me` fill.
+  - In riso these are darker inks, so text stays ≥4.5:1 on cream. The yellow `--link` is never used for text in riso.
+  - Riso's `--urgent-bg` is `#c8231d`.
