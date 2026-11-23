@@ -1,3 +1,5 @@
+"""Safety check. Resources are suggestions only: no tel: links, no auto-dial, and no contact
+initiated by the app or agent on the owner's behalf."""
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -49,6 +51,7 @@ class Resource:
     url: str
     description: str
     urgent_threat_only: bool = False
+    action: Literal["suggestion_only"] = "suggestion_only"
 
 
 @dataclass

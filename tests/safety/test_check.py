@@ -196,3 +196,23 @@ def test_911_only_for_urgent_threat():
     assert "988" in names(run([mk(0, "them", "I will fucking kill you")]))
     r = [x for x in run([mk(0, "them", "I know where you live")]).resources if x.phone == "911"][0]
     assert "immediate danger" in r.description
+
+
+def test_resources_are_suggestions_only():
+    b = run([mk(0, "them", "I will fucking kill you"), mk(1, "them", "I want to kill myself")])
+    assert len(b.resources) == 4
+    for r in b.resources:
+        assert r.action == "suggestion_only"
+        assert "tel:" not in " ".join(str(v) for v in vars(r).values()).lower()
+    r911 = [r for r in b.resources if r.phone == "911"][0]
+    assert r911.description == "If you are in immediate danger, you can call 911 yourself."
+
+
+def test_scan_is_fast_on_adversarial_input():
+    import time
+    for s in ["i will " * 1500, "a " * 5000, "i want to " * 1000, "you don't " * 1000,
+              "stop talking to " + "x " * 5000]:
+        s = s[:10000]
+        t0 = time.perf_counter()
+        run([mk(0, "them", s)])
+        assert time.perf_counter() - t0 < 0.5
