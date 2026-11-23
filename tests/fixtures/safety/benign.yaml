@@ -33,7 +33,9 @@
 - {id: benign-33, role: them, text: "Ugh, work is so dumb this week"}
 - {id: benign-34, role: me, text: "Mom says hi and asks when you're visiting"}
 - {id: benign-35, role: them, text: "We should totally go hiking this weekend"}
-- {id: benign-35, role: them, text: "We ended things last year and we are on good terms now"}
-- {id: benign-36, role: me, text: "I want to end things with him, it just isn't working"}
-- {id: benign-37, role: me, text: "I can totally beat you at mario kart"}
-- {id: benign-38, role: them, text: "I'm gonna beat you in the next round, watch me"}
+- {id: benign-36, role: them, text: "We ended things last year and we are on good terms now"}
+- {id: benign-37, role: me, text: "I want to end things with him, it just isn't working"}
+- {id: benign-38, role: me, text: "I can totally beat you at mario kart"}
+- {id: benign-39, role: them, text: "I'm gonna beat you in this one, watch me"}
+- {id: benign-40, role: me, text: "I can beat you at chess any day"}
+- {id: benign-41, role: them, text: "I'll destroy you in fifa tonight"}

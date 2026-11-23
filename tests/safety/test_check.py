@@ -234,3 +234,35 @@ def test_fact_negation_does_not_hide_disclosures():
     for v in ["No, he has never hit me", "no, not abusive", "no, he did not threaten me",
               "no, never", "He doesn't hurt me"]:
         assert run([], facts=[fact("safety.threats_experienced", v)]).flags == [], v
+
+
+def test_fixture_ids_unique():
+    ids = [r["id"] for f in FIX.glob("*.yaml") for r in yaml.safe_load(f.read_text(encoding="utf-8"))]
+    assert len(ids) == len(set(ids))
+
+
+def test_game_exclusion_does_not_hide_threats():
+    for t in ["I'll kill you in your sleep", "I will hurt you in the morning", "I'll beat you in the car",
+              "I'll kill you at chess", "I'll stab you in this"]:
+        assert any(f.severity == "urgent" for f in run([mk(0, "them", t)]).flags), t
+    for t in ["I can beat you at chess", "I'll destroy you in fifa"]:
+        assert run([mk(0, "them", t)]).flags == [], t
+
+
+def test_end_things_is_concern_not_urgent():
+    for t in ["I just want to end things", "thinking about ending things"]:
+        f = run([mk(0, "me", t)]).flags
+        assert [(x.category, x.severity) for x in f] == [("self_harm", "concern")], t
+    for t in ["we ended things last year", "I want to end things with him", "they had ended things"]:
+        assert run([mk(0, "me", t)]).flags == [], t
+    both = run([mk(0, "me", "I want to end it all, I just want to end things")]).flags
+    assert [(x.category, x.severity) for x in both] == [("self_harm", "urgent")]
+
+
+def test_intensifier_negation_does_not_hide_disclosures():
+    for v in ["he doesn't only hurt me", "he didn't just threaten me, he hit me",
+              "he didn't even warn me, he grabbed me"]:
+        flags = run([], facts=[fact("safety.threats_experienced", v)]).flags
+        assert flags and flags[0].severity == "urgent", v
+    for v in ["no, he never stabbed me", "he has never grabbed me"]:
+        assert run([], facts=[fact("safety.threats_experienced", v)]).flags == [], v

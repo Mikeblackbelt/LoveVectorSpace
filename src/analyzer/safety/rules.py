@@ -63,7 +63,7 @@ _RAW: dict[str, list[str]] = {
         r"\byou'?re nothing\b",
     ],
     "threat": [
-        r"\b(i'?ll|i will|i'?m going to|i'?m gonna|im gonna|gonna|going to|i could|i can|i'?d|i want to|i wanna|i swear i'?ll) (\w+ ){0,2}(kill|hurt|beat|hit|punch|strangle|choke|stab|shoot|destroy|ruin) (?!you (at|in)\b)(\w+ )?(you|ya|u|her|him|them)\b",
+        r"\b(i'?ll|i will|i'?m going to|i'?m gonna|im gonna|gonna|going to|i could|i can|i'?d|i want to|i wanna|i swear i'?ll) (\w+ ){0,2}(kill|hurt|beat|hit|punch|strangle|choke|stab|shoot|destroy|ruin) (\w+ )?(you|ya|u|her|him|them)\b",
         r"\bi swear i'?ll (kill|hurt|end)\b",
         r"\byou'?ll (regret|pay for|be sorry)\b",
         r"\byou will (regret|pay for|be sorry)\b",
@@ -118,6 +118,19 @@ FACT_URGENT = [
 ] + [p for cat in URGENT_CATEGORIES for p in RULES[cat]]
 
 
+# Game/sport talk ("I can beat you at chess"). Only these verbs, only these contest words;
+# never applied to kill/hurt/stab/shoot/strangle/choke/hit/punch.
+_GAME = re.compile(
+    r"\b(beat|destroy|ruin|crush|smoke) you (at|in) (a |the |this |that )?"
+    r"(chess|mario kart|mario|games?|cards|poker|fifa|basketball|tennis|pool|trivia|scrabble"
+    r"|monopoly|race|this|that)\b")
+
+# Ambiguous self-harm phrasing, concern severity: "I just want to end things".
+# Breakup context ("we ended things", "end things with him") is excluded.
+_BREAKUP_CTX = re.compile(r"\b(we|they)\s+(have\s+|had\s+)?end(ed|ing)? things\b")
+_END_THINGS = re.compile(r"\bend(ing|ed)? things\b(?!\s+(with|between)\b)")
+
+
 def normalize(text: str) -> str:
     t = text.replace("’", "'").replace("‘", "'").replace("`", "'").lower()
     return re.sub(r"\s+", " ", t).strip()
@@ -125,5 +138,11 @@ def normalize(text: str) -> str:
 
 def scan(text: str) -> set[str]:
     """Categories whose rules match the text."""
-    t = normalize(text)
+    t = _GAME.sub(" ", normalize(text))
     return {cat for cat, pats in RULES.items() if any(p.search(t) for p in pats)}
+
+
+def scan_soft(text: str) -> set[str]:
+    """Categories with only a concern-level (ambiguous) match."""
+    t = _BREAKUP_CTX.sub(" ", normalize(text))
+    return {"self_harm"} if _END_THINGS.search(t) else set()

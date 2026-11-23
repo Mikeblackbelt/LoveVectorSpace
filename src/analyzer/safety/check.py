@@ -13,7 +13,7 @@ from analyzer.scales.schema import ScaleResult
 from analyzer.store.messages import StoredMessage
 from analyzer.store.models import Fact
 
-from .rules import FACT_URGENT, URGENT_CATEGORIES, normalize, scan
+from .rules import FACT_URGENT, URGENT_CATEGORIES, normalize, scan, scan_soft
 
 Category = Literal["monitoring", "control", "isolation", "threat", "hostility", "self_harm"]
 Severity = Literal["info", "concern", "urgent"]
@@ -96,6 +96,10 @@ def _message_flags(msgs: list[StoredMessage], tox: list[float] | None) -> list[S
     for m in msgs:
         for cat in sorted(scan(m.text)):
             hits.setdefault((m.role or "unknown", cat), []).append(m)
+    soft: dict[tuple[str, str], list[StoredMessage]] = {}
+    for m in msgs:
+        for cat in sorted(scan_soft(m.text)):
+            soft.setdefault((m.role or "unknown", cat), []).append(m)
     pooled_concern: set[str] = set()  # speakers with repeated monitoring/control/isolation hits
     for speaker in {sp for sp, _ in hits}:
         distinct = {m.id: m for (sp, cat), ms in hits.items() if sp == speaker and cat in POOLED
@@ -113,6 +117,9 @@ def _message_flags(msgs: list[StoredMessage], tox: list[float] | None) -> list[S
         else:
             sev = "info"
         flags.append(_make(cat, sev, speaker, ms))
+    for key, ms in soft.items():
+        if key not in hits:  # a firm match for the same speaker/category already gives urgent
+            flags.append(_make(key[1], "concern", key[0], ms))
     if tox is not None:
         t_cfg = cfg["toxicity"]
         high: dict[str, list[StoredMessage]] = {}
@@ -171,20 +178,23 @@ def _fact_category(key: str, value: str) -> str:
 
 
 _NEG_START = re.compile(r"^(no|never|not|none|nope|nah)\b")
-_NEG_SENT = re.compile(r"\b(has|have|had|did|does|do|was|is|were)(n'?t| not| never)\b|\bnever (\w+ )?(hit|threatened|hurt|touched|abused|harmed|scared)\b")
 _VERBS = (r"(hit|slap(ped)?|punch(ed)?|chok(e|ed)|shov(e|ed)|kick(ed)?|strangl(e|ed)|push(ed)?|hurt|beat"
+          r"|grab(bed)?|stab(bed)?|shoot|shot"
           r"|threat\w*|abus\w*|violen\w*|harm(ed)?|touch(ed)?|scar(e|ed)|kill(ed)?)")
-_NEG_VP = re.compile(r"\b(never|not|(has|have|had|did|does|do|was|is|were)(n'?t| not))\s+(\w+\s+)?" + _VERBS + r"\b")
+# explicit denial directly governing the verb; intensifiers ("didn't just threaten") are not denials
+_NEG_VP = re.compile(
+    r"\b(never|not|(has|have|had|did|does|do|was|is|were)(n'?t| not))\s+"
+    r"(?:(?!(?:just|only|merely|simply|once|even)\b)\w+\s+)?" + _VERBS + r"\b")
 
 
 def _is_negated(v: str) -> bool:
     """Negated answer ("no, he has never hit me", "no, not abusive"). Negation is dropped
     when urgent language survives outside a negated verb phrase ("no, he hit me",
-    "no, but he threatened me", "no, I am not safe at home")."""
+    "no, but he threatened me", "he didn't just threaten me, he hit me")."""
     remaining = _NEG_VP.sub(" ", v)
     if any(p.search(remaining) for p in FACT_URGENT):
         return False
-    return bool(_NEG_START.search(v) or _NEG_SENT.search(v) or remaining != v)
+    return bool(_NEG_START.search(v) or remaining != v)
 
 
 def _fact_severity(value: str) -> str | None:
