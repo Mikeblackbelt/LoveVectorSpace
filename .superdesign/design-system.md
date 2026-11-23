@@ -140,3 +140,14 @@ The layout, terminal structure (box-drawing frames, command bar, bracketed keys,
   - **Hidden:** keyboard hints (`.key-hint`) and box-drawing glyphs (`.glyph`) are hidden in this theme. Buttons read as normal labelled buttons ("Discuss", "Done").
   - **Plain-language labels:** where an element has `data-plain`, show that label instead of the technical one (e.g. `initiation_share` becomes "Who starts conversations"). Evidence tags show plain words ("moderate evidence", "rule of thumb", "your own notes", "rough estimate").
   - **Exceptions:** this is the only theme allowed rounded corners and soft shadows.
+- **6th theme `pulse` (pink, owner request).** Neon night palette:
+  - **Colours:** plum-black background, hot-pink `#ff3d8b` leads (ME), electric cyan (THEM), acid-lime sparks (resultant / live marker).
+  - **Fonts:** JetBrains Mono for UI/data, Unbounded 800 for display numerals.
+  - **Effects:** neon bloom on pink, a slow chromatic shimmer on the headline, a faint drifting 3D vector field behind panels, and a 1px pink edge highlight on panel tops.
+  - **Cycle order:** signal → pulse → riso → blueprint → journal → crt.
+- **THEMES screen (owner request: adaptive, unique, cool)** — see `.superdesign/tmp/themes.html`.
+  - Each theme is a **live specimen**: a mini animated radar plus a vector-sum loop, a type specimen and a swatch strip, all rendered in that theme's own tokens and effects.
+  - Hovering or focusing a specimen previews the whole screen in it; click or Enter applies it.
+  - **AUTO mode:** follows system `prefers-color-scheme` (light → journal, dark → signal), or a time-of-day schedule (07–19 day theme, otherwise night theme). The user picks the day and night themes.
+  - **Accessibility controls:** reduced motion, contrast boost and text size.
+  - Fully responsive: a specimen grid on desktop, swipeable full-bleed cards on phone.

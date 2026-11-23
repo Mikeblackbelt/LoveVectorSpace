@@ -1,7 +1,7 @@
 /* LoveVectorSpace theme tokens — paste into every screen's <style>; set data-theme on the root <div>.
    Components must use ONLY these variables (no raw hex in component CSS).
-   Themes: signal (default) · riso (playful) · blueprint (technical) · journal (non-technical) · crt (retro, optional) */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;600&family=Space+Mono:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=VT323&family=Instrument+Serif:ital@0;1&family=Fraunces:opsz,wght@9..144,400;9..144,600&family=DM+Sans:opsz,wght@9..40,400;9..40,600&display=swap');
+   Themes: signal (default) · riso (playful) · blueprint (technical) · journal (non-technical) · pulse (pink, neon) · crt (retro, optional) */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;600&family=Space+Mono:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=VT323&family=Instrument+Serif:ital@0;1&family=Fraunces:opsz,wght@9..144,400;9..144,600&family=DM+Sans:opsz,wght@9..40,400;9..40,600&family=Unbounded:wght@500;800&family=JetBrains+Mono:wght@400;600&display=swap');
 
 [data-theme] {
   /* shared shape */
@@ -121,4 +121,27 @@
   --glow-me: none; --glow-them: none;
   --shadow: 0 1px 2px rgba(43,38,34,.06), 0 8px 24px rgba(43,38,34,.06);
   --effect: "journal";      /* soft cards, rounded corners, no scanlines/grid, hide .key-hint and .glyph, gentle 200ms ease transitions */
+}
+
+/* 6 · PULSE — pink. Neon night: plum-black, hot pink leads, electric cyan, acid lime sparks. */
+[data-theme="pulse"] {
+  --bg: #120a10;            /* plum black */
+  --panel: #1b1018;
+  --rule: #3d2436;
+  --text: #fbe9f3;
+  --text-dim: #c39bb4;      /* ≥4.5:1 on --bg */
+  --me: #ff3d8b;            /* hot pink */
+  --them: #38bdf8;          /* electric cyan */
+  --link: #d4ff00;          /* acid lime: resultant / live marker */
+  --ok: #4ade80;
+  --me-t: #ff6fa8; --them-t: #67cdfb; --link-t: #d4ff00; --ok-t: #4ade80; --on-me: #120a10;
+  --concern-bg: #fbe9f3; --concern-fg: #120a10;
+  --urgent-bg: #ff3b3b;  --urgent-fg: #120a10;
+  --focus: #d4ff00;
+  --font-ui: 'JetBrains Mono', monospace;
+  --font-data: 'JetBrains Mono', monospace;
+  --font-display: 'Unbounded', sans-serif;   /* wide, bold, glossy headline numerals */
+  --glow-me: 0 0 10px rgba(255,61,139,.6), 0 0 28px rgba(255,61,139,.25);
+  --glow-them: 0 0 10px rgba(56,189,248,.5);
+  --effect: "pulse";        /* neon bloom on --me, slow chromatic shimmer on headline, faint 3D vector-field background, pink edge-highlight on panel tops */
 }
