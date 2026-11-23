@@ -1,4 +1,4 @@
-from .evidence import ROLES, Metric, gate, insufficient, skipped_note
+from .evidence import MIN_REPLIES, ROLES, Metric, gate, insufficient, skipped_note
 from .sessions import split_sessions
 
 IDS = ("message_share", "initiation_share", "ending_share", "double_text_rate")
@@ -38,9 +38,9 @@ def count_metrics(msgs) -> list[Metric]:
     note = "share of messages that follow own previous message unanswered; no reference band"
     if skipped:
         note += "; " + skipped_note(skipped)
-    if min(tot.values()) == 0:
+    if min(tot.values()) < MIN_REPLIES:
         out.append(insufficient("double_text_rate", "heuristic",
-                                "too few timestamped messages; " + skipped_note(skipped)))
+                                "too few timestamped messages for one speaker; " + skipped_note(skipped)))
     else:
         per = {r: dbl[r] / tot[r] for r in ROLES}
         out.append(Metric("double_text_rate", sum(dbl.values()) / sum(tot.values()), per,

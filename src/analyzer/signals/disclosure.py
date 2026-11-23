@@ -1,7 +1,7 @@
 import re
 
 from .evidence import ROLES, Metric, gate, insufficient
-from .text import load_wordlist, tokens
+from .text import load_wordlist, norm_apostrophes, tokens
 
 
 def _compile(entries):
@@ -17,7 +17,7 @@ def disclosure_rate(msgs) -> Metric:
     words = {r: 0 for r in ROLES}
     for m in msgs:
         words[m.role] += len(tokens(m.text))
-        low = m.text.lower()
+        low = norm_apostrophes(m.text).lower()
         hits[m.role] += sum(len(p.findall(low)) for p in pats)
     if min(words.values()) == 0:
         return insufficient("disclosure_rate", "moderate", "one speaker has no words")

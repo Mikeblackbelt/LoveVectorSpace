@@ -22,7 +22,7 @@ def test_lsm_identical_text_near_one():
 def test_lsm_different_style_lower():
     m = []
     for i in range(30):
-        t = "I think that we should not go" if i % 2 == 0 else "Pizza tomorrow Friday"
+        t = "I think that we should not go to the park and all" if i % 2 == 0 else "Pizza tomorrow Friday"
         m.append(msg(i, "me" if i % 2 == 0 else "them", t, T0 + timedelta(minutes=i)))
     assert lsm(m).value < 0.6
 
@@ -46,9 +46,11 @@ def test_insufficient_data_empty_and_one_speaker():
 
 def test_latency_excludes_session_breaks():
     m = alternating("hi", n=30, step_min=2)
-    # one reply after a 10h break: must not count
-    m.append(msg(100, "me", "hi", m[-1].ts + timedelta(hours=10)))
-    m.append(msg(101, "them", "yo", m[-1].ts + timedelta(minutes=1)))
+    # 40 single-message sessions 10h apart: if breaks counted, 39 replies of 36000s would move the median
+    t = m[-1].ts
+    for k in range(40):
+        t += timedelta(hours=10)
+        m.append(msg(100 + k, "me" if k % 2 == 0 else "them", "hi", t))
     lat = by_id(latency_metrics(m), "reply_latency_median_s")
     assert lat.per_speaker["me"] == 120 and lat.per_speaker["them"] == 120
     assert lat.value == 120
@@ -56,16 +58,69 @@ def test_latency_excludes_session_breaks():
 
 def test_latency_skips_approx():
     m = alternating("hi", n=30, step_min=2)
-    m += [msg(100 + k, "me" if k % 2 == 0 else "them", "x", m[-1].ts + timedelta(minutes=2 * (k + 1)),
-              prec="approx") for k in range(4)]
+    # 40 approx messages 1h apart (still one session): if counted they would dominate the median
+    m += [msg(100 + k, "me" if k % 2 == 0 else "them", "x", m[-1].ts + timedelta(hours=k + 1),
+              prec="approx") for k in range(40)]
     lat = by_id(latency_metrics(m), "reply_latency_median_s")
-    assert "skipped 4 approx-timestamp messages" in lat.note
-    assert lat.per_speaker["me"] == 120
+    assert "skipped 40 approx-timestamp messages" in lat.note
+    assert lat.value == 120 and lat.per_speaker == {"me": 120, "them": 120}
 
 
-def test_double_text_skips_approx_note():
-    m = alternating("hi", n=30) + [msg(99, "me", "x", T0 + timedelta(hours=1), prec="approx")]
-    assert "skipped 1 approx-timestamp messages" in by_id(count_metrics(m), "double_text_rate").note
+def test_double_text_skips_approx():
+    m = alternating("hi", n=30)
+    m += [msg(100 + k, "me", "x", m[-1].ts + timedelta(minutes=k + 1), prec="approx") for k in range(40)]
+    d = by_id(count_metrics(m), "double_text_rate")
+    assert "skipped 40 approx-timestamp messages" in d.note
+    assert d.value == 0 and d.per_speaker == {"me": 0, "them": 0}
+
+
+def test_ending_share():
+    m = sessions_all_started_by("me", sessions=5)  # each session ends on "them"
+    e = by_id(count_metrics(m), "ending_share")
+    assert e.per_speaker == {"me": 0.0, "them": 1.0}
+
+
+def test_gate_per_speaker_minimum():
+    m = [msg(i, "me", "hello there friend", T0 + timedelta(minutes=i)) for i in range(19)]
+    m.append(msg(99, "them", "hi", T0 + timedelta(minutes=30)))
+    r = core_report(m)
+    assert all(x.status == "insufficient_data" and x.value is None for x in r)
+
+
+def test_mostly_approx_latency_insufficient():
+    m = alternating("hi", n=20, step_min=2)
+    m = [x if i < 2 else msg(x.id, x.role, x.text, x.ts, "approx") for i, x in enumerate(m)]
+    r = core_report(m)
+    assert by_id(r, "reply_latency_median_s").status == "insufficient_data"
+    assert by_id(r, "double_text_rate").status == "insufficient_data"
+    assert by_id(r, "message_share").status == "ok"
+
+
+def test_unknown_role_rejected():
+    m = alternating("hi", n=30) + [msg(99, "x", "hi", T0)]
+    with pytest.raises(ValueError):
+        core_report(m)
+    with pytest.raises(ValueError):
+        core_report([msg(1, None, "hi", T0)])
+
+
+def test_lsm_sparse_chat_insufficient():
+    m = alternating("ok", n=30)
+    r = lsm(m)
+    assert r.status == "insufficient_data" and r.value is None
+
+
+def test_lsm_note_states_categories_used():
+    m = alternating("I think that we should go to the park", n=30)
+    assert "5 of 9" in lsm(m).note
+
+
+def test_curly_apostrophes_match_straight():
+    from analyzer.signals.text import tokens
+    assert tokens("I’m sure we don’t") == tokens("I'm sure we don't")
+    def mk(txt):
+        return [msg(i, "me" if i % 2 == 0 else "them", txt, T0 + timedelta(minutes=i)) for i in range(30)]
+    assert disclosure_rate(mk("I’m scared")).value == disclosure_rate(mk("I'm scared")).value > 0
 
 
 def test_double_text_rate():

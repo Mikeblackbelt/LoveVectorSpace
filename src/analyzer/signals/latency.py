@@ -1,6 +1,6 @@
 from statistics import median
 
-from .evidence import ROLES, Metric, gate, insufficient, skipped_note
+from .evidence import MIN_REPLIES, ROLES, Metric, gate, insufficient, skipped_note
 from .sessions import split_sessions
 
 ID = "reply_latency_median_s"
@@ -17,9 +17,9 @@ def latency_metrics(msgs) -> list[Metric]:
         for prev, cur in zip(s, s[1:]):
             if prev.role != cur.role:
                 lat[cur.role].append((cur.ts - prev.ts).total_seconds())
-    if not all(lat.values()):
+    if min(len(v) for v in lat.values()) < MIN_REPLIES:
         return [insufficient(ID, "heuristic",
-                             "no replies measurable for one speaker; " + skipped_note(skipped))]
+                             f"fewer than {MIN_REPLIES} measurable replies for one speaker; " + skipped_note(skipped))]
     per = {r: float(median(v)) for r, v in lat.items()}
     note = "median seconds to reply within a session; no reference band"
     if skipped:

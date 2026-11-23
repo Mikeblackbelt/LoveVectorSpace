@@ -1,6 +1,7 @@
 from .evidence import ROLES, Metric, gate, insufficient
 from .text import load_wordlist, tokens
 
+MIN_CATEGORIES = 5
 CATEGORIES = ("personal_pronouns", "impersonal_pronouns", "articles", "conjunctions",
               "prepositions", "auxiliary_verbs", "adverbs", "negations", "quantifiers")
 
@@ -24,7 +25,12 @@ def lsm(msgs) -> Metric:
     for c in CATEGORIES:
         a = 100 * counts["me"][c] / total["me"]
         b = 100 * counts["them"][c] / total["them"]
-        scores.append(1 - abs(a - b) / (a + b + 0.0001))
-    return Metric("lsm", sum(scores) / len(scores), None, "moderate", "ok",
-                  "language style matching over 9 function-word categories "
+        if a + b > 0:
+            scores.append(1 - abs(a - b) / (a + b + 0.0001))
+    k = len(scores)
+    if k < MIN_CATEGORIES:
+        return insufficient("lsm", "moderate",
+                            f"only {k} of 9 function-word categories used by either speaker")
+    return Metric("lsm", sum(scores) / k, None, "moderate", "ok",
+                  f"language style matching over {k} of 9 function-word categories "
                   "(own open word lists); no reference band")
