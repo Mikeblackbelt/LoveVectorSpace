@@ -234,3 +234,23 @@ Additional agent tools (also exposed via `/mcp`):
 - Exact selectors (they will need maintenance).
 - Popup layout.
 - SSE vs WebSocket details (SSE preferred).
+
+## 7b. Product focus and safety scope (owner directive, 2026-11-23)
+
+The main purpose is helping the owner **establish and maintain a healthy relationship** and **read reciprocation** (is interest or effort mutual?). Unhealthy-dynamics handling is limited to **warnings**, to keep the owner's liability low.
+
+1. **Safety output = warnings only.** The safety block shows flags, severity, evidence and a list of resources. That is the whole intervention.
+   - No safety plans, no step-by-step advice on handling abuse, no risk scoring of the other person, no diagnosis ("abusive", "narcissist"), and no follow-up prompts that push the owner to act.
+   - Resources are **suggestions only** (`action: suggestion_only`). There are no `tel:` links and no auto-dial, and neither the app nor the agent contacts anyone. 911 appears only as "If you are in immediate danger, you can call 911 yourself."
+2. **Agent.** The agent focuses on reciprocity, communication and healthy-relationship skills.
+   - When the safety block has flags, it mentions them once in neutral words ("the app flagged some messages as possibly controlling; see the warning on your dashboard"). It points to the resources and suggests talking to someone the owner trusts or a professional, then returns to the owner's goals.
+   - It does not counsel on abuse, does not help plan a confrontation or an exit, and does not escalate.
+   - It never claims to be a therapist or crisis service.
+3. **Next steps.** The `safety` card kind is removed. Kinds are `talk`, `plan`, `reflect` and `pause`.
+4. **Interview.** The optional CDAQ-style safety questions are removed from the intake interview (§5.5). The `cdaq_items` questionnaire stays available as an optional form on the Questionnaires page, and only feeds the warning block.
+5. **Disclaimer.** A fixed line appears in the app footer, on the Settings page and under the safety block: "This tool offers reflection and pattern warnings. It is not therapy, counselling, or a crisis service."
+6. **Emphasis.** Dashboard ordering after the safety block: reciprocity signals first, then the rest:
+   - initiation share, message share, question rate, disclosure balance, LSM, meetup initiation share, plan follow-through;
+   - then the other signals.
+
+   The potential-mode dashboard leads with a "Reciprocity at a glance" panel of those signals with their evidence tags. It shows no single score and no probability.
