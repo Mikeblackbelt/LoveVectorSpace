@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from analyzer.parsers import ParseError, detect_format
-from analyzer.parsers import grindr_json, hinge_json, tinder_json
+from analyzer.parsers import bumble_json, grindr_json, hinge_json, tinder_json
 
 FIX = Path(__file__).parent.parent / "fixtures" / "chats"
 
@@ -62,7 +62,26 @@ def test_grindr_two_sided_and_variants():
     assert grindr_json.list_matches(flat)[0].message_count == 1
 
 
-@pytest.mark.parametrize("mod", [tinder_json, hinge_json, grindr_json])
+def test_bumble_list_and_parse():
+    infos = bumble_json.list_matches(read("bumble.json"))
+    assert [(i.match_id, i.message_count, i.one_sided) for i in infos] == [
+        ("b-1", 2, True), ("b-2", 1, True)]
+    msgs, one = bumble_json.parse_match(read("bumble.json"), "b-1", "Jordan")
+    assert one and msgs[0].platform_msg_id == "k1" and msgs[0].source == "bumble_import"
+    assert msgs[0].ts == datetime(2025, 4, 1, 18, 0, tzinfo=UTC) and msgs[0].role == "me"
+
+
+def test_bumble_two_sided_and_variants():
+    raw = json.dumps({"matches": [{"matchId": "x", "messages": [
+        {"from": "u1", "text": "a", "createdAt": 1741000000000},
+        {"from": "u2", "text": "b", "createdAt": 1741000060000}]}]})
+    msgs, one = bumble_json.parse_match(raw, "x", "u1")
+    assert not one and [m.role for m in msgs] == ["me", "them"]
+    flat = json.dumps([{"match_id": "q", "body": "hi", "timestamp": 1741000000}])
+    assert bumble_json.list_matches(flat)[0].message_count == 1
+
+
+@pytest.mark.parametrize("mod", [tinder_json, hinge_json, grindr_json, bumble_json])
 def test_malformed_raises_with_hint(mod):
     with pytest.raises(ParseError, match="expected"):
         mod.list_matches("{not json")
@@ -78,7 +97,7 @@ def test_unknown_match_id():
 @pytest.mark.parametrize("fname,expected", [
     ("wa_us.txt", "whatsapp"), ("plain.txt", "plaintext"), ("instagram.json", "instagram"),
     ("discord.json", "discord"), ("tinder.json", "tinder"), ("hinge.json", "hinge"),
-    ("grindr.json", "grindr")])
+    ("grindr.json", "grindr"), ("bumble.json", "bumble")])
 def test_detect(fname, expected):
     assert detect_format(fname, (FIX / fname).read_bytes()) == expected
 

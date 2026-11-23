@@ -1,4 +1,4 @@
-"""Shared helpers for the dating-app importers (Tinder, Hinge, Grindr)."""
+"""Shared helpers for the dating-app importers (Tinder, Hinge, Grindr, Bumble)."""
 import html
 import json
 import re

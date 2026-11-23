@@ -35,3 +35,18 @@ sender appears in the whole file it is treated as one-sided owner messages; with
 senders, "me" = sender equal to the owner name or "you". Re-verify against a real export.
 Source:
 - https://help.grindr.com/hc/en-us/articles/1500005257961-Accessing-your-personal-data
+
+## Bumble - UNCONFIRMED (confidence: low)
+Bumble handles data requests through chat support / a Subject Access Request ("Request
+data"), reportedly taking up to 30 days; third-party SwipeStats says the result is a
+Tinder-like structured JSON export in a ZIP. No public source gives the schema (searched
+2026-11-23). The parser (`bumble_json.py`) is tolerant like Grindr's: conversations as a
+list/dict under conversations/chats/matches/messages, or a flat message list grouped by
+match/conversation id; text under body/text/message_text, time under
+timestamp/date_sent/created_at etc.; sender under sender/from/author. A single sender in the
+file means owner-only (one-sided); with several, "me" = owner name or "you". Detection:
+"bumble" in the file name or early content (otherwise generic JSON falls to Grindr).
+Re-verify against a real export.
+Sources:
+- https://support.bumble.com/hc/en-us/articles/28783199493917 (request process only)
+- https://www.swipestats.io/how-to-request-your-data (secondhand, format claim unverified)
