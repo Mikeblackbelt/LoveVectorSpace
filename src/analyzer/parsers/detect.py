@@ -3,10 +3,10 @@ import re
 
 from .model import ParseError
 
-FORMATS = ("whatsapp", "plaintext", "instagram", "discord", "tinder", "hinge", "grindr")
+FORMATS = ("whatsapp", "plaintext", "instagram", "discord", "tinder", "hinge", "grindr", "bumble")
 _WA_LINE = re.compile(r"^\[?\d{1,2}/\d{1,2}/\d{2,4},?\s+\d{1,2}:\d{2}", re.M)
 _HELP = ("expected a WhatsApp _chat.txt / .txt, Instagram message_N.json, Discord messages.json, "
-         "Tinder data.json, Hinge matches.json or a Grindr chat export (.json)")
+         "Tinder data.json, Hinge matches.json, a Grindr or a Bumble chat export (.json)")
 
 
 def detect_format(filename: str, raw: bytes) -> str:
@@ -31,6 +31,9 @@ def detect_format(filename: str, raw: bytes) -> str:
 
 
 def _sniff_json(name: str, data, filename: str) -> str:
+    if "bumble" in name or "bumble" in json.dumps(
+            data if not isinstance(data, list) else data[:3]).lower()[:2000]:
+        return "bumble"
     if isinstance(data, dict):
         if isinstance(data.get("messages"), list) and any(
                 isinstance(m, dict) and ("timestamp_ms" in m or "sender_name" in m)
