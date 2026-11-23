@@ -212,7 +212,8 @@ def test_admin_email_bootstrap_needs_verification(tmp_path):
         me = c.get("/api/auth/me", headers=auth(r.json()["access_token"])).json()
         assert me["role"] == "admin"
         # once an admin exists, the bootstrap path no longer bypasses invites
-        h.accounts.users.hard_delete(me["id"]) if False else None
+        r = c.post("/api/auth/signup", json={"email": "admin2@example.com", "password": PASSWORD})
+        assert r.status_code == 403
 
 
 def test_admin_only_invites(h, client, alice):

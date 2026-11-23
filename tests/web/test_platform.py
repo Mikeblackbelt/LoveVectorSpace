@@ -41,6 +41,8 @@ def test_extension_token_scope(h, client, alice):
     assert client.get("/api/people/1/overview", headers=e).status_code == 403
     assert client.get("/api/settings", headers=e).status_code == 403
     assert client.post("/api/tokens", json={"kind": "api"}, headers=e).status_code == 403
+    assert client.get("/api/auth/me", headers=e).status_code == 403
+    assert client.get("/api/events", headers=e).status_code == 401
     assert client.get("/api/ext/people", headers=e).status_code == 200
     pid = client.post("/api/people", json={"pseudonym": "Sam", "mode": "potential"},
                       headers=auth(alice["access_token"])).json()["id"]

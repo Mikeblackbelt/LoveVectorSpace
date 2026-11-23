@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from analyzer.accounts.crypto import consteq
 from analyzer.accounts.service import AccountError, Principal
 
-from ..deps import (RT_COOKIE, accounts, any_principal, app_principal, auth_result, clear_session_cookies,
+from ..deps import (RT_COOKIE, accounts, app_principal, auth_result, clear_session_cookies,
                     client_ip, device_label, is_native, require_csrf, set_session_cookies)
 
 router = APIRouter(prefix="/api/auth")
@@ -91,7 +91,7 @@ def refresh(request: Request, response: Response, body: RefreshIn | None = Body(
 
 
 @router.post("/logout", status_code=204)
-def logout(request: Request, p: Principal = Depends(any_principal), body: RefreshIn | None = Body(default=None)):
+def logout(request: Request, p: Principal = Depends(app_principal), body: RefreshIn | None = Body(default=None)):
     raw = (body.refresh_token if body else None) if is_native(request) else request.cookies.get(RT_COOKIE)
     accounts(request).logout(p, raw)
     r = Response(status_code=204)
@@ -100,7 +100,7 @@ def logout(request: Request, p: Principal = Depends(any_principal), body: Refres
 
 
 @router.get("/me")
-def me(p: Principal = Depends(any_principal)):
+def me(p: Principal = Depends(app_principal)):
     return p.user.public()
 
 
