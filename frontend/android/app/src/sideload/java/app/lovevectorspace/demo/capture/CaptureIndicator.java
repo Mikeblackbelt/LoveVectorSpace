@@ -1,6 +1,7 @@
 package app.lovevectorspace.demo.capture;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -54,6 +55,7 @@ public final class CaptureIndicator {
         return NotificationManagerCompat.from(ctx).areNotificationsEnabled();
     }
 
+    @SuppressLint("MissingPermission") // checked by canPostNotifications() before notify()
     public static void update(Context ctx) {
         CaptureStore st = CaptureStore.get(ctx);
         NotificationManagerCompat nm = NotificationManagerCompat.from(ctx);

@@ -116,7 +116,10 @@ public class LvsAccessibilityService extends AccessibilityService {
                 }
                 continue;
             }
-            for (int i = n.getChildCount() - 1; i >= 0; i--) stack.push(n.getChild(i));
+            for (int i = n.getChildCount() - 1; i >= 0; i--) {
+                AccessibilityNodeInfo child = n.getChild(i);
+                if (child != null) stack.push(child); // ArrayDeque rejects nulls
+            }
             if (!n.isVisibleToUser()) continue;
             CharSequence cs = n.getText();
             if (cs == null || cs.length() == 0) continue;
