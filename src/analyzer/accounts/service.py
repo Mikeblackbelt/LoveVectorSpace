@@ -18,8 +18,8 @@ from .oidc import (APPLE_ISSUERS, APPLE_JWKS, GOOGLE_ISSUERS, GOOGLE_JWKS, Fetch
                    TokenInvalid, google_auth_url, google_exchange_code, http_fetch_json, pkce_pair, verify_id_token)
 from .passwords import Passwords, password_problem
 from .ratelimit import SlidingWindow
-from .repos import (AccountsDB, ApiTokens, Audit, EmailTokens, Invites, RefreshTokens, UserRow, Users, new_id,
-                    now_iso)
+from .repos import (AccountsDB, ApiTokens, Audit, EmailTokens, Invites, RefreshTokens, UserRow, Users, iso,
+                    new_id, now_iso, utcnow)
 from .userdb import UserDBManager
 
 log = logging.getLogger("analyzer.accounts")
@@ -27,6 +27,7 @@ log = logging.getLogger("analyzer.accounts")
 ACCESS_TTL_S = 900
 REFRESH_DAYS = 30
 REFRESH_GRACE_S = 10.0
+REAUTH_WINDOW = timedelta(minutes=10)
 VERIFY_TTL = timedelta(hours=24)
 RESET_TTL = timedelta(minutes=30)
 DELETE_PHRASE = "DELETE MY ACCOUNT"
@@ -71,12 +72,16 @@ class AccountService:
         self.api_tokens, self.audit = ApiTokens(self.db), Audit(self.db)
         self.passwords = passwords or Passwords()
         self.ip_hash = crypto.IpHasher(settings.master_key)
-        self.login_limiter = SlidingWindow(5, 15 * 60)
+        self.login_limiter = SlidingWindow(5, 15 * 60)                       # failures per (email, IP)
+        self.ip_limiter = SlidingWindow(getattr(settings, "auth_ip_limit", 20), 15 * 60)   # per IP and action
         self.mail_limiter = SlidingWindow(5, 15 * 60)
         if mailer is not None:
             self.mailer = mailer
         elif settings.resend_api_key and settings.mail_from:
             self.mailer = ResendMailer(settings.resend_api_key, settings.mail_from)
+        elif settings.cookie_secure and not getattr(settings, "mail_dev_allow", False):
+            raise RuntimeError("RESEND_API_KEY and MAIL_FROM are not set; refusing to run the console mailer in "
+                               "production (set MAIL_DEV_ALLOW=1 for development)")
         else:
             self.mailer = ConsoleMailer()
         fetch = fetch or http_fetch_json()
@@ -88,7 +93,8 @@ class AccountService:
         self.userdbs = UserDBManager(data_dir, self._key_for,
                                      lambda uid, conn: factory.for_user(uid, conn, events),
                                      capacity=settings.user_db_cache_size,
-                                     close_user=self._close_user)
+                                     close_user=self._close_user,
+                                     is_active=lambda uid: self.users.get(uid) is not None)
         if hasattr(factory, "conn_opener") and getattr(factory, "conn_opener") is None:
             factory.conn_opener = self.userdbs.open_existing   # background jobs never re-create a deleted DB
         self._grace: dict[str, tuple[float, str, str]] = {}   # old refresh hash -> (deadline, new raw, family)
@@ -149,9 +155,9 @@ class AccountService:
         if user is None:
             raise _unauth()
         sid = claims.get("sid")
-        if sid and not self.refresh_tokens.family_active(sid):
+        if not sid or not self.refresh_tokens.family_active(str(sid)):   # every issued access token has a sid
             raise _unauth()
-        return Principal(user, "session", sid=sid)
+        return Principal(user, "session", sid=str(sid))
 
     def session_valid(self, user_id: str, sid: str | None) -> bool:
         """Still signed in? (user exists and, for session tokens, the refresh family is not revoked)."""
@@ -187,23 +193,34 @@ class AccountService:
             raise AccountError(422, "validation_error", "Enter a valid email address.", "email")
         return email
 
+    def _limit_ip(self, action: str, ip: str | None) -> None:
+        wait = self.ip_limiter.try_hit((action, ip or ""))
+        if wait:
+            raise AccountError(429, "rate_limited", "Too many attempts. Try again later.", retry_after=wait)
+
+    def _signup_checks(self, email: str, invite_code: str | None) -> dict:
+        """Password sign-ups always need an invite (ADMIN_EMAIL bootstrap is provider-verified sign-in only)."""
+        invite = self.invites.usable(invite_code, email)
+        if invite is None:
+            raise AccountError(403, "invite_required", "A valid invite code is required.", "invite_code")
+        if self.users.by_email(email) is not None:
+            raise AccountError(409, "conflict", "An account with this email already exists.", "email")
+        return invite
+
     def signup(self, email: str, password: str, invite_code: str | None, display_name: str | None,
                ip: str | None, device: str | None) -> tuple[UserRow, Tokens]:
         email = self._norm_email(email)
         problem = password_problem(password, email)
         if problem:
             raise AccountError(422, "validation_error", problem, "password")
-        pw_hash = self.passwords.hash(password)
+        self._limit_ip("signup", ip)
         with self.db.lock:
-            invite = self.invites.usable(invite_code, email)
-            bootstrap = invite is None and self._is_admin_email(email) and not self.users.any_admin()
-            if invite is None and not bootstrap:
-                raise AccountError(403, "invite_required", "A valid invite code is required.", "invite_code")
-            if self.users.by_email(email) is not None:
-                raise AccountError(409, "conflict", "An account with this email already exists.", "email")
+            self._signup_checks(email, invite_code)      # before the (expensive) argon2 hash
+        pw_hash = self.passwords.hash(password)          # outside the accounts lock
+        with self.db.lock:
+            invite = self._signup_checks(email, invite_code)   # re-check: another request may have raced us
             user = self._new_user(email, password_hash=pw_hash, display_name=(display_name or None))
-            if invite is not None:
-                self.invites.consume(invite["code"], user.id)
+            self.invites.consume(invite["code"], user.id)
         self._create_db(user.id)
         self.audit.log(user.id, "signup", self.ip_hash(ip))
         self._send_verification(user)
@@ -212,16 +229,20 @@ class AccountService:
     def login(self, email: str, password: str, ip: str | None, device: str | None) -> tuple[UserRow, Tokens]:
         email = (email or "").strip().lower()
         key = (email, ip or "")
-        wait = self.login_limiter.retry_after(key)
+        self._limit_ip("login", ip)                      # reserve before hashing (atomic check+hit)
+        wait = self.login_limiter.try_hit(key)
         if wait:
+            self.ip_limiter.refund(("login", ip or ""))
             raise AccountError(429, "rate_limited", "Too many attempts. Try again later.", retry_after=wait)
         user = self.users.by_email(email)
         ok = self.passwords.verify(user.password_hash if user else None, password or "")
         if not ok or user is None:
-            self.login_limiter.hit(key)
             self.audit.log(user.id if user else None, "login_failed", self.ip_hash(ip))
             raise _unauth("Invalid email or password.")
-        self.login_limiter.reset(key)
+        self.login_limiter.reset(key)                    # only failures count
+        self.ip_limiter.refund(("login", ip or ""))
+        if self.passwords.needs_rehash(user.password_hash):
+            self.users.update(user.id, password_hash=self.passwords.hash(password))
         user = self._maybe_promote(user)
         self.audit.log(user.id, "login", self.ip_hash(ip))
         return user, self._issue(user, device)
@@ -330,28 +351,59 @@ class AccountService:
         self.mailer.send(user.email, "Reset your LoveVectorSpace password",
                          "Reset your password (link valid for 30 minutes):", self._link("/auth/reset", raw))
 
+    def _revoke_all_credentials(self, user_id: str) -> None:
+        self.refresh_tokens.revoke_user(user_id)
+        self.api_tokens.revoke_all(user_id)
+
+    def _takeover_fields(self, user: UserRow) -> dict[str, Any]:
+        """The address was never proven by whoever created this account: forget their password, role and data
+        (fresh data key; the DB file is replaced after the accounts lock is released)."""
+        return {"password_hash": None, "role": "user", "email_verified": True,
+                "wrapped_dek": crypto.wrap_dek(self.s.master_key, crypto.new_dek(), user.id)}
+
+    def _wipe_user_data(self, user_id: str) -> None:
+        """Replace the user's database with a fresh, empty one. Never call while holding the accounts lock."""
+        self.userdbs.delete(user_id)
+        self._create_db(user_id)
+        self.audit.log(user_id, "user_data_reset")
+
     def reset_password(self, token: str, new_password: str) -> None:
         h = crypto.sha256_hex(token or "")
+        row = self.db.one("SELECT user_id FROM email_tokens WHERE kind='reset' AND token_hash=? AND used_at IS NULL"
+                          " AND expires_at>?", (h, now_iso()))
+        user = self.users.get(row[0]) if row else None
+        if user is None:
+            raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
+        problem = password_problem(new_password or "", user.email)
+        if problem:
+            raise AccountError(422, "validation_error", problem, "new_password")
+        pw_hash = self.passwords.hash(new_password)      # argon2 outside the accounts lock
         with self.db.lock:
-            row = self.db.one("SELECT user_id FROM email_tokens WHERE kind='reset' AND token_hash=? AND used_at IS NULL"
-                              " AND expires_at>?", (h, now_iso()))
-            user = self.users.get(row[0]) if row else None
-            if user is None:
-                raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
-            problem = password_problem(new_password or "", user.email)
-            if problem:
-                raise AccountError(422, "validation_error", problem, "new_password")
             if self.email_tokens.consume("reset", h) is None:
                 raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
-            self.users.update(user.id, password_hash=self.passwords.hash(new_password), email_verified=True)
-            self.refresh_tokens.revoke_user(user.id)
+            user = self.users.get(user.id)
+            if user is None:
+                raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
+            wipe = not user.email_verified
+            fields: dict[str, Any] = self._takeover_fields(user) if wipe else {"email_verified": True}
+            fields["password_hash"] = pw_hash
+            self.users.update(user.id, **fields)
+            self._revoke_all_credentials(user.id)        # refresh families AND api/extension tokens
             self.email_tokens.invalidate(user.id, "reset")
+        if wipe:
+            self._wipe_user_data(user.id)
+        self._maybe_promote(self.users.get(user.id))
         self.audit.log(user.id, "password_reset")
 
     def change_password(self, p: Principal, current: str | None, new: str) -> None:
         user = p.user
         if user.password_hash and not self.passwords.verify(user.password_hash, current or ""):
             raise AccountError(403, "forbidden", "Current password is incorrect.", "current_password")
+        if not user.password_hash:
+            # adding a first password to a social-only account needs a fresh sign-in, not just a live session
+            started = self.refresh_tokens.family_started(p.sid) if p.sid else None
+            if not started or started < iso(utcnow() - REAUTH_WINDOW):
+                raise AccountError(403, "reauth_required", "Sign in again to set a password.")
         problem = password_problem(new or "", user.email)
         if problem:
             raise AccountError(422, "validation_error", problem, "new_password")
@@ -360,22 +412,31 @@ class AccountService:
         self.audit.log(user.id, "password_changed")
 
     # ---------- social ----------
-    def verify_google(self, id_token: str) -> Identity:
+    def _native_nonce(self, nonce: str | None) -> str | None:
+        if not nonce and getattr(self.s, "native_nonce_required", False):
+            raise AccountError(400, "invalid_input", "A sign-in nonce is required.", "nonce")
+        return nonce or None
+
+    def verify_google(self, id_token: str, nonce: str | None = None) -> Identity:
+        nonce = self._native_nonce(nonce)
         try:
-            return verify_id_token(id_token, self.google_jwks, GOOGLE_ISSUERS, self.s.google_audiences, "google")
+            return verify_id_token(id_token, self.google_jwks, GOOGLE_ISSUERS, self.s.google_audiences, "google",
+                                   nonce=nonce)
         except TokenInvalid:
             raise _unauth("Google sign-in failed.") from None
 
-    def verify_apple(self, id_token: str) -> Identity:
+    def verify_apple(self, id_token: str, nonce: str | None = None) -> Identity:
+        nonce = self._native_nonce(nonce)
         try:
-            return verify_id_token(id_token, self.apple_jwks, APPLE_ISSUERS, self.s.apple_audiences, "apple")
+            return verify_id_token(id_token, self.apple_jwks, APPLE_ISSUERS, self.s.apple_audiences, "apple",
+                                   nonce=nonce)
         except TokenInvalid:
             raise _unauth("Apple sign-in failed.") from None
 
     def social_login(self, ident: Identity, invite_code: str | None, name: str | None, ip: str | None,
                      device: str | None) -> tuple[UserRow, Tokens]:
         col = {"google": "google_sub", "apple": "apple_sub"}[ident.provider]
-        created = False
+        created = wipe = False
         with self.db.lock:
             user = self.users.by_sub(ident.provider, ident.sub)
             if user is None and ident.email and ident.email_verified:
@@ -385,9 +446,11 @@ class AccountService:
                         raise AccountError(409, "conflict", "This email is linked to another account.")
                     fields: dict[str, Any] = {col: ident.sub}
                     if not existing.email_verified:
-                        # someone may have pre-registered this address: drop their password and sessions
-                        fields.update(password_hash=None, email_verified=True)
-                        self.refresh_tokens.revoke_user(existing.id)
+                        # someone pre-registered this address without proving it: drop their password, role,
+                        # sessions, api/extension tokens and data
+                        fields.update(self._takeover_fields(existing))
+                        self._revoke_all_credentials(existing.id)
+                        wipe = True
                     self.users.update(existing.id, **fields)
                     self.audit.log(existing.id, f"link_{ident.provider}", self.ip_hash(ip))
                     user = self.users.get(existing.id)
@@ -405,7 +468,9 @@ class AccountService:
                 self.audit.log(user.id, f"signup_{ident.provider}", self.ip_hash(ip))
         if created:
             self._create_db(user.id)
-        user = self._maybe_promote(user)
+        if wipe:
+            self._wipe_user_data(user.id)
+        user = self._maybe_promote(self.users.get(user.id))
         self.audit.log(user.id, f"login_{ident.provider}", self.ip_hash(ip))
         return user, self._issue(user, device)
 
@@ -471,7 +536,12 @@ class AccountService:
             raise AccountError(400, "invalid_input", f'Type "{DELETE_PHRASE}" to confirm.', "confirm")
         if user.password_hash and not self.passwords.verify(user.password_hash, password or ""):
             raise AccountError(403, "forbidden", "Password is incorrect.", "password")
+        # 1) make every credential fail immediately (concurrent requests get 401; acquire refuses the user)
+        self.users.mark_deleted(user.id)
+        self._revoke_all_credentials(user.id)
+        # 2) stop the user's background work and remove the database file
         self.userdbs.delete(user.id)
+        # 3) remove the rows
         self.users.hard_delete(user.id)
         self.audit.log(user.id, "account_deleted")
 

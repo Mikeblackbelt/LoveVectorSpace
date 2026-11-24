@@ -223,7 +223,7 @@ def test_accounts_db_fails_closed_with_wrong_master_key(tmp_path):
     raw = (tmp_path / "data" / "accounts.db").read_bytes()
     assert b"SQLite format 3" not in raw[:16]   # encrypted at rest
     with pytest.raises(DatabaseKeyError):
-        Harness(tmp_path, master_key="another-master-key-0123456789")
+        Harness(tmp_path, master_key="another-master-key-0123456789-abcdefgh")
 
 
 def test_main_fails_clearly_without_impl(monkeypatch):

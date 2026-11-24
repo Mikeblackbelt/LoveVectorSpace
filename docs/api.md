@@ -5,13 +5,13 @@ This is the binding contract between the backend (FastAPI), the frontend (React/
 **Errors** use `{"error": {"code": "<snake_case>", "message": "<human text>", "field": "<optional field name>"}}` with the matching HTTP status. Codes used:
 - 400 `invalid_input`;
 - 401 `unauthenticated`;
-- 403 `forbidden`;
+- 403 `forbidden` / `invite_required` / `reauth_required`;
 - 404 `not_found`;
 - 409 `conflict` / `chat_not_linked`;
 - 413 `too_large`;
 - 422 `validation_error`;
 - 429 `rate_limited`, with a `Retry-After` header;
-- 503 `agent_unavailable`.
+- 503 `agent_unavailable`, and 503 `unavailable` with `Retry-After: 1` (the user's service is restarting, e.g. after a cache eviction; retry once).
 
 ## Auth model
 
@@ -22,7 +22,7 @@ There are four ways to authenticate:
 | Web | `Authorization: Bearer <access_jwt>` (kept in memory) | The refresh token is the HttpOnly cookie `lvs_rt`, and the CSRF cookie is `lvs_csrf` (readable). Cookie-authenticated POST/PUT/PATCH/DELETE calls must send `X-CSRF-Token: <lvs_csrf value>`. |
 | Native (Capacitor) | `Authorization: Bearer <access_jwt>` | Refresh tokens are returned in the JSON body (send `X-Client: native`). |
 | Extension | `Authorization: Bearer <extension_token>` | Scoped to `/api/ingest` and `/api/ext/*` only. |
-| Scripts | `Authorization: Bearer <api_token>` | Same access as the user. |
+| Scripts | `Authorization: Bearer <api_token>` | Same data access as the user, but never credential or account management (see below). |
 
 - Access JWTs last 15 minutes. A 401 `unauthenticated` response means the client should call `/api/auth/refresh` once, then retry.
 - Unauthenticated routes are `GET /healthz`, `/api/auth/*` (except `me`, `logout` and `sessions`), and the SPA's static files.
@@ -41,13 +41,17 @@ There are four ways to authenticate:
 | POST | `/api/auth/password/forgot` | `{email}` | 204, always, so email existence isn't leaked |
 | POST | `/api/auth/password/reset` | `{token, new_password}` | 204; revokes all sessions |
 | POST | `/api/auth/password/change` | `{current_password, new_password}` | 204 |
-| GET | `/api/auth/google/start?redirect=/people` | — | 302 to Google (PKCE, state) |
+| GET | `/api/auth/google/start?redirect=/people&invite=<code>` | — | 302 to Google (PKCE, state). `invite` is optional and is used if the Google account is new. `redirect` must be a same-site path. |
 | GET | `/api/auth/google/callback` | — | 302 to the SPA `/auth/complete#ok` with the refresh cookie set, or `#error=<code>` |
-| POST | `/api/auth/google/token` | `{id_token, invite_code?}` (native) | `AuthResult` |
-| POST | `/api/auth/apple/token` | `{id_token, invite_code?, name?}` (web JS and native) | `AuthResult` |
+| POST | `/api/auth/google/token` | `{id_token, invite_code?, nonce?}` (native) | `AuthResult` |
+| POST | `/api/auth/apple/token` | `{id_token, invite_code?, name?, nonce?}` (web JS and native) | `AuthResult`. If `nonce` is sent, the token's `nonce` claim must equal it or its sha256 hex (required when the server sets `NATIVE_NONCE_REQUIRED=1`; 400 `field: "nonce"` if missing). |
 | GET | `/api/auth/sessions` | — | `[{id, device, created_at, last_used_at, current}]` |
 | DELETE | `/api/auth/sessions/{id}` | — | 204 |
 
+- **Interactive session only.** These routes need a session access JWT; api and extension tokens get 403 `forbidden`: `POST/DELETE /api/tokens`, `GET/DELETE /api/auth/sessions*`, `POST /api/auth/password/change`, `POST /api/account/export`, `DELETE /api/account`, and `/api/invites*`.
+- `POST /api/auth/password/change` on an account without a password (social-only) returns 403 `reauth_required` unless the session's sign-in happened in the last 10 minutes. The client should sign in again, then retry.
+- Password sign-ups always need an invite. `ADMIN_EMAIL` becomes admin once its email is verified; it can skip the invite only through a Google or Apple sign-in with a provider-verified email.
+- A password reset, or a Google/Apple sign-in that claims an unverified account with the same email, revokes all refresh sessions **and** api/extension tokens. If the account was never verified, its data is also wiped (fresh database), because whoever created it never proved the address.
 - A social sign-in for a new user without a valid invite returns 403 `invite_required` (with `field: "invite_code"`).
 
 ```

@@ -123,6 +123,13 @@ class Users:
         col = {"google": "google_sub", "apple": "apple_sub"}[provider]
         return _user(self.db.one(f"SELECT {_USER_COLS} FROM users WHERE {col}=? AND deleted_at IS NULL", (sub,)))
 
+    def get_any(self, user_id: str) -> UserRow | None:
+        """Including soft-deleted rows (deletion in progress)."""
+        return _user(self.db.one(f"SELECT {_USER_COLS} FROM users WHERE id=?", (user_id,)))
+
+    def mark_deleted(self, user_id: str) -> None:
+        self.db.x("UPDATE users SET deleted_at=? WHERE id=?", (now_iso(), user_id))
+
     def any_admin(self) -> bool:
         return self.db.one("SELECT 1 FROM users WHERE role='admin' AND deleted_at IS NULL") is not None
 
@@ -137,7 +144,7 @@ class Users:
         )
         return self.get(user_id)
 
-    _UPDATABLE = {"email_verified", "display_name", "password_hash", "google_sub", "apple_sub", "role"}
+    _UPDATABLE = {"email_verified", "display_name", "password_hash", "google_sub", "apple_sub", "role", "wrapped_dek"}
 
     def update(self, user_id: str, **fields: Any) -> None:
         bad = set(fields) - self._UPDATABLE
@@ -240,6 +247,11 @@ class RefreshTokens:
         return self.db.one("SELECT 1 FROM refresh_tokens WHERE family_id=? AND revoked_at IS NULL AND expires_at>?",
                            (family_id, now_iso())) is not None
 
+    def family_started(self, family_id: str) -> str | None:
+        """created_at of the family's first token = when the user actually authenticated."""
+        r = self.db.one("SELECT MIN(created_at) FROM refresh_tokens WHERE family_id=?", (family_id,))
+        return r[0] if r else None
+
     def family_owner(self, family_id: str) -> str | None:
         r = self.db.one("SELECT user_id FROM refresh_tokens WHERE family_id=? LIMIT 1", (family_id,))
         return r[0] if r else None
@@ -297,6 +309,10 @@ class ApiTokens:
     def list(self, user_id: str) -> list[dict[str, Any]]:
         return [self._info(r) for r in self.db.q(
             f"SELECT {self._COLS} FROM api_tokens WHERE user_id=? ORDER BY created_at DESC", (user_id,))]
+
+    def revoke_all(self, user_id: str) -> int:
+        return self.db.x("UPDATE api_tokens SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL",
+                         (now_iso(), user_id))
 
     def revoke(self, user_id: str, token_id: str) -> bool:
         return self.db.x("UPDATE api_tokens SET revoked_at=? WHERE id=? AND user_id=? AND revoked_at IS NULL",

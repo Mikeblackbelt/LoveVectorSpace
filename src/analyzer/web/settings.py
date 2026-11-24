@@ -13,7 +13,7 @@ class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # required secrets (no defaults: missing → ValidationError at startup)
-    master_key: str = Field(min_length=16)
+    master_key: str = Field(min_length=32)       # use >= 32 random bytes (e.g. `openssl rand -base64 48`)
     jwt_secret: str = Field(min_length=32)
 
     data_dir: str = "data"
@@ -22,6 +22,8 @@ class AppSettings(BaseSettings):
     extension_id: str | None = None
     frontend_dist: str = "frontend/dist"
     cookie_secure: bool = True
+    mail_dev_allow: bool = False           # allow the console mailer (logs links) even with COOKIE_SECURE=true
+    native_nonce_required: bool = False    # require `nonce` on /api/auth/{google,apple}/token
     trusted_proxies: str | None = None     # comma-separated IPs/CIDRs (or "*") whose X-Forwarded-For is honoured
 
     groq_api_key: str | None = None
@@ -45,8 +47,10 @@ class AppSettings(BaseSettings):
     # limits (injectable for tests)
     max_import_bytes: int = 50 * 1024 * 1024
     max_ingest_bytes: int = 2 * 1024 * 1024
+    max_messages_import_bytes: int = 2 * 1024 * 1024
+    auth_ip_limit: int = 20                # signup / failed-login attempts per IP per 15 minutes
     ingest_msgs_per_min: int = 10_000
-    user_db_cache_size: int = 32
+    user_db_cache_size: int = 256
     sse_heartbeat_s: float = 15.0
     sse_session_check_s: float = 15.0
 

@@ -48,6 +48,12 @@ class Passwords:
     def hash(self, password: str) -> str:
         return self._ph.hash(password)
 
+    def needs_rehash(self, stored_hash: str) -> bool:
+        try:
+            return self._ph.check_needs_rehash(stored_hash)
+        except (InvalidHashError, ValueError):
+            return False
+
     def verify(self, stored_hash: str | None, password: str) -> bool:
         """Constant-ish time: runs a dummy verification when there is no hash."""
         try:

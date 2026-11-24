@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from analyzer.accounts.repos import now_iso
 from analyzer.accounts.service import Principal
 
-from ..deps import accounts, admin_principal, app_principal, clear_session_cookies, with_service
+from ..deps import accounts, admin_principal, app_principal, clear_session_cookies, session_principal, with_service
 from ..errors import ApiError
 
 router = APIRouter(prefix="/api")
@@ -37,13 +37,13 @@ def list_tokens(request: Request, p: Principal = Depends(app_principal)):
 
 
 @router.post("/tokens", status_code=201)
-def create_token(body: TokenCreate, request: Request, p: Principal = Depends(app_principal)):
+def create_token(body: TokenCreate, request: Request, p: Principal = Depends(session_principal)):
     raw, info = accounts(request).create_api_token(p.user, body.kind, body.label)
     return {"token": raw, "info": info}
 
 
 @router.delete("/tokens/{token_id}", status_code=204)
-def delete_token(token_id: str, request: Request, p: Principal = Depends(app_principal)):
+def delete_token(token_id: str, request: Request, p: Principal = Depends(session_principal)):
     accounts(request).revoke_api_token(p.user, token_id)
     return Response(status_code=204)
 
@@ -81,7 +81,7 @@ class ExportIn(BaseModel):
 
 
 @router.post("/account/export")
-def export(body: ExportIn, request: Request, p: Principal = Depends(app_principal)):
+def export(body: ExportIn, request: Request, p: Principal = Depends(session_principal)):
     data = with_service(request, p, lambda s: s.export(body.include_messages))
     accounts(request).audit.log(p.user.id, "account_exported")
     payload = {"exported_at": now_iso(), "user": p.user.public(), "data": data}
@@ -95,7 +95,7 @@ class DeleteIn(BaseModel):
 
 
 @router.delete("/account", status_code=204)
-def delete_account(body: DeleteIn, request: Request, p: Principal = Depends(app_principal)):
+def delete_account(body: DeleteIn, request: Request, p: Principal = Depends(session_principal)):
     accounts(request).delete_account(p.user, body.confirm, body.password)
     r = Response(status_code=204)
     clear_session_cookies(request, r)
