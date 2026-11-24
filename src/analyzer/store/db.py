@@ -9,7 +9,7 @@ class DatabaseKeyError(Exception):
     """Missing or wrong database key."""
 
 
-def open_db(path: Path, key: str, create: bool = True):
+def open_db(path: Path, key: str, create: bool = True, *, migrator=migrate):
     """Open (or create) the encrypted DB. Fails closed; never creates a plaintext file.
 
     Background openers pass `create=False` so a deleted user's file is never re-created."""
@@ -25,5 +25,5 @@ def open_db(path: Path, key: str, create: bool = True):
         conn.close()
         raise DatabaseKeyError("wrong DB key or not an encrypted database") from e
     conn.execute("PRAGMA foreign_keys = ON")
-    migrate(conn)
+    migrator(conn)
     return conn

@@ -1,0 +1,489 @@
+"""Account and session logic (framework-independent). Raises AccountError for client-visible failures."""
+from __future__ import annotations
+
+import logging
+import secrets
+import threading
+import time
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+import jwt
+
+from . import crypto
+from .mailer import ConsoleMailer, Mailer, ResendMailer
+from .oidc import (APPLE_ISSUERS, APPLE_JWKS, GOOGLE_ISSUERS, GOOGLE_JWKS, Fetch, Identity, JwksCache, StateStore,
+                   TokenInvalid, google_auth_url, google_exchange_code, http_fetch_json, pkce_pair, verify_id_token)
+from .passwords import Passwords, password_problem
+from .ratelimit import SlidingWindow
+from .repos import (AccountsDB, ApiTokens, Audit, EmailTokens, Invites, RefreshTokens, UserRow, Users, new_id,
+                    now_iso)
+from .userdb import UserDBManager
+
+log = logging.getLogger("analyzer.accounts")
+
+ACCESS_TTL_S = 900
+REFRESH_DAYS = 30
+REFRESH_GRACE_S = 10.0
+VERIFY_TTL = timedelta(hours=24)
+RESET_TTL = timedelta(minutes=30)
+DELETE_PHRASE = "DELETE MY ACCOUNT"
+DEMO_EMAILS = ("judge1@demo.lvs", "judge2@demo.lvs")
+
+
+class AccountError(Exception):
+    def __init__(self, status: int, code: str, message: str, field: str | None = None,
+                 retry_after: int | None = None):
+        super().__init__(message)
+        self.status, self.code, self.message, self.field, self.retry_after = status, code, message, field, retry_after
+
+
+def _unauth(msg: str = "Not signed in.") -> AccountError:
+    return AccountError(401, "unauthenticated", msg)
+
+
+@dataclass
+class Tokens:
+    access: str
+    refresh: str
+    family_id: str
+
+
+@dataclass
+class Principal:
+    user: UserRow
+    kind: str            # "session" | "api" | "extension"
+    sid: str | None = None
+    token_id: str | None = None
+
+
+class AccountService:
+    def __init__(self, settings: Any, factory: Any, events: Any, *, mailer: Mailer | None = None,
+                 fetch: Fetch | None = None, google_transport: Any = None, passwords: Passwords | None = None):
+        self.s = settings
+        data_dir = Path(settings.data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        self.db = AccountsDB(data_dir / "accounts.db", settings.master_key)
+        self.users, self.invites = Users(self.db), Invites(self.db)
+        self.refresh_tokens, self.email_tokens = RefreshTokens(self.db), EmailTokens(self.db)
+        self.api_tokens, self.audit = ApiTokens(self.db), Audit(self.db)
+        self.passwords = passwords or Passwords()
+        self.ip_hash = crypto.IpHasher(settings.master_key)
+        self.login_limiter = SlidingWindow(5, 15 * 60)
+        self.mail_limiter = SlidingWindow(5, 15 * 60)
+        if mailer is not None:
+            self.mailer = mailer
+        elif settings.resend_api_key and settings.mail_from:
+            self.mailer = ResendMailer(settings.resend_api_key, settings.mail_from)
+        else:
+            self.mailer = ConsoleMailer()
+        fetch = fetch or http_fetch_json()
+        self.google_jwks = JwksCache(GOOGLE_JWKS, fetch)
+        self.apple_jwks = JwksCache(APPLE_JWKS, fetch)
+        self.google_transport = google_transport
+        self.oauth_states = StateStore()
+        self.factory, self.events = factory, events
+        self.userdbs = UserDBManager(data_dir, self._key_for,
+                                     lambda uid, conn: factory.for_user(uid, conn, events),
+                                     capacity=settings.user_db_cache_size,
+                                     close_user=self._close_user)
+        if hasattr(factory, "conn_opener") and getattr(factory, "conn_opener") is None:
+            factory.conn_opener = self.userdbs.open_existing   # background jobs never re-create a deleted DB
+        self._grace: dict[str, tuple[float, str, str]] = {}   # old refresh hash -> (deadline, new raw, family)
+        self._grace_lock = threading.Lock()
+
+    def _close_user(self, user_id: str) -> None:
+        close_user = getattr(self.factory, "close_user", None)
+        if callable(close_user):
+            close_user(user_id)
+
+    def close(self) -> None:
+        self.userdbs.close_all()
+        self.db.close()
+
+    # ---------- keys ----------
+    def _key_for(self, user_id: str) -> str:
+        u = self.users.get(user_id)
+        if u is None:
+            raise KeyError("unknown user")
+        return crypto.unwrap_dek(self.s.master_key, u.wrapped_dek, user_id).hex()
+
+    # ---------- tokens ----------
+    def _access(self, user: UserRow, sid: str | None) -> str:
+        now = datetime.now(timezone.utc)
+        claims = {"sub": user.id, "role": user.role, "iat": int(now.timestamp()),
+                  "exp": int((now + timedelta(seconds=ACCESS_TTL_S)).timestamp()), "typ": "access"}
+        if sid:
+            claims["sid"] = sid
+        return jwt.encode(claims, self.s.jwt_secret, algorithm="HS256")
+
+    def _issue(self, user: UserRow, device: str | None, family_id: str | None = None) -> Tokens:
+        raw = crypto.random_token("lvsr_")
+        family = family_id or new_id()
+        self.refresh_tokens.create(user.id, family, crypto.sha256_hex(raw), device, REFRESH_DAYS)
+        return Tokens(self._access(user, family), raw, family)
+
+    def authenticate_bearer(self, token: str) -> Principal:
+        if token.startswith(("lvsa_", "lvse_")):
+            h = crypto.sha256_hex(token)
+            row = self.api_tokens.lookup(h)
+            if row is None or not crypto.consteq(row["token_hash"], h):
+                raise _unauth()
+            user = self.users.get(row["user_id"])
+            if user is None:
+                raise _unauth()
+            return Principal(user, row["kind"], token_id=row["id"])
+        return self.authenticate_access(token)
+
+    def authenticate_access(self, token: str) -> Principal:
+        try:
+            claims = jwt.decode(token, self.s.jwt_secret, algorithms=["HS256"],
+                                options={"require": ["exp", "sub", "iat"]})
+        except jwt.PyJWTError:
+            raise _unauth() from None
+        if claims.get("typ") != "access":
+            raise _unauth()
+        user = self.users.get(str(claims["sub"]))
+        if user is None:
+            raise _unauth()
+        sid = claims.get("sid")
+        if sid and not self.refresh_tokens.family_active(sid):
+            raise _unauth()
+        return Principal(user, "session", sid=sid)
+
+    def session_valid(self, user_id: str, sid: str | None) -> bool:
+        """Still signed in? (user exists and, for session tokens, the refresh family is not revoked)."""
+        if self.users.get(user_id) is None:
+            return False
+        return sid is None or self.refresh_tokens.family_active(sid)
+
+    # ---------- signup / login ----------
+    def _new_user(self, email: str, **kw: Any) -> UserRow:
+        uid = new_id()
+        wrapped = crypto.wrap_dek(self.s.master_key, crypto.new_dek(), uid)
+        return self.users.create(email=email, wrapped_dek=wrapped, user_id=uid, **kw)
+
+    def _create_db(self, user_id: str) -> None:
+        """Create the encrypted per-user DB file. Never call while holding the accounts lock."""
+        with self.userdbs.use(user_id, create=True):
+            pass
+
+    def _is_admin_email(self, email: str | None) -> bool:
+        return bool(self.s.admin_email and email and email.lower() == self.s.admin_email.lower())
+
+    def _maybe_promote(self, user: UserRow) -> UserRow:
+        if user.role != "admin" and user.email_verified and self._is_admin_email(user.email):
+            self.users.update(user.id, role="admin")
+            self.audit.log(user.id, "admin_bootstrap")
+            return self.users.get(user.id)
+        return user
+
+    @staticmethod
+    def _norm_email(email: str) -> str:
+        email = (email or "").strip().lower()
+        if "@" not in email or len(email) > 254 or email.startswith("@") or email.endswith("@"):
+            raise AccountError(422, "validation_error", "Enter a valid email address.", "email")
+        return email
+
+    def signup(self, email: str, password: str, invite_code: str | None, display_name: str | None,
+               ip: str | None, device: str | None) -> tuple[UserRow, Tokens]:
+        email = self._norm_email(email)
+        problem = password_problem(password, email)
+        if problem:
+            raise AccountError(422, "validation_error", problem, "password")
+        pw_hash = self.passwords.hash(password)
+        with self.db.lock:
+            invite = self.invites.usable(invite_code, email)
+            bootstrap = invite is None and self._is_admin_email(email) and not self.users.any_admin()
+            if invite is None and not bootstrap:
+                raise AccountError(403, "invite_required", "A valid invite code is required.", "invite_code")
+            if self.users.by_email(email) is not None:
+                raise AccountError(409, "conflict", "An account with this email already exists.", "email")
+            user = self._new_user(email, password_hash=pw_hash, display_name=(display_name or None))
+            if invite is not None:
+                self.invites.consume(invite["code"], user.id)
+        self._create_db(user.id)
+        self.audit.log(user.id, "signup", self.ip_hash(ip))
+        self._send_verification(user)
+        return user, self._issue(user, device)
+
+    def login(self, email: str, password: str, ip: str | None, device: str | None) -> tuple[UserRow, Tokens]:
+        email = (email or "").strip().lower()
+        key = (email, ip or "")
+        wait = self.login_limiter.retry_after(key)
+        if wait:
+            raise AccountError(429, "rate_limited", "Too many attempts. Try again later.", retry_after=wait)
+        user = self.users.by_email(email)
+        ok = self.passwords.verify(user.password_hash if user else None, password or "")
+        if not ok or user is None:
+            self.login_limiter.hit(key)
+            self.audit.log(user.id if user else None, "login_failed", self.ip_hash(ip))
+            raise _unauth("Invalid email or password.")
+        self.login_limiter.reset(key)
+        user = self._maybe_promote(user)
+        self.audit.log(user.id, "login", self.ip_hash(ip))
+        return user, self._issue(user, device)
+
+    def refresh(self, raw: str | None, device: str | None) -> tuple[UserRow, Tokens]:
+        if not raw:
+            raise _unauth()
+        h = crypto.sha256_hex(raw)
+        with self.db.lock:
+            row = self.refresh_tokens.by_hash(h)
+            if row is None or not crypto.consteq(row["token_hash"], h):
+                raise _unauth()
+            if row["revoked_at"] is not None:
+                grace = self._grace_pair(h, row)
+                if grace is not None:
+                    return grace
+                self.refresh_tokens.revoke_family(row["family_id"])
+                self.audit.log(row["user_id"], "refresh_reuse_family_revoked")
+                raise _unauth()
+            if row["expires_at"] <= now_iso():
+                raise _unauth()
+            user = self.users.get(row["user_id"])
+            if user is None:
+                raise _unauth()
+            tokens = self._issue(user, row["device"] or device, family_id=row["family_id"])
+            new = self.refresh_tokens.by_hash(crypto.sha256_hex(tokens.refresh))
+            if not self.refresh_tokens.mark_rotated(row["id"], new["id"]):
+                self.refresh_tokens.revoke_family(row["family_id"])
+                raise _unauth()
+            self._remember_rotation(h, tokens)
+        return user, tokens
+
+    def _remember_rotation(self, old_hash: str, tokens: Tokens) -> None:
+        """Concurrent web refreshes (two tabs) may present the same token: for REFRESH_GRACE_S after a rotation
+        the old token yields the same new refresh token instead of being treated as reuse. Memory only."""
+        now = time.monotonic()
+        with self._grace_lock:
+            self._grace = {k: v for k, v in self._grace.items() if v[0] > now}
+            self._grace[old_hash] = (now + REFRESH_GRACE_S, tokens.refresh, tokens.family_id)
+
+    def _grace_pair(self, old_hash: str, row: dict) -> tuple[UserRow, Tokens] | None:
+        with self._grace_lock:
+            entry = self._grace.get(old_hash)
+        if entry is None or entry[0] <= time.monotonic() or entry[2] != row["family_id"]:
+            return None
+        if not self.refresh_tokens.family_active(row["family_id"]):
+            return None
+        new_row = self.refresh_tokens.by_hash(crypto.sha256_hex(entry[1]))
+        if new_row is None or new_row["revoked_at"] is not None:
+            return None    # the replacement was itself rotated or revoked: treat as reuse
+        user = self.users.get(row["user_id"])
+        if user is None:
+            return None
+        return user, Tokens(self._access(user, row["family_id"]), entry[1], row["family_id"])
+
+    def logout(self, p: Principal, raw: str | None) -> None:
+        family = None
+        if raw:
+            row = self.refresh_tokens.by_hash(crypto.sha256_hex(raw))
+            if row and row["user_id"] == p.user.id:
+                family = row["family_id"]
+        family = family or p.sid
+        if family and self.refresh_tokens.family_owner(family) == p.user.id:
+            self.refresh_tokens.revoke_family(family)
+        self.audit.log(p.user.id, "logout")
+
+    # ---------- email verification / reset ----------
+    def _link(self, path: str, raw: str) -> str:
+        return f"{self.s.app_origin.rstrip('/')}{path}#token={raw}"
+
+    def _send_verification(self, user: UserRow) -> None:
+        raw = crypto.random_token()
+        self.email_tokens.create(user.id, "verify", crypto.sha256_hex(raw), VERIFY_TTL)
+        self.mailer.send(user.email, "Verify your LoveVectorSpace email",
+                         "Confirm your email address (link valid for 24 hours):", self._link("/auth/verify", raw))
+
+    def resend_verification(self, user: UserRow) -> None:
+        if user.email_verified or self.mail_limiter.retry_after(("verify", user.id)):
+            return
+        self.mail_limiter.hit(("verify", user.id))
+        self.email_tokens.invalidate(user.id, "verify")
+        self._send_verification(user)
+
+    def verify_email(self, token: str) -> None:
+        uid = self.email_tokens.consume("verify", crypto.sha256_hex(token or ""))
+        if uid is None or self.users.get(uid) is None:
+            raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
+        self.users.update(uid, email_verified=True)
+        self._maybe_promote(self.users.get(uid))
+        self.audit.log(uid, "email_verified")
+
+    def forgot_password(self, email: str, ip: str | None) -> None:
+        email = (email or "").strip().lower()
+        key = ("reset", email)
+        if self.mail_limiter.retry_after(key) or self.mail_limiter.retry_after(("reset-ip", ip or "")):
+            return
+        self.mail_limiter.hit(key)
+        self.mail_limiter.hit(("reset-ip", ip or ""))
+        user = self.users.by_email(email)
+        if user is None:
+            return
+        self.email_tokens.invalidate(user.id, "reset")
+        raw = crypto.random_token()
+        self.email_tokens.create(user.id, "reset", crypto.sha256_hex(raw), RESET_TTL)
+        self.audit.log(user.id, "password_reset_requested", self.ip_hash(ip))
+        self.mailer.send(user.email, "Reset your LoveVectorSpace password",
+                         "Reset your password (link valid for 30 minutes):", self._link("/auth/reset", raw))
+
+    def reset_password(self, token: str, new_password: str) -> None:
+        h = crypto.sha256_hex(token or "")
+        with self.db.lock:
+            row = self.db.one("SELECT user_id FROM email_tokens WHERE kind='reset' AND token_hash=? AND used_at IS NULL"
+                              " AND expires_at>?", (h, now_iso()))
+            user = self.users.get(row[0]) if row else None
+            if user is None:
+                raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
+            problem = password_problem(new_password or "", user.email)
+            if problem:
+                raise AccountError(422, "validation_error", problem, "new_password")
+            if self.email_tokens.consume("reset", h) is None:
+                raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
+            self.users.update(user.id, password_hash=self.passwords.hash(new_password), email_verified=True)
+            self.refresh_tokens.revoke_user(user.id)
+            self.email_tokens.invalidate(user.id, "reset")
+        self.audit.log(user.id, "password_reset")
+
+    def change_password(self, p: Principal, current: str | None, new: str) -> None:
+        user = p.user
+        if user.password_hash and not self.passwords.verify(user.password_hash, current or ""):
+            raise AccountError(403, "forbidden", "Current password is incorrect.", "current_password")
+        problem = password_problem(new or "", user.email)
+        if problem:
+            raise AccountError(422, "validation_error", problem, "new_password")
+        self.users.update(user.id, password_hash=self.passwords.hash(new))
+        self.refresh_tokens.revoke_user(user.id, except_family=p.sid)
+        self.audit.log(user.id, "password_changed")
+
+    # ---------- social ----------
+    def verify_google(self, id_token: str) -> Identity:
+        try:
+            return verify_id_token(id_token, self.google_jwks, GOOGLE_ISSUERS, self.s.google_audiences, "google")
+        except TokenInvalid:
+            raise _unauth("Google sign-in failed.") from None
+
+    def verify_apple(self, id_token: str) -> Identity:
+        try:
+            return verify_id_token(id_token, self.apple_jwks, APPLE_ISSUERS, self.s.apple_audiences, "apple")
+        except TokenInvalid:
+            raise _unauth("Apple sign-in failed.") from None
+
+    def social_login(self, ident: Identity, invite_code: str | None, name: str | None, ip: str | None,
+                     device: str | None) -> tuple[UserRow, Tokens]:
+        col = {"google": "google_sub", "apple": "apple_sub"}[ident.provider]
+        created = False
+        with self.db.lock:
+            user = self.users.by_sub(ident.provider, ident.sub)
+            if user is None and ident.email and ident.email_verified:
+                existing = self.users.by_email(ident.email)
+                if existing is not None:
+                    if getattr(existing, col):
+                        raise AccountError(409, "conflict", "This email is linked to another account.")
+                    fields: dict[str, Any] = {col: ident.sub}
+                    if not existing.email_verified:
+                        # someone may have pre-registered this address: drop their password and sessions
+                        fields.update(password_hash=None, email_verified=True)
+                        self.refresh_tokens.revoke_user(existing.id)
+                    self.users.update(existing.id, **fields)
+                    self.audit.log(existing.id, f"link_{ident.provider}", self.ip_hash(ip))
+                    user = self.users.get(existing.id)
+            if user is None:
+                if not ident.email or not ident.email_verified:
+                    raise AccountError(400, "invalid_input", "The provider did not share a verified email.")
+                invite = self.invites.usable(invite_code, ident.email)
+                if invite is None and not self._is_admin_email(ident.email):
+                    raise AccountError(403, "invite_required", "A valid invite code is required.", "invite_code")
+                display = (name or ident.name or None)
+                user = self._new_user(ident.email, display_name=display, email_verified=True, **{col: ident.sub})
+                if invite is not None:
+                    self.invites.consume(invite["code"], user.id)
+                created = True
+                self.audit.log(user.id, f"signup_{ident.provider}", self.ip_hash(ip))
+        if created:
+            self._create_db(user.id)
+        user = self._maybe_promote(user)
+        self.audit.log(user.id, f"login_{ident.provider}", self.ip_hash(ip))
+        return user, self._issue(user, device)
+
+    def google_start(self, redirect: str, invite: str | None) -> tuple[str, str]:
+        if not (self.s.google_client_id and self.s.google_client_secret):
+            raise AccountError(404, "not_found", "Google sign-in is not configured.")
+        verifier, challenge = pkce_pair()
+        nonce = secrets.token_urlsafe(16)
+        state = self.oauth_states.put({"verifier": verifier, "nonce": nonce, "redirect": redirect, "invite": invite})
+        return google_auth_url(self.s.google_client_id, self.google_redirect_uri, state, challenge, nonce), state
+
+    @property
+    def google_redirect_uri(self) -> str:
+        return f"{self.s.public_base_url.rstrip('/')}/api/auth/google/callback"
+
+    def google_callback(self, code: str, state: str, ip: str | None, device: str | None):
+        data = self.oauth_states.pop(state or "")
+        if data is None or not code:
+            raise AccountError(400, "invalid_state", "Sign-in expired. Try again.")
+        try:
+            id_token = google_exchange_code(code, data["verifier"], self.s.google_client_id,
+                                            self.s.google_client_secret, self.google_redirect_uri,
+                                            transport=self.google_transport)
+            ident = verify_id_token(id_token, self.google_jwks, GOOGLE_ISSUERS,
+                                    [self.s.google_client_id], "google", nonce=data["nonce"])
+        except TokenInvalid:
+            raise AccountError(401, "google_failed", "Google sign-in failed.") from None
+        user, tokens = self.social_login(ident, data.get("invite"), None, ip, device)
+        return user, tokens, data["redirect"]
+
+    # ---------- personal tokens ----------
+    def create_api_token(self, user: UserRow, kind: str, label: str | None) -> tuple[str, dict]:
+        raw = crypto.random_token("lvsa_" if kind == "api" else "lvse_")
+        info = self.api_tokens.create(user.id, kind, label, crypto.sha256_hex(raw))
+        self.audit.log(user.id, f"token_created_{kind}")
+        return raw, info
+
+    def revoke_api_token(self, user: UserRow, token_id: str) -> None:
+        if not self.api_tokens.owned(user.id, token_id):
+            raise AccountError(404, "not_found", "Token not found.")
+        self.api_tokens.revoke(user.id, token_id)
+        self.audit.log(user.id, "token_revoked")
+
+    # ---------- sessions ----------
+    def sessions(self, p: Principal) -> list[dict]:
+        return [{**s, "current": s["id"] == p.sid} for s in self.refresh_tokens.sessions(p.user.id)]
+
+    def revoke_session(self, p: Principal, family_id: str) -> None:
+        if self.refresh_tokens.family_owner(family_id) != p.user.id:
+            raise AccountError(404, "not_found", "Session not found.")
+        self.refresh_tokens.revoke_family(family_id)
+        self.audit.log(p.user.id, "session_revoked")
+
+    # ---------- invites ----------
+    def create_invite(self, admin: UserRow, email: str | None, expires_days: int) -> dict:
+        inv = self.invites.create(secrets.token_urlsafe(9), admin.id, email, expires_days)
+        self.audit.log(admin.id, "invite_created")
+        return inv
+
+    # ---------- deletion / demo ----------
+    def delete_account(self, user: UserRow, confirm: str, password: str | None) -> None:
+        if confirm != DELETE_PHRASE:
+            raise AccountError(400, "invalid_input", f'Type "{DELETE_PHRASE}" to confirm.', "confirm")
+        if user.password_hash and not self.passwords.verify(user.password_hash, password or ""):
+            raise AccountError(403, "forbidden", "Password is incorrect.", "password")
+        self.userdbs.delete(user.id)
+        self.users.hard_delete(user.id)
+        self.audit.log(user.id, "account_deleted")
+
+    def seed_demo(self) -> None:
+        if not self.s.demo_password:
+            log.warning("SEED_DEMO=1 but DEMO_PASSWORD is not set; skipping demo accounts")
+            return
+        for i, email in enumerate(DEMO_EMAILS, start=1):
+            if self.users.by_email(email) is not None:
+                continue
+            user = self._new_user(email, password_hash=self.passwords.hash(self.s.demo_password),
+                                  display_name=f"Judge {i}", email_verified=True)
+            with self.userdbs.use(user.id, create=True) as h, h.lock:
+                self.factory.seed_demo(user.id, h.conn)
+            self.audit.log(user.id, "demo_seeded")
