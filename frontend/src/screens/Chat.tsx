@@ -9,7 +9,7 @@ import { useShell } from '../components/Shell';
 import { say } from '../components/prompt';
 import { hhmm } from '../lib/format';
 import { haptic } from '../native/native';
-import { L } from '../theme/Plain';
+import { L, Tag, type TagCode } from '../theme/Plain';
 import { useTheme } from '../theme/ThemeProvider';
 import { HangoutCheckin } from './Checkin';
 import { useHotkey } from '../lib/hotkeys';
@@ -29,6 +29,16 @@ function toolName(t: unknown): { name: string; args?: Record<string, unknown> } 
     args = undefined;
   }
   return { name: o.function?.name || 'tool', args };
+}
+
+/** Agent text with inline evidence tags ([MOD], [SELF], …) rendered as real tags. */
+function TaggedText({ text }: { text: string }) {
+  const parts = text.split(/\[(MOD|HEUR|DESC|SELF|UNCAL)\]/);
+  return (
+    <>
+      {parts.map((p, i) => (i % 2 ? <Tag key={i} code={p as TagCode} /> : <span key={i}>{p}</span>))}
+    </>
+  );
 }
 
 /** Turn stored thread messages into transcript lines (tool rows fold into the next reply). */
@@ -225,7 +235,7 @@ export function ChatScreen() {
                   <span className="ts">{hhmm(ln.at)}</span>
                   <span className="who glyph">lvs ›</span>
                   <div className="body">
-                    {ln.text}
+                    <TaggedText text={ln.text} />
                     {ln.streaming && (
                       <span className="cap">
                         {!ln.text && <L t="lvs is thinking…" p="Thinking…" />}

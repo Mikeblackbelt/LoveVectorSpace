@@ -175,7 +175,7 @@ html,body{margin:0;min-height:100%}
 .lvs .cap{color:var(--link-t)}
 .lvs .tools{margin:-8px 0 12px 112px;font-size:12px;max-width:80ch}
 .lvs .tools-sum{color:var(--text-dim);margin-bottom:2px}
-.lvs .tool{display:inline-flex;gap:4px;align-items:center;text-align:left;color:var(--text-dim);background:transparent;border:var(--rule-w) solid var(--rule);padding:2px 8px;min-height:28px;margin:2px 0;font-family:var(--mono);font-size:11.5px}
+.lvs .tool{display:inline-flex;gap:4px;align-items:center;text-align:left;color:var(--text-dim);background:transparent;border:0;padding:2px 0;min-height:28px;margin:0;font-family:var(--mono);font-size:12px}
 .lvs .tool:hover{color:var(--text);border-color:var(--me)}
 .lvs .tool .car{color:var(--me-t)}
 .lvs .tool-out{margin:0 0 4px 14px;padding-left:12px;border-left:1px dashed var(--rule);color:var(--text-dim);white-space:pre-wrap;font-size:12px}
@@ -197,7 +197,7 @@ html,body{margin:0;min-height:100%}
 .lvs .rail-bar{font-size:16px;color:var(--me-t);white-space:nowrap;overflow:hidden}
 .lvs .rail-bar i{font-style:normal;color:var(--text-dim)}
 .lvs .rail-btns{display:flex;flex-direction:column;gap:8px}
-.lvs .rail-btns .key{min-height:44px;justify-content:center;display:flex;align-items:center}
+.lvs .rail-btns .key{min-height:44px;justify-content:center;display:flex;align-items:center;gap:.6ch}
 .lvs .rail-legend{font-size:12px;color:var(--text-dim);line-height:1.7;margin:0}
 .lvs .pbar{display:none}
 .lvs .chk{margin:0 0 16px 112px;border:var(--rule-w) solid var(--rule);padding:18px 16px 14px;max-width:64ch;position:relative;background:var(--bg)}
@@ -563,3 +563,5 @@ html,body{margin:0;min-height:100%}
 
 /* motion row in the theme popover (classes from dashboard.html) */
 .lvs .theme-pop .mrow{flex-wrap:wrap}
+
+.lvs .ln .body .tag{margin:0 2px;text-shadow:none}
