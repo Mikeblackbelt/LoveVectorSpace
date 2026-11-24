@@ -55,6 +55,28 @@ VITE_PROXY_TARGET=http://host:port npm run dev:live
 - Google on the web redirects to `/api/auth/google/start` and lands on `/auth/complete#ok`. Apple on the web uses Sign in with Apple JS. Native Google/Apple use `@capgo/capacitor-social-login` and post the ID token to `/api/auth/{google,apple}/token`. A `403 invite_required` asks for an invite code and retries.
 - Live updates use `GET /api/events` read with `fetch` streaming (so the JWT goes in the header).
 
+## Security headers
+
+Production builds embed this Content-Security-Policy as a `<meta>` tag (`vite.config.ts`, `cspFor`). `connect-src` adds the origin of `VITE_API_BASE` when it is set (native builds):
+
+```
+default-src 'self'; connect-src 'self' <VITE_API_BASE origin>; script-src 'self' https://appleid.cdn-apple.com;
+style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;
+img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://appleid.apple.com https://accounts.google.com;
+object-src 'none'
+```
+
+The backend serving the SPA should send the same value as a `Content-Security-Policy` **header**, plus `frame-ancestors 'none'` (browsers ignore `frame-ancestors` in a meta tag). Live builds contain no mock code: the mock import sits behind the build-time constant `__LVS_MOCK__`.
+
+## Native origins (backend CORS)
+
+The Capacitor webviews call the API cross-origin with `X-Client: native` and no cookies, so the backend CORS allow-list must include:
+
+| Platform | Origin |
+|---|---|
+| Android | `https://localhost` |
+| iOS | `capacitor://localhost` (Capacitor's default scheme; `ios.scheme` in `capacitor.config.ts` only names the Xcode scheme) |
+
 ## Android
 
 Needs a JDK 21 and the Android SDK (Android Studio installs both).
