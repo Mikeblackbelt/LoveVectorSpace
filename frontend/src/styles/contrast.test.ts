@@ -44,9 +44,7 @@ describe('theme contrast ≥ 4.5:1', () => {
   for (const t of THEMES) {
     it(t, () => {
       const tk = tokens(t);
-      // journal fills primary controls with --me-t (see app.css), every other theme with --me
-      const pairs: [string, string][] = PAIRS.map(([a, b]) => (t === 'journal' && a === '--on-me' ? [a, '--me-t'] : [a, b]));
-      const fails = pairs.filter(([a, b]) => tk[a] && tk[b] && ratio(tk[a], tk[b]) < 4.5).map(([a, b]) => `${a} on ${b} = ${ratio(tk[a], tk[b]).toFixed(2)}`);
+      const fails = PAIRS.filter(([a, b]) => tk[a] && tk[b] && ratio(tk[a], tk[b]) < 4.5).map(([a, b]) => `${a} on ${b} = ${ratio(tk[a], tk[b]).toFixed(2)}`);
       expect(fails).toEqual([]);
     });
   }

@@ -5,7 +5,7 @@ import type { Metric } from '../api/types';
 import { json, renderAt } from '../test/utils';
 import { MetricName, Tag } from './Plain';
 import { useTheme } from './ThemeProvider';
-import { DEFAULT_AUTO, THEMES, nextTheme, resolveTheme } from './themes';
+import { DEFAULT_AUTO, THEMES, nextTheme, resolveMotion, resolveTheme } from './themes';
 
 function Probe() {
   const { theme, cycle, setTheme } = useTheme();
@@ -19,8 +19,10 @@ function Probe() {
 }
 
 describe('themes', () => {
-  it('has 6 themes in the design-system cycle order', () => {
-    expect(THEMES).toEqual(['signal', 'pulse', 'riso', 'blueprint', 'journal', 'crt']);
+  it('has 9 themes in the design-system cycle order', () => {
+    expect(THEMES).toEqual(['signal', 'pulse', 'riso', 'blueprint', 'journal', 'matcha', 'midnight', 'inkwell', 'crt']);
+    expect(DEFAULT_AUTO.day).toBe('journal');
+    expect(DEFAULT_AUTO.night).toBe('signal');
     expect(nextTheme('crt')).toBe('signal');
   });
 
@@ -47,6 +49,14 @@ describe('themes', () => {
     localStorage.setItem('lvs.prefs', JSON.stringify({ theme: 'blueprint' }));
     renderAt(<Probe />);
     expect(screen.getByTestId('theme').textContent).toBe('blueprint');
+  });
+
+  it('motion: explicit choice wins; otherwise gentle for OS reduce, account or inkwell', () => {
+    expect(resolveMotion(null, { osReduce: false, accountReduce: false, theme: 'signal' })).toBe('full');
+    expect(resolveMotion(null, { osReduce: true, accountReduce: false, theme: 'signal' })).toBe('gentle');
+    expect(resolveMotion(null, { osReduce: false, accountReduce: false, theme: 'inkwell' })).toBe('gentle');
+    expect(resolveMotion('full', { osReduce: true, accountReduce: true, theme: 'inkwell' })).toBe('full');
+    expect(resolveMotion('off', { osReduce: false, accountReduce: false, theme: 'signal' })).toBe('off');
   });
 
   it('AUTO resolves by system appearance or time of day', () => {

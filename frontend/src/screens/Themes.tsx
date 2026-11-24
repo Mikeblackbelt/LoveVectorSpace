@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react';
 import type { ThemeName } from '../api/types';
-import { Pane } from '../components/Pane';
 import { say } from '../components/prompt';
 import { L } from '../theme/Plain';
 import { useTheme } from '../theme/ThemeProvider';
 import { THEMES, THEME_META } from '../theme/themes';
+import { A11yPanel, AutoPanel } from './ThemePanels';
 
 const PERS: Record<ThemeName, [string, string]> = {
   signal: ['Swiss print, calm and exact', 'FX: crisp print, no bloom, crop marks'],
@@ -12,6 +12,9 @@ const PERS: Record<ThemeName, [string, string]> = {
   riso: ['Risograph zine, playful', 'FX: misregistration + halftone dots'],
   blueprint: ['Engineering drawing, precise', 'FX: 24px grid + dimension ticks'],
   journal: ['Notebook, warm and plain-spoken', 'FX: soft rounded card, gentle shadow'],
+  matcha: ['Tea house, calm and unhurried', 'FX: soft cards, paper fibre, rounded radar'],
+  midnight: ['Night sky, refined and quiet', 'FX: gold hairlines + star field'],
+  inkwell: ['High contrast, built for legibility', 'FX: THEM hatched, 3px focus, no ambient motion'],
   crt: ['Amber CRT, nostalgic', 'FX: scanlines, vignette, phosphor bloom'],
 };
 
@@ -67,7 +70,7 @@ function Specimen({ t, active, focusable, onPick, onPreview }: {
         </svg>
         <div className="spec-num">
           <div className="num">64<i>%</i></div>
-          <span className="spec-tag">{t === 'journal' ? 'rough estimate' : '[ UNCALIBRATED ]'}</span>
+          <span className="spec-tag">{t === 'journal' || t === 'matcha' ? 'rough estimate' : '[ UNCALIBRATED ]'}</span>
           <div className="spec-rng">{t === 'journal' ? 'likely 49 to 79' : 'RANGE 49–79'}</div>
         </div>
       </div>
@@ -84,7 +87,7 @@ function Specimen({ t, active, focusable, onPick, onPreview }: {
 }
 
 export function ThemesScreen() {
-  const { theme, setting, prefs, setTheme, update, setPreview } = useTheme();
+  const { theme, setting, setTheme, setPreview } = useTheme();
   const groupRef = useRef<HTMLDivElement>(null);
   const applied = setting === 'auto' ? null : setting;
   useEffect(() => () => setPreview(null), [setPreview]);
@@ -100,7 +103,7 @@ export function ThemesScreen() {
       <section className="themes-hero" aria-labelledby="th-title">
         <h1 id="th-title" className="th-title"><L t="PICK HOW LOVEVECTORSPACE FEELS" p="Pick how LoveVectorSpace feels" /></h1>
         <p className="th-line">
-          <L t="// same data, six personalities. hover or focus to try one on the whole screen; click or ENTER to keep it." p="Same data, six personalities. Hover or focus to try one; click to keep it." />
+          <L t="// same data, nine personalities. hover or focus to try one on the whole screen; click or ENTER to keep it." p="Same data, nine personalities. Hover or focus to try one; click to keep it." />
         </p>
         <p className="th-state" aria-live="polite">
           <L t="ON SCREEN" p="On screen" /> <b>{theme}</b> · <L t="SAVED" p="Saved" /> <b>{setting}</b>
@@ -135,69 +138,8 @@ export function ThemesScreen() {
       </div>
 
       <div className="two-col themes-panels">
-        <Pane id="auto" tech="AUTO" plain="Automatic theme">
-          <label className="toggle big-toggle">
-            <input type="checkbox" role="switch" checked={setting === 'auto'} onChange={(e) => setTheme(e.target.checked ? 'auto' : theme)} />
-            <L t="AUTO MODE" p="Switch automatically" />
-          </label>
-          <fieldset className="opt-group" disabled={setting !== 'auto'}>
-            <legend className="lbl"><L t="FOLLOW" p="Based on" /></legend>
-            <label className="radio-inline">
-              <input type="radio" name="auto-mode" checked={prefs.auto_theme.mode === 'system'} onChange={() => update({ auto_theme: { ...prefs.auto_theme, mode: 'system' } })} />
-              <L t="SYSTEM APPEARANCE (LIGHT → DAY, DARK → NIGHT)" p="Your device's light or dark setting" />
-            </label>
-            <label className="radio-inline">
-              <input type="radio" name="auto-mode" checked={prefs.auto_theme.mode === 'time'} onChange={() => update({ auto_theme: { ...prefs.auto_theme, mode: 'time' } })} />
-              <L t="TIME OF DAY" p="Time of day" />
-            </label>
-          </fieldset>
-          <div className="opt-grid">
-            <label className="field">
-              <span className="lbl"><L t="DAY THEME" p="Day theme" /></span>
-              <select value={prefs.auto_theme.day} onChange={(e) => update({ auto_theme: { ...prefs.auto_theme, day: e.target.value as ThemeName } })}>
-                {THEMES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </label>
-            <label className="field">
-              <span className="lbl"><L t="NIGHT THEME" p="Night theme" /></span>
-              <select value={prefs.auto_theme.night} onChange={(e) => update({ auto_theme: { ...prefs.auto_theme, night: e.target.value as ThemeName } })}>
-                {THEMES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </label>
-            {prefs.auto_theme.mode === 'time' && (
-              <>
-                <label className="field">
-                  <span className="lbl"><L t="DAY STARTS" p="Day starts" /></span>
-                  <input type="time" value={prefs.auto_theme.day_start} onChange={(e) => update({ auto_theme: { ...prefs.auto_theme, day_start: e.target.value } })} />
-                </label>
-                <label className="field">
-                  <span className="lbl"><L t="DAY ENDS" p="Day ends" /></span>
-                  <input type="time" value={prefs.auto_theme.day_end} onChange={(e) => update({ auto_theme: { ...prefs.auto_theme, day_end: e.target.value } })} />
-                </label>
-              </>
-            )}
-          </div>
-        </Pane>
-        <Pane id="a11y" tech="ACCESSIBILITY" plain="Display options">
-          <label className="toggle">
-            <input type="checkbox" role="switch" checked={prefs.reduce_motion} onChange={(e) => update({ reduce_motion: e.target.checked })} />
-            <L t="REDUCE MOTION" p="Reduce motion" />
-            <span className="dimt small"> <L t="// stops sweeps, tickers, wipes and the intro animation" p="Stops moving effects" /></span>
-          </label>
-          <label className="toggle">
-            <input type="checkbox" role="switch" checked={prefs.contrast_boost} onChange={(e) => update({ contrast_boost: e.target.checked })} />
-            <L t="CONTRAST BOOST" p="Stronger contrast" />
-          </label>
-          <fieldset className="opt-group">
-            <legend className="lbl"><L t="TEXT SIZE" p="Text size" /></legend>
-            {(['s', 'm', 'l'] as const).map((s) => (
-              <label key={s} className="radio-inline">
-                <input type="radio" name="text-size" checked={prefs.text_size === s} onChange={() => update({ text_size: s })} />
-                {s === 's' ? <L t="S" p="Small" /> : s === 'm' ? <L t="M" p="Medium" /> : <L t="L" p="Large" />}
-              </label>
-            ))}
-          </fieldset>
-        </Pane>
+        <AutoPanel />
+        <A11yPanel />
       </div>
     </main>
   );

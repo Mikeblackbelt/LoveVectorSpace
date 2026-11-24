@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { L } from '../theme/Plain';
 import { useTheme } from '../theme/ThemeProvider';
-import { THEMES, THEME_META } from '../theme/themes';
+import { MOTIONS, THEMES, THEME_META } from '../theme/themes';
 import { say } from './prompt';
 
 export function Swatch({ theme }: { theme: string }) {
@@ -17,7 +17,7 @@ export function Swatch({ theme }: { theme: string }) {
 
 /** The [T] THEME popover: every theme with a swatch strip, active one in reverse video. */
 export function ThemePopover() {
-  const { theme, setting, setTheme, popoverOpen, setPopoverOpen } = useTheme();
+  const { theme, setting, setTheme, popoverOpen, setPopoverOpen, motion, setMotion } = useTheme();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,6 +67,14 @@ export function ThemePopover() {
           AUTO<small>by system or time of day</small>
         </span>
       </button>
+      <div className="mrow" role="group" aria-label="Motion">
+        <span className="mlab"><L t="MOTION" p="Motion" /></span>
+        {MOTIONS.map((m) => (
+          <button key={m} type="button" className="mopt" aria-pressed={motion === m} onClick={() => setMotion(m)}>
+            {m === 'full' ? 'Full' : m === 'gentle' ? 'Gentle' : 'Off'}
+          </button>
+        ))}
+      </div>
       <Link className="pop-link" to="/themes" onClick={() => setPopoverOpen(false)}>
         <span className="glyph">▸ </span>
         <L t="ALL THEMES + ACCESSIBILITY" p="All themes and display options" />

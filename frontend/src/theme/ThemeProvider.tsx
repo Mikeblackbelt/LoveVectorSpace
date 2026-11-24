@@ -4,7 +4,7 @@ import { useSession } from '../api/session';
 import type { ThemeName, ThemeSetting } from '../api/types';
 import { applyNativeTheme } from '../native/native';
 import {
-  DEFAULT_PREFS, THEMES, hasPendingPrefs, isTheme, setPendingPrefs, loadLocalPrefs, nextTheme, resolveTheme, saveLocalPrefs, type ThemePrefs,
+  DEFAULT_PREFS, THEMES, THEME_META, hasPendingPrefs, loadMotion, resolveMotion, saveMotion, type Motion, isTheme, setPendingPrefs, loadLocalPrefs, nextTheme, resolveTheme, saveLocalPrefs, type ThemePrefs,
 } from './themes';
 
 interface ThemeCtx {
@@ -14,7 +14,11 @@ interface ThemeCtx {
   setting: ThemeSetting;
   prefs: ThemePrefs;
   journal: boolean;
-  reducedMotion: boolean;
+  /** resolved motion mode */
+  motion: Motion;
+  /** explicit choice, null = automatic */
+  motionChoice: Motion | null;
+  setMotion: (m: Motion | null) => void;
   setTheme: (t: ThemeSetting) => void;
   cycle: () => ThemeName;
   update: (p: Partial<ThemePrefs>) => void;
@@ -41,6 +45,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [systemReduce, setSystemReduce] = useState(() => mq('(prefers-reduced-motion: reduce)'));
   const [now, setNow] = useState(() => new Date());
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [motionChoice, setMotionChoice] = useState<Motion | null>(() => loadMotion());
   const loadedFor = useRef<string | null>(null);
   const touched = useRef(false);
 
@@ -113,7 +118,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const resolved = resolveTheme(prefs.theme, prefs.auto_theme, { prefersLight, now });
   const theme = preview ?? resolved;
-  const reducedMotion = prefs.reduce_motion || systemReduce;
+  const motion = resolveMotion(motionChoice, { osReduce: systemReduce, accountReduce: prefs.reduce_motion, theme });
+  const setMotion = useCallback(
+    (m: Motion | null) => {
+      setMotionChoice(m);
+      saveMotion(m);
+      // mirror to the account as reduce_motion so other devices start gentle too
+      if (m) update({ reduce_motion: m !== 'full' });
+    },
+    [update],
+  );
 
   const setTheme = useCallback((t: ThemeSetting) => update({ theme: t }), [update]);
   const cycle = useCallback(() => {
@@ -126,24 +140,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const el = document.documentElement;
     el.setAttribute('data-app-theme', theme);
-    el.style.colorScheme = THEMES.includes(theme) && (theme === 'riso' || theme === 'journal') ? 'light' : 'dark';
+    el.style.colorScheme = THEMES.includes(theme) && (THEME_META[theme].light) ? 'light' : 'dark';
     const root = document.querySelector<HTMLElement>('.lvs');
     if (root) {
       const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
       if (bg) {
         document.body.style.background = bg;
         el.style.background = bg;
-        void applyNativeTheme(bg, theme === 'riso' || theme === 'journal');
+        void applyNativeTheme(bg, THEME_META[theme].light);
       }
     }
   }, [theme, prefs.contrast_boost]);
 
   const value = useMemo<ThemeCtx>(
     () => ({
-      theme, setting: prefs.theme, prefs, journal: theme === 'journal', reducedMotion,
+      theme, setting: prefs.theme, prefs, journal: theme === 'journal', motion, motionChoice, setMotion,
       setTheme, cycle, update, setPreview, popoverOpen, setPopoverOpen,
     }),
-    [theme, prefs, reducedMotion, setTheme, cycle, update, popoverOpen],
+    [theme, prefs, motion, motionChoice, setMotion, setTheme, cycle, update, popoverOpen],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -156,10 +170,10 @@ export function useTheme(): ThemeCtx {
 
 /** Root attributes for the single app root <div class="lvs">. */
 export function useRootAttrs() {
-  const { theme, prefs, reducedMotion } = useTheme();
+  const { theme, prefs, motion } = useTheme();
   return {
     'data-theme': theme,
-    'data-motion': reducedMotion ? 'reduce' : 'full',
+    'data-motion': motion,
     'data-contrast': prefs.contrast_boost ? 'boost' : 'normal',
     'data-text-size': prefs.text_size,
   } as const;

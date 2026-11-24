@@ -1,7 +1,7 @@
 import type { AutoTheme, Settings, ThemeName, ThemeSetting } from '../api/types';
 
-/** Cycle order from the design system: signal → pulse → riso → blueprint → journal → crt. */
-export const THEMES: ThemeName[] = ['signal', 'pulse', 'riso', 'blueprint', 'journal', 'crt'];
+/** Cycle order from the design system: signal → pulse → riso → blueprint → journal → matcha → midnight → inkwell → crt. */
+export const THEMES: ThemeName[] = ['signal', 'pulse', 'riso', 'blueprint', 'journal', 'matcha', 'midnight', 'inkwell', 'crt'];
 
 export const THEME_META: Record<ThemeName, { label: string; blurb: string; plain: string; light: boolean }> = {
   signal: { label: 'SIGNAL', blurb: 'swiss print · default', plain: 'Print', light: false },
@@ -9,6 +9,9 @@ export const THEME_META: Record<ThemeName, { label: string; blurb: string; plain
   riso: { label: 'RISO', blurb: 'zine · playful', plain: 'Zine', light: true },
   blueprint: { label: 'BLUEPRINT', blurb: 'drawing · technical', plain: 'Blueprint', light: false },
   journal: { label: 'JOURNAL', blurb: 'notebook · plain language', plain: 'Notebook', light: true },
+  matcha: { label: 'MATCHA', blurb: 'tea house · calm', plain: 'Calm', light: true },
+  midnight: { label: 'MIDNIGHT', blurb: 'navy + gold · refined', plain: 'Night sky', light: false },
+  inkwell: { label: 'INKWELL', blurb: 'high contrast · accessible', plain: 'High contrast', light: true },
   crt: { label: 'CRT', blurb: 'amber phosphor · retro', plain: 'Retro', light: false },
 };
 
@@ -21,6 +24,9 @@ export function nextTheme(t: ThemeName): ThemeName {
 }
 
 export const DEFAULT_AUTO: AutoTheme = { mode: 'system', day: 'journal', night: 'signal', day_start: '07:00', day_end: '19:00' };
+
+export type Motion = 'full' | 'gentle' | 'off';
+export const MOTIONS: Motion[] = ['full', 'gentle', 'off'];
 
 export type ThemePrefs = Pick<Settings, 'theme' | 'auto_theme' | 'reduce_motion' | 'contrast_boost' | 'text_size'>;
 
@@ -91,4 +97,28 @@ export function hasPendingPrefs(): boolean {
   } catch {
     return false;
   }
+}
+
+// Motion: Full / Gentle / Off, stored as `lvs-motion`. An explicit choice always wins;
+// otherwise Gentle when the OS asks for reduced motion, the account asks for it, or the theme is inkwell.
+const MOTION_KEY = 'lvs-motion';
+export function loadMotion(): Motion | null {
+  try {
+    const v = localStorage.getItem(MOTION_KEY);
+    return v === 'full' || v === 'gentle' || v === 'off' ? v : null;
+  } catch {
+    return null;
+  }
+}
+export function saveMotion(m: Motion | null): void {
+  try {
+    if (m) localStorage.setItem(MOTION_KEY, m);
+    else localStorage.removeItem(MOTION_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+export function resolveMotion(explicit: Motion | null, o: { osReduce: boolean; accountReduce: boolean; theme: ThemeName }): Motion {
+  if (explicit) return explicit;
+  return o.osReduce || o.accountReduce || o.theme === 'inkwell' ? 'gentle' : 'full';
 }

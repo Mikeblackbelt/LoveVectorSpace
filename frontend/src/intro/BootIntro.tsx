@@ -25,7 +25,10 @@ const LOG = ['> mounting encrypted store ........ ok', '> loading signal models 
 const f2 = (n: number) => (n < 0 ? '−' : ' ') + Math.abs(n).toFixed(2);
 
 export function BootIntro({ loading, onDone, minMs = 3200 }: { loading: boolean; onDone: () => void; minMs?: number }) {
-  const { theme, reducedMotion, journal } = useTheme();
+  const { theme, motion, journal } = useTheme();
+  // off: static final frame · gentle: vectors still draw and close, no orbit/particles/typing loops · full: everything
+  const reducedMotion = motion === 'off';
+  const gentle = motion !== 'full';
   const rootRef = useRef<HTMLDivElement>(null);
   const cvRef = useRef<HTMLCanvasElement>(null);
   const readRef = useRef<HTMLDivElement>(null);
@@ -54,9 +57,10 @@ export function BootIntro({ loading, onDone, minMs = 3200 }: { loading: boolean;
   // fun facts: type in, rotate
   useEffect(() => {
     const f = FACTS[fact].t;
-    if (reducedMotion) {
+    if (gentle) {
       setTyped(f);
-      const id = window.setTimeout(() => setFact((i) => (i + 1) % FACTS.length), 5000);
+      if (reducedMotion) return;
+      const id = window.setTimeout(() => setFact((i) => (i + 1) % FACTS.length), 6000);
       return () => window.clearTimeout(id);
     }
     let k = 0;
@@ -74,7 +78,7 @@ export function BootIntro({ loading, onDone, minMs = 3200 }: { loading: boolean;
       window.clearInterval(id);
       window.clearTimeout(next);
     };
-  }, [fact, reducedMotion]);
+  }, [fact, reducedMotion, gentle]);
 
   // boot log
   useEffect(() => {
@@ -276,7 +280,7 @@ export function BootIntro({ loading, onDone, minMs = 3200 }: { loading: boolean;
         const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
         return x - Math.floor(x);
       };
-      const t = reducedMotion ? 0 : now / 1000;
+      const t = gentle ? 0 : now / 1000;
       ctx.save();
       for (let i = 0; i < 40; i++) {
         const sp = 4 + hs(i + 1) * 10, x = (((hs(i + 2) * W + t * sp) % W) + W) % W, y = (((hs(i + 3) * H - t * sp * 0.5) % H) + H) % H, r = 0.8 + hs(i + 4) * 1.8;
@@ -329,7 +333,8 @@ export function BootIntro({ loading, onDone, minMs = 3200 }: { loading: boolean;
         ctx.shadowColor = color;
         ctx.shadowBlur = isClose ? (fx === 'pulse' ? 34 : 26) : 20;
       }
-      seg(a, b, color, lw, alpha);
+      // inkwell: THEM is dashed so the chain never relies on colour alone
+      seg(a, b, color, lw, alpha, fx === 'inkwell' && key === 'them' ? [7, 4] : undefined);
       ctx.restore();
       if (fx === 'crt') seg(a, b, C.text, 1, alpha * 0.55);
       if (fx === 'journal') {
@@ -360,7 +365,7 @@ export function BootIntro({ loading, onDone, minMs = 3200 }: { loading: boolean;
     const update = (now: number) => {
       if (C.fx !== themeRef.current) readC();
       const el = now - t0;
-      yaw = reducedMotion ? 0.7 : (el / 1000) * ((8 * Math.PI) / 180) + 0.7;
+      yaw = gentle ? 0.7 : (el / 1000) * ((8 * Math.PI) / 180) + 0.7;
       if (phase === 'load') {
         const ready = el >= minMs && !loadingRef.current && vecs.length >= 5;
         if (!ready && now - lastAdd >= 600) {
@@ -409,6 +414,20 @@ export function BootIntro({ loading, onDone, minMs = 3200 }: { loading: boolean;
         ctx.globalAlpha = 1;
       }
       if (C.fx === 'pulse') particles(now);
+      if (C.fx === 'midnight') {
+        // faint static star field behind the scene
+        const hs = (n: number) => {
+          const x = Math.sin(n * 91.7 + 17.3) * 43758.5453;
+          return x - Math.floor(x);
+        };
+        ctx.save();
+        ctx.fillStyle = C.text;
+        for (let i = 0; i < 70; i++) {
+          ctx.globalAlpha = 0.12 + hs(i + 9) * 0.25;
+          ctx.fillRect(hs(i + 1) * W, hs(i + 2) * H * 0.7, 1.2, 1.2);
+        }
+        ctx.restore();
+      }
       grid();
       axes();
       let ck = 0;
@@ -488,7 +507,7 @@ export function BootIntro({ loading, onDone, minMs = 3200 }: { loading: boolean;
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
     };
-  }, [reducedMotion, minMs]);
+  }, [reducedMotion, gentle, minMs]);
 
   const f = FACTS[fact];
   const stTech = status === 'boot' ? 'BOOTING' : status === 'conv' ? 'CONVERGING' : 'READY';

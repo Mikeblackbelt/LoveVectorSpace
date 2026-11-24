@@ -2,7 +2,7 @@
 // defining it (ScaleDef, ScaleResult, Fact, Interaction, SpeakerMapping) the fields
 // follow the backend pydantic models in src/analyzer (see README "Assumed shapes").
 
-export type ThemeName = 'signal' | 'pulse' | 'riso' | 'blueprint' | 'journal' | 'crt';
+export type ThemeName = 'signal' | 'pulse' | 'riso' | 'blueprint' | 'journal' | 'matcha' | 'midnight' | 'inkwell' | 'crt';
 export type ThemeSetting = ThemeName | 'auto';
 
 export interface ApiErrorBody {

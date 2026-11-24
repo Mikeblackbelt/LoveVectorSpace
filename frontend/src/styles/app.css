@@ -416,11 +416,11 @@ html,body{margin:0;min-height:100%}
 
 /* ---------- a11y switches (Themes screen) ---------- */
 /* reduced motion: setting or OS — kill every animation/transition */
-.lvs[data-motion="reduce"] *,.lvs[data-motion="reduce"] *::before,.lvs[data-motion="reduce"] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
-.lvs[data-motion="reduce"] .wipe{display:none!important}
-.lvs[data-motion="reduce"] .tk-run+.tk-run{display:none}
-.lvs[data-motion="reduce"] .tr{stroke-dasharray:none!important;stroke-dashoffset:0!important}
-.lvs[data-motion="reduce"] .bar{max-width:none!important}
+/* Off: static final state. Gentle: one-shot entrances/count-ups stay, continuous loops stop (base.css has the dashboard rules). */
+.lvs[data-motion="off"] *,.lvs[data-motion="off"] *::before,.lvs[data-motion="off"] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+.lvs[data-motion="gentle"] .spec-radar .swp,.lvs[data-motion="gentle"] .spec-radar .v,.lvs[data-motion="gentle"] .intro-wm,
+.lvs[data-motion="gentle"][data-theme="pulse"] .wm,.lvs[data-motion="gentle"] .cur{animation:none}
+.lvs[data-motion="gentle"] .spec:hover{transform:none}
 /* contrast boost: pull dim text and rules toward --text in every scope, including specimens */
 .lvs[data-contrast="boost"],.lvs[data-contrast="boost"] [data-theme]{--text-dim:color-mix(in srgb,var(--text) 86%,var(--bg));--rule:color-mix(in srgb,var(--text) 55%,var(--bg))}
 /* text size */
@@ -473,15 +473,8 @@ html,body{margin:0;min-height:100%}
   .lvs .unit{flex-wrap:wrap}
   .lvs .intro-top .mid{display:none}
 }
-@media (prefers-reduced-motion:reduce){
-  .lvs .spec-radar .swp,.lvs .spec-radar .v,.lvs .intro-wm,.lvs[data-theme="pulse"] .wm{animation:none}
-  .lvs .spec{transition:none}
-}
 
-/* journal: white on terracotta --me is 4.35:1, so filled controls use the darker text-safe --me-t (≥4.5:1) */
-.lvs[data-theme="journal"] .key.pri,.lvs[data-theme="journal"] .cmds a.on,.lvs[data-theme="journal"] .mbar a.on,
-.lvs[data-theme="journal"] .thread-tabs .tab.on,.lvs[data-theme="journal"] .row.sel .c-me{background:var(--me-t);border-color:var(--me-t)}
-.lvs[data-theme="journal"] .row.sel .c-me{background:none}
+
 
 /* phone-only secondary nav (Context, Check-ins, Themes) under the status strip */
 .lvs .msub{display:none}
@@ -506,3 +499,67 @@ html,body{margin:0;min-height:100%}
   .lvs .mstat #btn-theme-m{margin-left:auto}
 }
 .lvs a.key{gap:.6ch}
+
+/* ---------- themes 7-9 on the other screens ---------- */
+.lvs[data-theme="matcha"] .safety,.lvs[data-theme="midnight"] .safety{border-radius:var(--radius)}
+.lvs[data-theme="matcha"] .apane,.lvs[data-theme="matcha"] .modal,.lvs[data-theme="matcha"] .chk{box-shadow:var(--shadow);border-color:var(--rule)}
+.lvs[data-theme="matcha"] .apane>.ttl,.lvs[data-theme="matcha"] .modal>.ttl{font-family:var(--font-display);font-size:16px;letter-spacing:0;color:var(--text)}
+.lvs[data-theme="matcha"] .btn,.lvs[data-theme="matcha"] .tab,.lvs[data-theme="matcha"] .tbtn{text-transform:none;letter-spacing:0;font-size:14px}
+.lvs[data-theme="matcha"] .wm{text-shadow:none;--wm-fs:clamp(34px,5.6vw,72px);--wm-c:var(--text);--wm-fw:600;--wm-ls:-.01em}
+.lvs[data-theme="matcha"] .ln.bot .body{border-left:0;padding:10px 14px;background:color-mix(in srgb,var(--me) 7%,var(--panel));border-radius:var(--radius);color:var(--text);text-shadow:none}
+.lvs[data-theme="midnight"] .apane{border-top:1px solid var(--me)}
+.lvs[data-theme="midnight"] .wm{--wm-c:var(--text);--wm-fw:700;--wm-ls:.02em;text-shadow:none;border-bottom:1px solid var(--me);display:inline-block;padding-bottom:.08em}
+.lvs[data-theme="midnight"] .modal{border-width:1px}
+.lvs[data-theme="inkwell"] .apane,.lvs[data-theme="inkwell"] .modal,.lvs[data-theme="inkwell"] .chk,.lvs[data-theme="inkwell"] .safety{border-width:2px}
+.lvs[data-theme="inkwell"] .safety{background:var(--concern-bg);color:var(--concern-fg)}
+.lvs[data-theme="inkwell"] .links a,.lvs[data-theme="inkwell"] a{text-decoration:underline}
+.lvs[data-theme="inkwell"] .wm{text-shadow:none;--wm-c:var(--text);--wm-fw:700;--wm-ls:0}
+.lvs[data-theme="inkwell"] .spec-sw .s-them,.spec[data-theme="inkwell"] .spec-sw .s-them{background:var(--pattern-them)}
+
+/* specimens 7-9 */
+.spec[data-theme="matcha"]{box-shadow:var(--shadow)}
+.spec[data-theme="matcha"] .spec-head{letter-spacing:0;text-transform:none;font-size:13px}
+.spec[data-theme="matcha"] .num{font-weight:600}
+.spec[data-theme="matcha"] .spec-tag{border-radius:99px;background:color-mix(in srgb,var(--me) 14%,var(--panel));color:var(--me-t);letter-spacing:0;font-size:12px;padding:2px 10px}
+.spec[data-theme="matcha"] .spec-radar .v{stroke-linecap:round}
+.spec[data-theme="midnight"]{border-top:1px solid var(--me);background:radial-gradient(circle at 12% 18%,color-mix(in srgb,var(--text) 30%,transparent) 0 1px,transparent 1.5px),radial-gradient(circle at 70% 30%,color-mix(in srgb,var(--text) 22%,transparent) 0 1px,transparent 1.5px),radial-gradient(circle at 40% 80%,color-mix(in srgb,var(--text) 18%,transparent) 0 1px,transparent 1.5px),var(--bg)}
+.spec[data-theme="midnight"] .num{font-weight:700;color:var(--text);border-bottom:1px solid var(--me);display:inline-block}
+.spec[data-theme="midnight"] .spec-tag{background:transparent;color:var(--me-t);border:1px solid var(--me)}
+.spec[data-theme="inkwell"]{border-width:2px}
+.spec[data-theme="inkwell"]:focus-visible{outline-width:3px;outline-offset:3px}
+.spec[data-theme="inkwell"] .num{font-weight:700}
+.spec[data-theme="inkwell"] .spec-radar .v.th{stroke-dasharray:6 4}
+.spec[data-theme="inkwell"] .spec-radar .swp,.spec[data-theme="inkwell"] .spec-radar .v{animation:none}
+.spec[data-theme="inkwell"] .spec-sw .s-them{background:var(--pattern-them);box-shadow:0 0 0 1px var(--text)}
+
+/* ---------- segmented controls, theme chips, AUTO ring ---------- */
+.lvs .seg{display:inline-flex;flex-wrap:wrap;border:var(--rule-w) solid var(--rule);margin:6px 0}
+.lvs .seg button{min-height:40px;padding:0 14px;background:transparent;border:0;border-right:var(--rule-w) solid var(--rule);color:var(--text);font-family:var(--mono);font-size:12px;letter-spacing:.06em}
+.lvs .seg button:last-child{border-right:0}
+.lvs .seg button[aria-checked="true"]{background:var(--text);color:var(--bg);font-weight:600}
+.lvs .arow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0}
+.lvs .arow>.lbl{min-width:10ch}
+.lvs .chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+.lvs .chip{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 10px;background:var(--bg);color:var(--text);border:var(--rule-w) solid var(--rule);font-family:var(--font-data);font-size:12px;border-radius:var(--radius)}
+.lvs .chip[aria-checked="true"]{outline:2px solid var(--me);outline-offset:1px;font-weight:600}
+.lvs .chip .mini{display:inline-flex;gap:2px}
+.lvs .chip .mini i{display:block;width:8px;height:8px}
+.lvs .chip .m1{background:var(--me)} .lvs .chip .m2{background:var(--them)} .lvs .chip .m3{background:var(--link)}
+.lvs .dial-wrap{max-width:260px;margin:8px auto}
+.lvs .dial{display:block;width:100%;height:auto}
+.lvs .dial .ol{fill:none;stroke:var(--rule)}
+.lvs .dial .tk{stroke:var(--text-dim);fill:none}
+.lvs .dial .band{fill:none;stroke:var(--me);stroke-width:18}
+.lvs .dial .hl{fill:var(--text-dim);font-family:var(--font-data);font-size:11px}
+.lvs .dial .hand line{stroke:var(--text);stroke-width:2}
+.lvs .dial .hand circle{fill:var(--text)}
+.lvs .dial .ct{fill:var(--text);font-family:var(--font-display);font-size:24px}
+.lvs .dial .cs{fill:var(--text-dim);font-family:var(--font-data);font-size:11px}
+.lvs .now{font-family:var(--mono);font-size:12px}
+.lvs[data-theme="journal"] .seg,.lvs[data-theme="matcha"] .seg{border-radius:99px;overflow:hidden}
+.lvs[data-theme="journal"] .seg button,.lvs[data-theme="matcha"] .seg button{font-family:var(--font-ui);letter-spacing:0;font-size:13px}
+.lvs[data-theme="journal"] .chip,.lvs[data-theme="matcha"] .chip{border-radius:99px}
+@media (max-width:767px){.lvs .seg button,.lvs .chip{min-height:44px}}
+
+/* motion row in the theme popover (classes from dashboard.html) */
+.lvs .theme-pop .mrow{flex-wrap:wrap}

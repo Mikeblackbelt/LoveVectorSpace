@@ -121,7 +121,8 @@ function SlotNumber({ value, animate }: { value: string; animate: boolean }) {
 }
 
 export function Radar({ metrics, success, subject }: { metrics: Metric[]; success: SuccessEstimate; subject: string }) {
-  const { reducedMotion, journal } = useTheme();
+  const { motion, journal } = useTheme();
+  const sweepOn = motion === 'full';
   const spokes = useMemo(() => buildSpokes(metrics), [metrics]);
   const sweepRef = useRef<SVGGElement>(null);
   const brgRef = useRef<HTMLElement>(null);
@@ -133,7 +134,7 @@ export function Radar({ metrics, success, subject }: { metrics: Metric[]; succes
   const hi = success.high ?? null;
 
   useEffect(() => {
-    if (reducedMotion || !spokes.length) return;
+    if (!sweepOn || !spokes.length) return;
     const PERIOD = 7000;
     const t0 = performance.now();
     const last: (number | null)[] = spokes.map(() => null);
@@ -158,7 +159,7 @@ export function Radar({ metrics, success, subject }: { metrics: Metric[]; succes
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [reducedMotion, spokes]);
+  }, [sweepOn, spokes]);
 
   const tips = spokes.map((s) => {
     const base = pt(HUB, s.ang);
@@ -248,7 +249,7 @@ export function Radar({ metrics, success, subject }: { metrics: Metric[]; succes
               })}
             </>
           )}
-          {!reducedMotion && !journal && (
+          {sweepOn && !journal && (
             <g ref={sweepRef} className="sweep">
               {trail.map((t, i) => (
                 <line key={i} className="sw-trail" x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} opacity={t.o} />
@@ -350,7 +351,7 @@ export function Radar({ metrics, success, subject }: { metrics: Metric[]; succes
               {ok ? <L t="[ UNCALIBRATED ]" p="rough estimate" /> : <L t="[ INSUFFICIENT DATA ]" p="not enough data yet" />}
             </span>
             <div className="hl">
-              <SlotNumber value={ok ? String(pctN) : '--'} animate={ok && !reducedMotion} />
+              <SlotNumber value={ok ? String(pctN) : '--'} animate={ok && motion !== 'off'} />
               <span className="hl-pct">%</span>
             </div>
             <div className="hub-range">
