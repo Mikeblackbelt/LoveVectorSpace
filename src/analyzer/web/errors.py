@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from analyzer.accounts.service import AccountError
+from analyzer.accounts.userdb import UserGone
 from analyzer.service.facade import AgentUnavailable, ChatNotLinked, InvalidInput, NotFound
 
 try:   # the service layer's "service/factory closed" signal (eviction, deletion or shutdown in progress)
@@ -47,6 +48,8 @@ def map_exception(exc: Exception) -> ApiError | None:
     if isinstance(exc, AccountError):
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after else None
         return ApiError(exc.status, exc.code, exc.message, exc.field, headers)
+    if isinstance(exc, UserGone):
+        return ApiError(401, "unauthenticated", "Not signed in.")
     if isinstance(exc, NotFound):
         return ApiError(404, "not_found", str(exc) or "Not found.")
     if isinstance(exc, InvalidInput):
@@ -65,7 +68,8 @@ def install_error_handlers(app: FastAPI) -> None:
         e = map_exception(exc)
         return error_response(e.status, e.code, e.message, e.field, e.headers)
 
-    for cls in (ApiError, AccountError, NotFound, InvalidInput, ChatNotLinked, AgentUnavailable, ServiceClosed):
+    for cls in (ApiError, AccountError, NotFound, InvalidInput, ChatNotLinked, AgentUnavailable, ServiceClosed,
+                UserGone):
         app.add_exception_handler(cls, known)
 
     @app.exception_handler(StarletteHTTPException)
