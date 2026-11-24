@@ -772,8 +772,8 @@ class UserServiceImpl:
         self._job_event(pid, job_id, "running")
         try:
             data = self.analyze_now(pid)
-            material, backlog = data.pop("_material"), data.pop("_backlog")
-            material = material and not backlog  # auto cards wait until the scoring backlog is done
+            data.pop("_material")
+            backlog = data.pop("_backlog")
         except NotFound:
             with self._live():
                 Jobs(self.conn).update(job_id, "error", "person removed")
@@ -788,7 +788,7 @@ class UserServiceImpl:
         with self._live():
             Jobs(self.conn).update(job_id, "done")
         self._job_event(pid, job_id, "done")
-        if material:
+        if not backlog:  # every completed analysis refreshes next steps (auto runs: max once / person / 10 min)
             self._submit(lambda svc: svc._exec_next_steps(None, pid, on_demand=False))
 
     def _exec_next_steps(self, job_id: int | None, pid: int, on_demand: bool) -> None:
@@ -998,7 +998,7 @@ class UserServiceImpl:
         return [_step_dict(s) for s in NextSteps(self.conn).list(pid) if s.id > step_id]
 
     @locked
-    def _auto_run_allowed(self, pid: int, now: datetime, cap: timedelta = timedelta(days=1)) -> bool:
+    def _auto_run_allowed(self, pid: int, now: datetime, cap: timedelta = timedelta(minutes=10)) -> bool:
         from analyzer.store._base import fmt
         st, key = Settings(self.conn), f"next_steps_auto_at:{pid}"
         last = st.get(key)

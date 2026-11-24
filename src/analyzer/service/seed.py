@@ -96,7 +96,6 @@ def _chat(rng, start, days, active, source, ids_prefix, size, them_name, skip=()
 
 
 DEMO_PEOPLE = ("Yu Cheng", "Sam", "Jordan")
-DEMO_FLAG = "demo"  # user-DB setting: this is a demo account (e.g. exempt from the auto next-step cap)
 
 
 def _marker(name: str) -> str:
@@ -200,7 +199,6 @@ def seed(svc) -> dict[str, str]:
     with svc._live():
         conn = svc.conn
         st, ppl = Settings(conn), People(conn)
-        st.set(DEMO_FLAG, True)
         now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         for name in DEMO_PEOPLE:
             marked = st.get(_marker(name))

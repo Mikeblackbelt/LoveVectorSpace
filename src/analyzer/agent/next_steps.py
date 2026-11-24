@@ -11,7 +11,7 @@ from .loop import run_agent
 from .tools import STEP_KINDS
 
 log = logging.getLogger("analyzer.agent")
-AUTO_CAP = timedelta(days=1)
+AUTO_CAP = timedelta(minutes=10)  # automatic runs (after an analysis / questionnaire) per person
 GENERATE_PROMPT = ("Review the owner's current overview and context and propose next-step cards "
                    "with propose_next_step, only where warranted.")
 
@@ -31,7 +31,7 @@ def propose(svc, pid: int, args: dict) -> dict:
 
 
 def generate_next_steps(svc, pid: int, on_demand: bool, now: datetime | None = None) -> list[dict]:
-    """Returns the cards created. Auto runs are capped at one per person per day."""
+    """Returns the cards created. Auto runs are capped at one per person per AUTO_CAP (10 minutes)."""
     now = now or datetime.now(timezone.utc)
     if not on_demand and not svc._auto_run_allowed(pid, now, AUTO_CAP):
         return []
