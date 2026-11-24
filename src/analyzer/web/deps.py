@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import secrets
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -32,10 +33,24 @@ def _in_networks(ip: str, nets: list) -> bool:
     return any(addr in n for n in nets)
 
 
+_proxy_warned = False
+
+
+def _warn_untrusted_proxy(request: Request) -> None:
+    global _proxy_warned
+    if not _proxy_warned and request.headers.get("x-forwarded-for"):
+        _proxy_warned = True
+        logging.getLogger("analyzer.web").warning(
+            "X-Forwarded-For received but TRUSTED_PROXIES is unset: all clients share the proxy IP "
+            "(per-IP rate limits apply to everyone behind it). Set TRUSTED_PROXIES.")
+
+
 def client_ip(request: Request) -> str | None:
     """Peer address; X-Forwarded-For is honoured only when the peer is in TRUSTED_PROXIES ("*" = any peer)."""
     peer = request.client.host if request.client else None
     trusted = request.app.state.settings.trusted_proxy_list
+    if not trusted:
+        _warn_untrusted_proxy(request)
     if not trusted or not peer:
         return peer
     any_peer = "*" in trusted

@@ -54,7 +54,7 @@ class SocialIn(BaseModel):
     id_token: str = Field(max_length=8192)
     invite_code: str | None = Field(default=None, max_length=128)
     name: str | None = Field(default=None, max_length=80)
-    nonce: str | None = Field(default=None, max_length=256)
+    # a client-supplied `nonce` is ignored: the nonce must be one issued by POST /api/auth/nonce
 
 
 @router.post("/signup", status_code=201)
@@ -175,10 +175,16 @@ def google_callback(request: Request, code: str | None = None, state: str | None
     return r
 
 
+@router.post("/nonce")
+def nonce(request: Request):
+    """Single-use nonce (10 min) to bind into a native Google (raw) or Apple (sha256 hex) ID token."""
+    return {"nonce": accounts(request).issue_nonce(client_ip(request)), "expires_in": 600}
+
+
 @router.post("/google/token")
 def google_token(body: SocialIn, request: Request, response: Response):
     acc = accounts(request)
-    ident = acc.verify_google(body.id_token, body.nonce)
+    ident = acc.verify_google(body.id_token)
     user, tokens = acc.social_login(ident, body.invite_code, None, client_ip(request), device_label(request))
     return auth_result(request, response, user, tokens)
 
@@ -186,7 +192,7 @@ def google_token(body: SocialIn, request: Request, response: Response):
 @router.post("/apple/token")
 def apple_token(body: SocialIn, request: Request, response: Response):
     acc = accounts(request)
-    ident = acc.verify_apple(body.id_token, body.nonce)
+    ident = acc.verify_apple(body.id_token)
     user, tokens = acc.social_login(ident, body.invite_code, body.name, client_ip(request), device_label(request))
     return auth_result(request, response, user, tokens)
 

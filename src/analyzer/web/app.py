@@ -80,7 +80,8 @@ def create_app(settings: AppSettings, factory: ServiceFactory, *, mailer: Any = 
                        messages_limit=settings.max_messages_import_bytes)
     app.add_middleware(RequestLog)
     app.add_middleware(PathCORS, app_origins=[settings.app_origin, *NATIVE_ORIGINS],
-                       extension_id=settings.extension_id)   # outermost, so error responses carry CORS headers
+                       extension_id=settings.extension_id,
+                       bearer_only_origins=[o for o in NATIVE_ORIGINS if o != settings.app_origin.rstrip("/")])   # outermost, so error responses carry CORS headers
 
     if settings.seed_demo:
         accounts.seed_demo()
