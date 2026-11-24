@@ -69,40 +69,4 @@ export async function readSharedFile(f: SharedChatFile): Promise<Blob> {
   return res.blob();
 }
 
-// ---------- social sign-in (native) ----------
-let socialReady: Promise<void> | null = null;
-async function social() {
-  const mod = await import('@capgo/capacitor-social-login');
-  if (!socialReady) {
-    socialReady = mod.SocialLogin.initialize({
-      google: {
-        webClientId: import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID || undefined,
-        iOSClientId: import.meta.env.VITE_GOOGLE_IOS_CLIENT_ID || undefined,
-        iOSServerClientId: import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID || undefined,
-        mode: 'online',
-      },
-      apple: { clientId: import.meta.env.VITE_APPLE_CLIENT_ID || undefined },
-    } as never);
-  }
-  await socialReady;
-  return mod.SocialLogin;
-}
-
-export async function nativeGoogleIdToken(): Promise<string> {
-  const s = await social();
-  const r = (await s.login({ provider: 'google', options: {} } as never)) as {
-    result: { idToken?: string | null };
-  };
-  if (!r.result?.idToken) throw new Error('Google did not return an identity token.');
-  return r.result.idToken;
-}
-
-export async function nativeAppleIdToken(): Promise<{ idToken: string; name?: string }> {
-  const s = await social();
-  const r = (await s.login({ provider: 'apple', options: { scopes: ['email', 'name'] } } as never)) as {
-    result: { idToken?: string | null; profile?: { givenName?: string | null; familyName?: string | null } };
-  };
-  if (!r.result?.idToken) throw new Error('Apple did not return an identity token.');
-  const n = [r.result.profile?.givenName, r.result.profile?.familyName].filter(Boolean).join(' ');
-  return { idToken: r.result.idToken, name: n || undefined };
-}
+// Native Google/Apple sign-in (with a per-attempt nonce) lives in src/api/social.ts.
