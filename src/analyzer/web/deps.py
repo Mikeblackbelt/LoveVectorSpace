@@ -1,6 +1,7 @@
 """Request dependencies: principals, scopes, CSRF, cookies, per-user facade calls."""
 from __future__ import annotations
 
+import ipaddress
 import secrets
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -23,8 +24,33 @@ def accounts(request: Request) -> AccountService:
     return request.app.state.accounts
 
 
+def _in_networks(ip: str, nets: list) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in n for n in nets)
+
+
 def client_ip(request: Request) -> str | None:
-    return request.client.host if request.client else None
+    """Peer address; X-Forwarded-For is honoured only when the peer is in TRUSTED_PROXIES ("*" = any peer)."""
+    peer = request.client.host if request.client else None
+    trusted = request.app.state.settings.trusted_proxy_list
+    if not trusted or not peer:
+        return peer
+    any_peer = "*" in trusted
+    nets = [ipaddress.ip_network(t, strict=False) for t in trusted if t != "*"]
+    if not any_peer and not _in_networks(peer, nets):
+        return peer
+    hops = [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",") if h.strip()]
+    if not hops:
+        return peer
+    if any_peer:
+        return hops[-1]           # appended by the (single) trusted edge proxy
+    for hop in reversed(hops):    # rightmost address that is not one of our proxies
+        if not _in_networks(hop, nets):
+            return hop
+    return hops[0]
 
 
 def device_label(request: Request) -> str:

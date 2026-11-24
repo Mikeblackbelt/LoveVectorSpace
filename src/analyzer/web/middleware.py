@@ -96,7 +96,7 @@ class BodyLimit:
             return self.default_limit
         if not path.startswith("/api/"):
             return self.default_limit
-        if path.endswith("/imports") or path.endswith("/imports/preview"):
+        if path.endswith(("/imports", "/imports/preview", "/imports/messages")):
             return self.import_limit
         if path == "/api/ingest":
             return self.ingest_limit

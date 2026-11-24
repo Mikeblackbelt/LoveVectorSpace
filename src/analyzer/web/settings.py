@@ -22,6 +22,7 @@ class AppSettings(BaseSettings):
     extension_id: str | None = None
     frontend_dist: str = "frontend/dist"
     cookie_secure: bool = True
+    trusted_proxies: str | None = None     # comma-separated IPs/CIDRs (or "*") whose X-Forwarded-For is honoured
 
     groq_api_key: str | None = None
     groq_model: str | None = None
@@ -47,6 +48,7 @@ class AppSettings(BaseSettings):
     ingest_msgs_per_min: int = 10_000
     user_db_cache_size: int = 32
     sse_heartbeat_s: float = 15.0
+    sse_session_check_s: float = 15.0
 
     @field_validator("master_key", "jwt_secret")
     @classmethod
@@ -65,6 +67,10 @@ class AppSettings(BaseSettings):
         if self.google_client_id and self.google_client_id not in out:
             out.append(self.google_client_id)
         return out
+
+    @property
+    def trusted_proxy_list(self) -> list[str]:
+        return _split(self.trusted_proxies)
 
     @property
     def apple_audiences(self) -> list[str]:

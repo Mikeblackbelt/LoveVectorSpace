@@ -92,7 +92,10 @@ def test_native_refresh_rotation_and_reuse_revokes_family(h, client, alice):
     rt2, at2 = r.json()["refresh_token"], r.json()["access_token"]
     assert rt2 != rt1
     assert client.get("/api/auth/me", headers=auth(at2)).status_code == 200
-    # reuse of the old token → 401 and the whole family (incl. rt2 and its access token) is revoked
+    # within the grace window (concurrent tabs) the old token yields the same new refresh token
+    again = client.post("/api/auth/refresh", json={"refresh_token": rt1}, headers={"X-Client": "native"})
+    assert again.status_code == 200 and again.json()["refresh_token"] == rt2
+    h.accounts._grace.clear()   # outside the window: reuse of the old token → 401, whole family revoked
     assert client.post("/api/auth/refresh", json={"refresh_token": rt1}, headers={"X-Client": "native"}).status_code == 401
     assert client.post("/api/auth/refresh", json={"refresh_token": rt2}, headers={"X-Client": "native"}).status_code == 401
     assert client.get("/api/auth/me", headers=auth(at2)).status_code == 401

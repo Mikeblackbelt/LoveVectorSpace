@@ -4,9 +4,10 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, File, Form, Request, Response, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from analyzer.accounts.service import Principal
+from analyzer.service.facade import InvalidInput
 
 from ..deps import app_principal, with_service
 from ..errors import ApiError
@@ -72,14 +73,44 @@ def _read_upload(request: Request, upload: UploadFile) -> bytes:
 
 @router.post("/people/{pid}/imports", status_code=201)
 def import_file(pid: int, request: Request, file: UploadFile = File(...), tz: str = Form(..., max_length=64),
-                me_names: list[str] = Form(default=[]), source: str | None = Form(default=None),
-                p: Principal = Depends(app_principal)):
+                me_names: list[str] = Form(default=[]), match_id: str | None = Form(default=None, max_length=256),
+                source: str | None = Form(default=None), p: Principal = Depends(app_principal)):
     names = [n.strip() for n in me_names if n and n.strip()]
-    if not names:
-        raise ApiError(422, "validation_error", "Say which speaker names are you.", "me_names")
     raw = _read_upload(request, file)
     filename = file.filename or "upload"
-    return _call(request, p, lambda s: s.import_file(pid, filename, raw, tz, names))
+    try:
+        # the service knows the format: me_names is required for chat exports, match_id for dating exports
+        return _call(request, p, lambda s: s.import_file(pid, filename, raw, tz, names, match_id=match_id or None))
+    except InvalidInput as e:
+        if e.field == "me_names":
+            raise ApiError(422, "validation_error", str(e) or "Say which speaker names are you.", "me_names") from None
+        raise
+
+
+class ImportedMessage(BaseModel):
+    ts_local: str | None = Field(default=None, max_length=64)
+    ts_utc: str | None = Field(default=None, max_length=64)
+    ts_precision: Literal["second", "minute", "approx"]
+    role: Literal["me", "them"]
+    text: str
+
+    @model_validator(mode="after")
+    def _one_ts(self):
+        if not (self.ts_local or self.ts_utc):
+            raise ValueError("ts_local or ts_utc is required")
+        return self
+
+
+class MessagesImport(BaseModel):
+    source: str = Field(min_length=1, max_length=64)
+    tz: str = Field(min_length=1, max_length=64)
+    messages: list[ImportedMessage]
+
+
+@router.post("/people/{pid}/imports/messages", status_code=201)
+def import_messages(pid: int, body: MessagesImport, request: Request, p: Principal = Depends(app_principal)):
+    msgs = [m.model_dump(exclude_none=True) for m in body.messages]
+    return _call(request, p, lambda s: s.import_messages(pid, body.source, body.tz, msgs))
 
 
 @router.post("/people/{pid}/imports/preview")

@@ -34,7 +34,7 @@ class FakeUserService:
         self.c.executescript(_DDL)
         self.closed = False
 
-    def close(self):
+    def close(self, timeout=10.0):
         self.closed = True
 
     # helpers
@@ -84,12 +84,26 @@ class FakeUserService:
             raise InvalidInput("empty file", "file")
         return {"format": "plaintext", "speakers": ["Me", "Sam"], "lines": raw.count(b"\n"), "one_sided": False}
 
-    def import_file(self, pid, filename, raw, tz, me_names):
+    def import_file(self, pid, filename, raw, tz, me_names, match_id=None):
         self._person_row(pid)
+        dating = filename.endswith(".json")
+        if dating and not match_id:
+            raise InvalidInput("choose a match", "match_id")
+        if not me_names and not dating:
+            raise InvalidInput("say which name is you", "me_names")
+        self.factory.imports.append({"filename": filename, "me_names": me_names, "match_id": match_id})
         uid = f"upload:{pid}:{len(raw)}"
         self._x("INSERT OR REPLACE INTO fake_units(unit_id, person_id, n) VALUES (?,?,?)", (uid, pid, raw.count(b"\n")))
         return {"unit_id": uid, "added": raw.count(b"\n"), "merged": 0, "skipped_non_english": 0, "one_sided": False,
                 "job_id": self._x("INSERT INTO fake_jobs(person_id) VALUES (?)", (pid,))}
+
+    def import_messages(self, pid, source, tz, messages):
+        self._person_row(pid)
+        if source not in ("screenshot_import", "android_sms") and not source.startswith("android_"):
+            raise InvalidInput("unknown source", "source")
+        self.factory.imports.append({"source": source, "messages": messages})
+        return {"unit_id": f"{source}:{pid}", "added": len(messages), "merged": 0, "skipped_non_english": 0,
+                "one_sided": False, "job_id": self._x("INSERT INTO fake_jobs(person_id) VALUES (?)", (pid,))}
 
     def list_units(self, pid):
         self._person_row(pid)
@@ -290,7 +304,8 @@ class FakeUserService:
         return json.loads(r[0]) if r else dict(DEFAULT_SETTINGS)
 
     def update_settings(self, patch):
-        if "theme" in patch and patch["theme"] not in ("signal", "pulse", "riso", "blueprint", "journal", "crt", "auto"):
+        if "theme" in patch and patch["theme"] not in ("signal", "pulse", "riso", "blueprint", "journal", "matcha",
+                                                       "midnight", "inkwell", "crt", "auto"):
             raise InvalidInput("unknown theme", "theme")
         s = {**self.get_settings(), **patch}
         self._x("INSERT OR REPLACE INTO fake_kv(k, v) VALUES ('settings', ?)", (json.dumps(s),))
@@ -335,6 +350,7 @@ class FakeFactory:
         self.agent_enabled = True
         self.fail_mid_stream = False
         self.ingested: list = []
+        self.imports: list = []
         self.services: list[FakeUserService] = []
         self.seeded: list[str] = []
 

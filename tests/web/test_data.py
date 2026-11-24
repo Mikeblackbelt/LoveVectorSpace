@@ -59,6 +59,8 @@ PROBES = {
     ("DELETE", "/api/people/{pid}"): {},
     ("POST", "/api/people/{pid}/imports"): {"files": {"file": ("x.txt", b"x\n")}, "data": {"tz": "UTC", "me_names": ["Me"]}},
     ("POST", "/api/people/{pid}/imports/preview"): {"files": {"file": ("x.txt", b"x\n")}},
+    ("POST", "/api/people/{pid}/imports/messages"): {"json": {"source": "android_sms", "tz": "UTC", "messages": [
+        {"ts_utc": "2026-11-20T18:00:00Z", "ts_precision": "minute", "role": "them", "text": "hi"}]}},
     ("GET", "/api/people/{pid}/units"): {},
     ("DELETE", "/api/units/{unit_id}"): {},
     ("GET", "/api/people/{pid}/speakers"): {},
@@ -175,12 +177,13 @@ def test_facade_exception_mapping(h, client, alice):
     assert client.post(f"/api/people/{pid}/analyze", headers=a).status_code == 202
     assert client.get(f"/api/people/{pid}/overview", headers=a).status_code == 200
     v = client.post(f"/api/people/{pid}/interactions", json={"fields": {}, "notes": ""}, headers=a)
-    assert v.status_code == 422 and v.json()["error"] == {"code": "validation_error", "message": "ts is required",
+    assert v.status_code == 400 and v.json()["error"] == {"code": "invalid_input", "message": "ts is required",
                                                           "field": "fields.ts"}
     bad = client.post(f"/api/people/{pid}/questionnaires/csi16", json={"answers": {}}, headers=a)
     assert bad.status_code == 400 and bad.json()["error"]["code"] == "invalid_input" and "field" not in bad.json()["error"]
     theme = client.put("/api/settings", json={"theme": "neon"}, headers=a)
-    assert theme.status_code == 422 and theme.json()["error"]["field"] == "theme"
+    assert theme.status_code == 400 and theme.json()["error"]["field"] == "theme"
+    assert client.put("/api/settings", json={"theme": "midnight"}, headers=a).json()["theme"] == "midnight"
     ing = client.post("/api/ingest", headers=a, json={"platform": "whatsapp", "chat_key": "nope", "tz": "UTC",
                                                       "messages": []})
     assert ing.status_code == 409 and ing.json()["error"]["code"] == "chat_not_linked"
@@ -222,6 +225,17 @@ def test_imports(tmp_path):
                     data={"tz": "UTC", "me_names": ["Me", "Me2"]}, headers=a)
         assert ok.status_code == 201
         assert set(ok.json()) == {"unit_id", "added", "merged", "skipped_non_english", "one_sided", "job_id"}
+        dating = c.post(f"/api/people/{pid}/imports", files={"file": ("tinder.json", b"{}\n")}, data={"tz": "UTC"},
+                        headers=a)
+        assert dating.status_code == 400 and dating.json()["error"]["field"] == "match_id"
+        dating = c.post(f"/api/people/{pid}/imports", files={"file": ("tinder.json", b"{}\n")},
+                        data={"tz": "UTC", "match_id": "m42"}, headers=a)
+        assert dating.status_code == 201 and h.factory.imports[-1]["match_id"] == "m42"
+        msgs = c.post(f"/api/people/{pid}/imports/messages", headers=a, json={"source": "screenshot_import", "tz": "UTC",
+                      "messages": [{"ts_local": "2026-11-20T18:00", "ts_precision": "minute", "role": "me", "text": "x"}]})
+        assert msgs.status_code == 201 and h.factory.imports[-1]["messages"][0]["role"] == "me"
+        bad = c.post(f"/api/people/{pid}/imports/messages", headers=a, json={"source": "fax", "tz": "UTC", "messages": []})
+        assert bad.status_code == 400 and bad.json()["error"]["field"] == "source"
         prev = c.post(f"/api/people/{pid}/imports/preview", files={"file": ("c.txt", b"a\nb\n")}, headers=a)
         assert prev.status_code == 200 and prev.json()["format"] == "plaintext"
         units = c.get(f"/api/people/{pid}/units", headers=a).json()

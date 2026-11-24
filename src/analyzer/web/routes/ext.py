@@ -14,7 +14,7 @@ from ..deps import any_principal, with_service
 from ..errors import ApiError
 
 router = APIRouter(prefix="/api")
-Platform = Literal["whatsapp", "discord", "instagram"]
+Platform = Literal["whatsapp", "discord", "instagram", "tinder", "grindr", "bumble"]
 
 
 class LinkIn(BaseModel):
@@ -48,6 +48,8 @@ class CaptureBatch(BaseModel):
     platform: Platform
     chat_key: str = Field(min_length=1, max_length=512)
     tz: str = Field(min_length=1, max_length=64)
+    unit_id: str | None = Field(default=None, max_length=600)
+    direction_uncertain: bool | None = None
     messages: list[CaptureMessage]
 
 
