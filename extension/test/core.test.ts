@@ -178,3 +178,14 @@ describe("queue hardening", () => {
     expect(await getKey<boolean>("storage_error", false)).toBe(true);
   });
 });
+
+describe("direction_uncertain batches", () => {
+  it("flags the ingest batch only for uncertain items and never mixes them", async () => {
+    const q = new Queue();
+    await q.enqueue("tinder", "c", "UTC", many(2), { direction_uncertain: true });
+    await q.enqueue("tinder", "c", "UTC", many(2));
+    const seen: [number, boolean | undefined][] = [];
+    await q.flush(async (b) => void seen.push([b.messages.length, b.direction_uncertain]), true);
+    expect(seen).toEqual([[2, true], [2, undefined]]);
+  });
+});

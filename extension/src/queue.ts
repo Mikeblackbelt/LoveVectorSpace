@@ -1,4 +1,4 @@
-import type { CapturedMessage, MessageSink, Platform, QueueItem } from "./adapters/types";
+import type { BatchMeta, CapturedMessage, MessageSink, Platform, QueueItem } from "./adapters/types";
 import { ApiError, type CaptureBatch } from "./api";
 import { getKey, setKey } from "./storage";
 
@@ -41,7 +41,7 @@ export class Queue implements MessageSink {
    * Accepts or rejects the whole batch. Returns false (and flags the popup) when it would pass the cap or
    * storage refuses the write, so callers keep the rows unseen and read them again later.
    */
-  enqueue(platform: Platform, chat_key: string, tz: string, msgs: CapturedMessage[]): Promise<boolean> {
+  enqueue(platform: Platform, chat_key: string, tz: string, msgs: CapturedMessage[], meta?: BatchMeta): Promise<boolean> {
     return this.serial(async () => {
       try {
         const q = await getKey<QueueItem[]>("queue", []);
@@ -50,7 +50,7 @@ export class Queue implements MessageSink {
           return false;
         }
         let nextId = await getKey<number>("queue_next_id", 1);
-        for (const msg of msgs) q.push({ id: nextId++, platform, chat_key, tz, msg: { ...msg, text: clampText(msg.text) } });
+        for (const msg of msgs) q.push({ id: nextId++, platform, chat_key, tz, msg: { ...msg, text: clampText(msg.text) }, ...(meta?.direction_uncertain ? { uncertain: true } : {}) });
         await setKey("queue", q);
         await setKey("queue_next_id", nextId);
         if (q.length >= QUEUE_CAP) await setKey("queue_full", true);
@@ -84,11 +84,11 @@ export class Queue implements MessageSink {
         if (q.length === 0) break;
         const head = q[0];
         const batchItems = q
-          .filter((i) => i.platform === head.platform && i.chat_key === head.chat_key && i.tz === head.tz)
+          .filter((i) => i.platform === head.platform && i.chat_key === head.chat_key && i.tz === head.tz && !!i.uncertain === !!head.uncertain)
           .slice(0, size);
         const ids = new Set(batchItems.map((i) => i.id));
         try {
-          await ingest({ platform: head.platform, chat_key: head.chat_key, tz: head.tz, messages: batchItems.map((i) => i.msg) });
+          await ingest({ platform: head.platform, chat_key: head.chat_key, tz: head.tz, ...(head.uncertain ? { direction_uncertain: true } : {}), messages: batchItems.map((i) => i.msg) });
         } catch (e) {
           if (e instanceof ApiError && (e.status === 413 || e.status === 422)) {
             // Poison batch: halve until it fits or is accepted; a single message that still fails is dropped and counted.

@@ -137,6 +137,7 @@ export async function mountPopup(root: HTMLElement, d: PopupDeps): Promise<void>
         h("div", { class: "alert" }, `Update selectors for ${PLATFORM_LABEL[platform]}: ${chat.health.reason ?? hs?.reason ?? "check failed"}. Capture is off for this site.`),
       );
     }
+    if (chat.direction_uncertain) body.append(h("div", { class: "concern" }, "Only one side detected — if that’s wrong, the site may have changed (see SELECTORS.md)."));
     if (!chat.chat_key) {
       title([healthy ? "NO CHAT" : "SELECTORS", "paused"]);
       body.append(h("div", { class: "note" }, "Open a chat to link it."), platformsBox(st, d, render));

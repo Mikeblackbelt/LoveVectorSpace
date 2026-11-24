@@ -26,7 +26,7 @@ async function handle(req: BgRequest): Promise<BgResponse> {
   try {
     switch (req.type) {
       case "enqueue":
-        return { ok: true, accepted: await queue.enqueue(req.platform, req.chat_key, req.tz, req.msgs) };
+        return { ok: true, accepted: await queue.enqueue(req.platform, req.chat_key, req.tz, req.msgs, { direction_uncertain: req.direction_uncertain }) };
       case "config":
         return { ok: true, waDateFormat: (await getSettings()).waDateFormat };
       case "summary":
@@ -35,7 +35,7 @@ async function handle(req: BgRequest): Promise<BgResponse> {
         // One-shot import: sent directly (not via the live queue), in batches of <= 200 sharing one unit_id.
         let sent = 0;
         for (let i = 0; i < req.msgs.length; i += BATCH_MAX) {
-          await api.ingest({ platform: req.platform, chat_key: req.chat_key, tz: req.tz, unit_id: req.unit_id, messages: req.msgs.slice(i, i + BATCH_MAX).map((m) => ({ ...m, text: clampText(m.text) })) });
+          await api.ingest({ platform: req.platform, chat_key: req.chat_key, tz: req.tz, unit_id: req.unit_id, ...(req.direction_uncertain ? { direction_uncertain: true } : {}), messages: req.msgs.slice(i, i + BATCH_MAX).map((m) => ({ ...m, text: clampText(m.text) })) });
           sent += Math.min(BATCH_MAX, req.msgs.length - i);
         }
         return { ok: true, sent };

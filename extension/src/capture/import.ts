@@ -19,11 +19,13 @@ export async function runImport(
   limiter: RateLimiter,
   guard: RunGuard,
   deps: Omit<LoopDeps, "sink">,
-  upload: (msgs: CapturedMessage[]) => Promise<void>,
+  upload: (msgs: CapturedMessage[], meta: { direction_uncertain: boolean }) => Promise<void>,
 ): Promise<ImportResult> {
   const msgs: CapturedMessage[] = [];
+  let uncertain = false;
   const sink: MessageSink = {
-    enqueue: (_p, _k, _tz, batch) => {
+    enqueue: (_p, _k, _tz, batch, meta) => {
+      if (meta?.direction_uncertain) uncertain = true;
       msgs.push(...batch);
       return true;
     },
@@ -58,7 +60,7 @@ export async function runImport(
   }
   if (msgs.length) {
     try {
-      await upload(msgs);
+      await upload(msgs, { direction_uncertain: uncertain });
     } catch {
       seen.rollback();
       return { reason: "upload_failed", count: 0 };

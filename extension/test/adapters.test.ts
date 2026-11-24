@@ -125,17 +125,42 @@ describe("error banner detection", () => {
   });
 });
 
-describe("direction marker plausibility", () => {
+describe("direction marker", () => {
   const grow = (p: Platform) => {
     const rowSel = { whatsapp: "[role='row']:has(.message-in)", discord: "", instagram: "[role='row']:has([data-testid='message-bubble'])", tinder: "[data-lvs='tinder-row']:has([data-lvs='tinder-bubble'])", grindr: "[data-lvs='grindr-row']:has([data-lvs='grindr-bubble'])", bumble: "[data-lvs='bumble-row']:has([data-lvs='bumble-bubble'])" }[p];
     const first = document.querySelector(rowSel)!;
     for (let i = 0; i < 12; i++) first.parentElement!.append(first.cloneNode(true));
   };
-  it.each(["whatsapp", "instagram", "tinder", "grindr", "bumble"] as Platform[])("%s: fails with direction_marker_missing when no outgoing marker matches", async (p) => {
+  const P = ["whatsapp", "instagram", "tinder", "grindr", "bumble"] as Platform[];
+
+  it.each(P)("%s: a one-sided chat keeps capturing, flags the batch and warns", async (p) => {
     loadFixture(p);
     grow(p);
-    expect(mk[p]!().healthCheck()).toEqual({ ok: true });
-    document.body.innerHTML = document.body.innerHTML.replaceAll(' data-outgoing="true"', "").replaceAll("message-out", "message-in");
+    // nothing outgoing, but the marker still exists in the markup (incoming rows carry its other state)
+    document.body.innerHTML = document.body.innerHTML.replaceAll(' data-outgoing="true"', ' data-outgoing="false"').replaceAll("message-out", "message-in");
+    const a = mk[p]!();
+    expect(a.healthCheck()).toEqual({ ok: true });
+    expect(a.directionUncertain!()).toBe(true);
+    const sink = new CollectSink();
+    const live = startLiveCapture(a, sink, { tz: "UTC", isLinked: () => true, isAllowed: () => "ok" as const, pollMs: 60_000 });
+    await live.scan();
+    live.stop();
+    expect(sink.items.length).toBeGreaterThan(10);
+    expect(sink.items.every((i) => i.msg.direction === "incoming")).toBe(true);
+    expect(sink.metas.every((m) => m?.direction_uncertain === true)).toBe(true);
+  });
+
+  it.each(P)("%s: a two-sided chat is not flagged", (p) => {
+    loadFixture(p);
+    grow(p);
+    expect(mk[p]!().directionUncertain!()).toBe(false);
+  });
+
+  it.each(P)("%s: marker missing from the markup fails health and queues nothing", async (p) => {
+    loadFixture(p);
+    grow(p);
+    // markup change: the marker (either state) is gone everywhere
+    document.body.innerHTML = document.body.innerHTML.replaceAll(/ data-outgoing="(true|false)"/g, "").replaceAll("message-out", "m-o").replaceAll("message-in", "m-i");
     const a = mk[p]!();
     expect(a.healthCheck()).toEqual({ ok: false, reason: "direction_marker_missing" });
     const sink = new CollectSink();
@@ -144,15 +169,10 @@ describe("direction marker plausibility", () => {
     live.stop();
     expect(sink.items).toEqual([]);
   });
-  it("whatsapp: also fails when nothing is incoming", () => {
-    loadFixture("whatsapp");
-    grow("whatsapp");
-    document.body.innerHTML = document.body.innerHTML.replaceAll("message-in", "message-out");
-    expect(mk.whatsapp().healthCheck()).toEqual({ ok: false, reason: "direction_marker_missing" });
-  });
-  it("small chats are not judged", () => {
+
+  it("small chats are not flagged", () => {
     loadFixture("instagram");
-    expect(mk.instagram().healthCheck()).toEqual({ ok: true });
+    expect(mk.instagram().directionUncertain!()).toBe(false);
   });
 });
 

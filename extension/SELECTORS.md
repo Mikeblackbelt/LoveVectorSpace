@@ -80,3 +80,6 @@ Last verified: not yet verified
 
 ## Error banners (all dating/Instagram adapters)
 `errorBanner` must be a site-specific container. Generic `[role='alert']` toasts are matched through `errorContainer` and only count when their text matches `errorPattern`. Confirm a normal toast (for example "link copied") does not stop a backfill.
+
+## Direction marker (all adapters except Discord)
+Each selectors file has `directionMarker`: it must match every message bubble in BOTH states (sent and received), for example by an attribute that is present with value true or false. If message rows exist and `directionMarker` matches nothing in the document, the health check fails with "direction_marker_missing" and nothing is captured. Separately, when 10 or more message rows are loaded and they all point the same way, capture continues but the batch is flagged `direction_uncertain` and the popup says "Only one side detected". Check on a real two-sided chat that the warning does not appear.

@@ -1,4 +1,4 @@
-import { anomalyOf, directionPlausible, defaultCtx, missing, qs, scrollUpAndWait, textOf, type PageCtx } from "./base";
+import { anomalyOf, directionMarkerHealth, oneSided, defaultCtx, missing, qs, scrollUpAndWait, textOf, type PageCtx } from "./base";
 import { parseLooseTimestamp } from "./time";
 import type { CapturedMessage, Health, Platform, Selectors, SiteAdapter } from "./types";
 
@@ -21,6 +21,7 @@ export function createSeparatorAdapter(spec: SeparatorSpec, ctx: PageCtx = defau
   const list = () => qs(ctx.doc, sel.messageList);
   const rows = () => (list() ? Array.from(list()!.querySelectorAll(sel.row)) : []);
   const title = () => textOf(qs(ctx.doc, sel.chatTitle));
+  const bubbleRows = () => rows().filter((r) => r.querySelector(sel.bubble));
   const onChatPage = () => spec.chatPath.test(new URL(ctx.url()).pathname);
 
   function groupTime(node: Element): string | null {
@@ -70,9 +71,12 @@ export function createSeparatorAdapter(spec: SeparatorSpec, ctx: PageCtx = defau
       if (!qs(ctx.doc, sel.shell)) return missing("shell");
       if (!onChatPage()) return { ok: true };
       if (!list()) return missing("messageList");
-      const bubbles = rows().filter((r) => r.querySelector(sel.bubble));
-      return directionPlausible(bubbles.length, bubbles.filter((r) => r.querySelector(sel.outgoing)).length);
+      return directionMarkerHealth(ctx.doc, sel, bubbleRows().length);
     },
     anomaly: () => anomalyOf(ctx.doc, sel),
+    directionUncertain() {
+      const b = bubbleRows();
+      return oneSided(b.length, b.filter((r) => r.querySelector(sel.outgoing)).length);
+    },
   };
 }

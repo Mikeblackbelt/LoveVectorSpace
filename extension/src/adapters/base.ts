@@ -51,14 +51,17 @@ export async function scrollUpAndWait(scroller: Element | null, countRows: () =>
   return false;
 }
 
-/** Fewer than this many message rows are too few to judge whether the direction marker works. */
-export const DIRECTION_MIN_ROWS = 10;
+/** Fewer message rows than this are too few to call a chat one-sided. */
+export const ONE_SIDED_MIN_ROWS = 10;
+
+/** True when enough rows are loaded and every one points the same way. Only a warning: one-sided chats are real. */
+export const oneSided = (total: number, outgoing: number): boolean => total >= ONE_SIDED_MIN_ROWS && (outgoing === 0 || outgoing === total);
 
 /**
- * With enough rows, a chat that shows no outgoing (or no incoming) messages at all almost certainly means the
- * direction selector broke; capturing would silently flip every message. Fail instead of guessing.
+ * Markup-level check, independent of message content: rows exist but the direction marker (in either state)
+ * appears nowhere in the document, so the site markup must have changed.
  */
-export function directionPlausible(total: number, outgoing: number): Health {
-  if (total >= DIRECTION_MIN_ROWS && (outgoing === 0 || outgoing === total)) return { ok: false, reason: "direction_marker_missing" };
+export function directionMarkerHealth(doc: Document, sel: Selectors, messageRows: number): Health {
+  if (messageRows > 0 && !qs(doc, sel.directionMarker)) return { ok: false, reason: "direction_marker_missing" };
   return { ok: true };
 }

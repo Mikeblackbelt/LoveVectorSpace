@@ -115,7 +115,7 @@ export class Harvester {
     });
     let accepted = true;
     if (fresh.length) {
-      accepted = (await this.sink.enqueue(this.adapter.platform, this.opts.chatKey, this.tz, fresh.map((i) => msgs[i]))) !== false;
+      accepted = (await this.sink.enqueue(this.adapter.platform, this.opts.chatKey, this.tz, fresh.map((i) => msgs[i]), this.adapter.directionUncertain?.() ? { direction_uncertain: true } : undefined)) !== false;
       if (accepted) {
         for (const i of fresh) this.seenRows.add(rows[i]);
         this.seen.stage(fresh.map((i) => keys[i]));

@@ -6,6 +6,7 @@ import { createBumbleAdapter } from "../adapters/bumble";
 import { createGrindrAdapter } from "../adapters/grindr";
 import type { DateFormat } from "../adapters/time";
 import type { MessageSink, SiteAdapter } from "../adapters/types";
+import { catchupDecision, scrollRunBlocked } from "../decisions";
 import { runImport } from "../capture/import";
 import { runBackfill, BACKFILL_COOLDOWN_MS, BACKFILL_MAX_STEPS } from "../capture/backfill";
 import { runCatchup } from "../capture/catchup";
@@ -42,7 +43,6 @@ function pickAdapter(): SiteAdapter | null {
   return null;
 }
 
-const CATCHUP_COOLDOWN_MS = 2 * 60 * 1000;
 const adapter = pickAdapter();
 if (adapter) boot(adapter);
 
@@ -50,8 +50,8 @@ function boot(adapter: SiteAdapter) {
   const platform = adapter.platform;
   const tz = browserTz();
   const sink: MessageSink = {
-    async enqueue(p, chat_key, tzv, msgs) {
-      const r = await send({ type: "enqueue", platform: p, chat_key, tz: tzv, msgs });
+    async enqueue(p, chat_key, tzv, msgs, meta) {
+      const r = await send({ type: "enqueue", platform: p, chat_key, tz: tzv, msgs, direction_uncertain: meta?.direction_uncertain });
       return r.ok ? r.accepted !== false : false;
     },
   };
@@ -104,7 +104,7 @@ function boot(adapter: SiteAdapter) {
     if (!chat || !(await linked(chat.chat_key))) return { started: false, reason: "not_linked" };
     if (running) return { started: false, reason: "already_running" };
     const g = await getGuard();
-    if (!g.canStart()) return { started: false, reason: "cooldown" };
+    if (scrollRunBlocked(true, g)) return { started: false, reason: "cooldown" };
     const until = new Date(`${untilIso}T00:00:00`);
     if (Number.isNaN(until.getTime())) return { started: false, reason: "bad_date" };
     running = true;
@@ -134,7 +134,7 @@ function boot(adapter: SiteAdapter) {
     const day = new Date();
     const unit_id = `capture:${platform}:${chat.chat_key}:${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     const g = await getGuard();
-    if (until && !g.canStart()) {
+    if (scrollRunBlocked(until !== null, g)) {
       running = false;
       return { started: false, reason: "cooldown" };
     }
@@ -142,8 +142,8 @@ function boot(adapter: SiteAdapter) {
       try {
         if (until) await setKey(`run_end:${platform}`, Date.now());
         const { sink: _s, ...base } = await deps("import", BACKFILL_MAX_STEPS, chat.chat_key);
-        const res = await runImport(adapter, until, new RateLimiter(), g, base, async (msgs) => {
-          const r = await send({ type: "import", platform, chat_key: chat.chat_key, tz, unit_id, msgs });
+        const res = await runImport(adapter, until, new RateLimiter(), g, base, async (msgs, meta) => {
+          const r = await send({ type: "import", platform, chat_key: chat.chat_key, tz, unit_id, msgs, direction_uncertain: meta.direction_uncertain });
           if (!r.ok) throw new Error(r.error);
         });
         if (until) await setKey(`run_end:${platform}`, g.lastEnd ?? Date.now());
@@ -157,12 +157,16 @@ function boot(adapter: SiteAdapter) {
 
   async function catchupFor(chat_key: string) {
     // Only chats already linked locally are ever sent to the server.
-    if (!(await linked(chat_key))) return;
-    const prefs = await getPrefs();
-    if (!prefs.catchup || (await allowed()) !== "ok" || running) return;
     const cdKey = `catchup_at:${platform}:${chat_key}`;
-    const last = await getKey<number>(cdKey, 0);
-    if (Date.now() - last < CATCHUP_COOLDOWN_MS) return;
+    const decision = catchupDecision({
+      linkedLocally: await linked(chat_key),
+      catchupEnabled: (await getPrefs()).catchup,
+      allowed: await allowed(),
+      running,
+      lastAt: await getKey<number>(cdKey, 0),
+      now: Date.now(),
+    });
+    if (decision !== "go") return;
     await setKey(cdKey, Date.now());
     const r = await send({ type: "summary", platform, chat_key });
     if (!r.ok || !r.summary) return;
@@ -209,6 +213,7 @@ function boot(adapter: SiteAdapter) {
             title: chat?.title ?? null,
             health: h.ok ? { ok: true } : { ok: false, reason: h.reason },
             cooldown_left_ms: g.cooldownLeftMs(),
+            direction_uncertain: adapter.directionUncertain?.() ?? false,
           },
         });
       } else if (req.type === "startBackfill") {

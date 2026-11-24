@@ -88,6 +88,16 @@ describe("popup", () => {
     expect(root.textContent).toContain("storage is full");
   });
 
+  it("warns when only one side is detected", async () => {
+    const root = document.createElement("div");
+    await mountPopup(root, deps({ chat: async () => ({ ...chat, direction_uncertain: true }) }));
+    expect(root.textContent).toContain("Only one side detected");
+    expect(root.textContent).toContain("SELECTORS.md");
+    const clean = document.createElement("div");
+    await mountPopup(clean, deps());
+    expect(clean.textContent).not.toContain("Only one side detected");
+  });
+
   it("warns about selectors and a full queue", async () => {
     const root = document.createElement("div");
     await mountPopup(
