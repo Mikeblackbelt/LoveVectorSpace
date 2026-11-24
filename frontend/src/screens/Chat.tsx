@@ -103,13 +103,19 @@ export function ChatScreen() {
   const logRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const busyRef = useRef(false);
+  const hydratedFor = useRef<number | null>(null);
   useHotkey('h', () => setCheckin(true), !checkin);
 
   const activeId = tid ?? threads.data?.[0]?.id ?? null;
   const thread = useQuery({ queryKey: ['thread', activeId], queryFn: () => agentApi.thread(activeId!), enabled: activeId != null });
   useEffect(() => {
-    // never re-hydrate mid-stream: a freshly created thread loads while its first reply streams
-    if (thread.data && !busyRef.current) setLines(toLines(thread.data.messages));
+    // Never re-hydrate mid-stream, and never let an older server copy (fetched before our message was
+    // stored) replace a longer local transcript of the same thread. Switching threads always hydrates.
+    if (!thread.data || busyRef.current) return;
+    const next = toLines(thread.data.messages);
+    const sameThread = hydratedFor.current === thread.data.thread.id;
+    hydratedFor.current = thread.data.thread.id;
+    setLines((cur) => (!sameThread || next.length >= cur.length ? next : cur));
   }, [thread.data]);
   useEffect(() => {
     if (activeId == null) setLines([]);
@@ -139,6 +145,7 @@ export function ChatScreen() {
       if (id == null) {
         const t = await agentApi.createThread(pid, 'chat');
         id = t.id;
+        hydratedFor.current = t.id; // the local transcript is authoritative for this new thread
         setTid(t.id);
         void qc.invalidateQueries({ queryKey: ['threads', pid] });
       }

@@ -11,6 +11,7 @@ import { say } from '../components/prompt';
 import { ago, ymd } from '../lib/format';
 import { L } from '../theme/Plain';
 import { useTheme } from '../theme/ThemeProvider';
+import { PhoneCapturePane } from '../features/capture';
 
 export const DELETE_PHRASE = 'DELETE MY ACCOUNT';
 
@@ -27,6 +28,7 @@ export function SettingsScreen() {
         {user?.role === 'admin' && <Invites />}
         <Sessions />
         <DataPane />
+        <PhoneCapturePane />
         <Pane id="about" tech="ABOUT" plain="About this app">
           <p>
             <span className="glyph">// </span>

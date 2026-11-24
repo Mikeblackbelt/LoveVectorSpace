@@ -85,8 +85,10 @@ Needs a JDK 21 and the Android SDK (Android Studio installs both).
 cd frontend
 VITE_API_BASE=https://your-backend npm run build
 npx cap sync android
-cd android && ./gradlew assembleDebug
-# APK: android/app/build/outputs/apk/debug/app-debug.apk
+cd android && ./gradlew assembleStoreDebug      # Play-store flavour
+# APK: android/app/build/outputs/apk/store/debug/app-store-debug.apk
+./gradlew assembleSideloadDebug                 # sideload flavour (phone capture readers)
+# APK: android/app/build/outputs/apk/sideload/debug/app-sideload-debug.apk
 ```
 
 `npm run android:apk` runs the same steps. Open the project in Android Studio with `npx cap open android`.
