@@ -183,7 +183,7 @@ const routes: [string, RegExp, Handler][] = [
   }],
   ['POST', /^\/api\/auth\/signup$/, ({ body }) => {
     const b = body as { email?: string; password?: string; invite_code?: string };
-    if (!b?.invite_code || b.invite_code.trim().length < 4) return err(403, 'invite_required', 'A valid invite code is required.', 'invite_code');
+    if (b?.invite_code && b.invite_code.trim().length < 4) return err(403, 'invite_required', 'A valid invite code is required.', 'invite_code');   // open registration: optional
     if (!b.password || b.password.length < 12) return err(422, 'validation_error', 'Password must be at least 12 characters.', 'password');
     setSession(true);
     return json(authResult(), 201);
@@ -191,6 +191,7 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/auth\/refresh$/, () => (sessionOn() ? json(authResult()) : err(401, 'unauthenticated', 'Session expired.'))],
   ['POST', /^\/api\/auth\/logout$/, () => { setSession(false); return noContent(); }],
   ['GET', /^\/api\/auth\/me$/, () => json(D.demoUser)],
+  ['GET', /^\/api\/auth\/providers$/, () => json({ google: true, apple: true, registration: 'open' })],
   ['POST', /^\/api\/auth\/verify-email$/, ({ body }) => ((body as { token?: string })?.token ? noContent() : err(400, 'invalid_input', 'This link is invalid or has expired.'))],
   ['POST', /^\/api\/auth\/verify-email\/resend$/, () => noContent()],
   ['POST', /^\/api\/auth\/password\/forgot$/, () => noContent()],
@@ -265,6 +266,12 @@ const routes: [string, RegExp, Handler][] = [
     D.people.push({ id: pid, pseudonym: b.pseudonym.trim(), mode: b.mode || 'potential', sources: [], success: { percent: null, low: null, high: null, status: 'insufficient_data' }, safety: 'none', updated_at: null });
     D.units[pid] = []; D.facts[pid] = []; D.interactions[pid] = []; D.nextSteps[pid] = []; D.threads[pid] = []; D.coverage[pid] = []; D.interviewCovered[pid] = []; D.questionnaireHistory[pid] = [];
     return json({ id: pid, pseudonym: b.pseudonym.trim(), mode: b.mode || 'potential', timezone: b.timezone || null, created_at: nowIso() }, 201);
+  }],
+  ['POST', /^\/api\/people\/sample$/, () => {
+    const pid = id();
+    D.people.push({ id: pid, pseudonym: 'Sample: Yu Cheng', mode: 'potential', sources: [], success: { percent: null, low: null, high: null, status: 'insufficient_data' }, safety: 'none', updated_at: null });
+    D.units[pid] = []; D.facts[pid] = []; D.interactions[pid] = []; D.nextSteps[pid] = []; D.threads[pid] = []; D.coverage[pid] = []; D.interviewCovered[pid] = []; D.questionnaireHistory[pid] = [];
+    return json({ id: pid, pseudonym: 'Sample: Yu Cheng', mode: 'potential', timezone: 'America/New_York', created_at: nowIso() }, 201);
   }],
   ['GET', /^\/api\/people\/(\d+)$/, ({ params }) => {
     const p = person(+params[0]);

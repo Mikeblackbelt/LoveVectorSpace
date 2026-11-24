@@ -78,6 +78,7 @@ def test_full_flow_with_real_service(real):
 def test_seed_demo_judge_sees_overviews(real):
     app, factory = real(seed_demo=True, demo_password="demo-password-for-judges")
     with TestClient(app, base_url="https://testserver") as c:
+        assert app.state.seed_done.wait(120)
         r = c.post("/api/auth/login", json={"email": "judge1@demo.lvs", "password": "demo-password-for-judges"})
         assert r.status_code == 200
         a = auth(r.json()["access_token"])
@@ -91,3 +92,29 @@ def test_seed_demo_judge_sees_overviews(real):
         r2 = c.post("/api/auth/login", json={"email": "judge2@demo.lvs", "password": "demo-password-for-judges"})
         assert {p["pseudonym"] for p in c.get("/api/people", headers=auth(r2.json()["access_token"])).json()} == \
             {"Yu Cheng", "Sam", "Jordan"}
+
+
+def test_partial_demo_seed_is_repaired_on_next_start(real):
+    from analyzer.store.people import People
+    app, factory = real(seed_demo=True, demo_password="demo-password-for-judges")
+    acc = app.state.accounts
+    with TestClient(app, base_url="https://testserver"):
+        assert app.state.seed_done.wait(120)
+        uid = acc.users.by_email("judge1@demo.lvs").id
+        with acc.userdbs.use(uid) as h, h.lock:      # simulate a crash: Sam gone, Jordan never analysed,
+            ppl = {p.pseudonym: p.id for p in People(h.conn).list()}   # Yu Cheng leftovers w/o marker
+            People(h.conn).delete(ppl["Sam"])
+            h.conn.execute("DELETE FROM snapshots WHERE person_id=? AND json_extract(data, '$.kind')='overview'",
+                           (ppl["Jordan"],))
+            h.conn.execute("DELETE FROM settings WHERE key='demo_seed:Yu Cheng'")
+            h.conn.execute("DELETE FROM snapshots WHERE person_id=?", (ppl["Yu Cheng"],))
+            h.conn.commit()
+    app2, _ = real(seed_demo=True, demo_password="demo-password-for-judges")
+    with TestClient(app2, base_url="https://testserver") as c:
+        assert app2.state.seed_done.wait(120)
+        r = c.post("/api/auth/login", json={"email": "judge1@demo.lvs", "password": "demo-password-for-judges"})
+        a = auth(r.json()["access_token"])
+        people = c.get("/api/people", headers=a).json()
+        assert sorted(p["pseudonym"] for p in people) == ["Jordan", "Sam", "Yu Cheng"]
+        for p in people:
+            assert c.get(f"/api/people/{p['id']}/overview", headers=a).status_code == 200, p["pseudonym"]

@@ -1,10 +1,11 @@
 """Smoke test for a running LoveVectorSpace server (stdlib + httpx). Exits non-zero on the first failure.
 
-  BASE_URL=https://lvs.example.app SMOKE_EMAIL=judge1@demo.lvs SMOKE_PASSWORD=... python scripts/smoke.py
-  python scripts/smoke.py --base-url URL --invite CODE        # signs up a throwaway account
-  python scripts/smoke.py --base-url URL --email E --password P --agent
+  python scripts/smoke.py --base-url URL --signup --agent      # REGISTRATION=open: throwaway account
+  python scripts/smoke.py --base-url URL --invite CODE          # REGISTRATION=invite: throwaway account
+  python scripts/smoke.py --base-url URL --email E --password P # an existing account (SMOKE_* env vars work)
 
 It creates one synthetic person, runs the whole pipeline on a synthetic WhatsApp export, then deletes the person.
+A throwaway account (--signup / --invite) is deleted again at the end.
 """
 from __future__ import annotations
 
@@ -59,16 +60,19 @@ class Smoke:
         self.check(r.status_code == 200 and r.json().get("ok") is True, "GET /healthz")
         self.check(self.c.get("/api/people").status_code == 401, "GET /api/people without auth -> 401")
 
-        if args.invite:
+        self.throwaway = bool(args.invite or args.signup)
+        if self.throwaway:
             email = f"smoke-{uuid.uuid4().hex[:8]}@example.com"
-            r = self.c.post("/api/auth/signup", json={"email": email, "password": PASSWORD,
-                                                      "invite_code": args.invite})
-            self.check(r.status_code == 201, f"signup with invite -> {r.status_code} {r.text[:200]}")
+            body = {"email": email, "password": PASSWORD}
+            if args.invite:
+                body["invite_code"] = args.invite
+            r = self.c.post("/api/auth/signup", json=body)
+            self.check(r.status_code == 201, f"signup -> {r.status_code} {r.text[:200]}")
         elif args.email and args.password:
             r = self.c.post("/api/auth/login", json={"email": args.email, "password": args.password})
             self.check(r.status_code == 200, f"login -> {r.status_code} {r.text[:200]}")
         else:
-            raise SystemExit("need --invite, or --email and --password (or SMOKE_* env vars)")
+            raise SystemExit("need --signup, --invite, or --email and --password (or SMOKE_* env vars)")
         self.h = {"Authorization": f"Bearer {r.json()['access_token']}"}
 
         pid = self.req("POST", "/api/people", 201, json={"pseudonym": "Smoke Test", "mode": "potential",
@@ -80,6 +84,10 @@ class Smoke:
             self.check(r.status_code == 204, f"cleanup: DELETE person -> {r.status_code}")
 
         self.headers_on_root()
+        if self.throwaway:
+            r = self.c.request("DELETE", "/api/account", headers=self.h,
+                               json={"confirm": "DELETE MY ACCOUNT", "password": PASSWORD})
+            self.check(r.status_code == 204, f"throwaway account deleted -> {r.status_code}")
 
     def pipeline(self, pid: int, args: argparse.Namespace) -> None:
         raw = synthetic_whatsapp()
@@ -158,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--email", default=os.environ.get("SMOKE_EMAIL"))
     ap.add_argument("--password", default=os.environ.get("SMOKE_PASSWORD"))
     ap.add_argument("--invite", default=os.environ.get("SMOKE_INVITE"))
+    ap.add_argument("--signup", action="store_true", help="sign up a throwaway account (REGISTRATION=open)")
     ap.add_argument("--agent", action="store_true", help="also exercise the Groq agent if the server has it")
     ap.add_argument("--job-timeout", type=float, default=120.0)
     args = ap.parse_args(argv)

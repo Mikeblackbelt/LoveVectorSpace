@@ -43,12 +43,14 @@ def server(tmp_path, monkeypatch):
     t = threading.Thread(target=srv.run, daemon=True)
     t.start()
     base = f"http://127.0.0.1:{port}"
-    for _ in range(100):
+    for _ in range(600):                 # up, and the background demo seeding finished
         try:
-            if httpx.get(base + "/healthz").status_code == 200:
+            r = httpx.get(base + "/healthz")
+            if r.status_code == 200 and r.json().get("seeding") is False:
                 break
         except httpx.HTTPError:
-            time.sleep(0.1)
+            pass
+        time.sleep(0.1)
     yield base
     srv.should_exit = True
     t.join(10)
@@ -63,6 +65,14 @@ def test_smoke_as_demo_judge(server, capsys):
     tok = httpx.post(server + "/api/auth/login", json={"email": "judge1@demo.lvs", "password": DEMO_PW}).json()
     r = httpx.get(server + "/api/people", headers={"Authorization": f"Bearer {tok['access_token']}"})
     assert "Smoke Test" not in {p["pseudonym"] for p in r.json()}      # cleaned up
+
+
+def test_smoke_signup_open_registration_cleans_up(server, capsys):
+    smoke = _load_smoke()
+    rc = smoke.main(["--base-url", server, "--signup"])
+    out = capsys.readouterr()
+    assert rc == 0, out.out + out.err
+    assert "throwaway account deleted" not in out.err
 
 
 def test_smoke_fails_on_dead_server():

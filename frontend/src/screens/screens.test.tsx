@@ -186,3 +186,16 @@ describe('agent chat', () => {
     expect(await screen.findByText(/question 1 of/)).toBeInTheDocument();
   });
 });
+
+describe('large imports', () => {
+  it('shows scoring progress instead of blocking while a big chat is still being scored', async () => {
+    setTransport(async (url, init) => {
+      const r = await mockFetch(url, init);
+      if (!/\/api\/people\/1\/overview$/.test(url)) return r;
+      return json({ ...(await r.json()), scoring: { scored: 1000, total: 4800, complete: false } });
+    });
+    renderAt(<DashRoute />, { route: '/p/1' });
+    const chip = await screen.findByTestId('scoring-progress');
+    expect(chip.textContent).toContain('SCORING 1000/4800');
+  });
+});

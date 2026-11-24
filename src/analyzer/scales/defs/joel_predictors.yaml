@@ -15,7 +15,7 @@ subscales:
 source:
   citation: "Joel, S., et al. (2020). Machine learning uncovers the most robust self-report predictors of relationship quality across 43 longitudinal couples studies. PNAS. Original items motivated by the findings; not a published instrument."
   url: "https://www.pnas.org/doi/10.1073/pnas.1917036117"
-verified: true
+verified: false  # original custom items: no published validation
 custom: true
 owner_approved: false
 measures: "Your own current perceptions of the relationship: how committed and appreciative you believe your partner is, how satisfied you think they are, sexual satisfaction (optional) and conflict. Higher is more positive, with conflict reverse-keyed. Responses run from 1 (strongly disagree) to 7 (strongly agree)."

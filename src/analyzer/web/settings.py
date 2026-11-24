@@ -1,6 +1,8 @@
 """Server settings from the environment (v3 multi-user). Fails closed without MASTER_KEY / JWT_SECRET."""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -41,6 +43,7 @@ class AppSettings(BaseSettings):
     apple_private_key: str | None = None
 
     admin_email: str | None = None
+    registration: Literal["open", "invite"] = "open"   # open: anyone may sign up; invite: an invite code is required
     seed_demo: bool = False
     demo_password: str | None = None
 
@@ -79,3 +82,12 @@ class AppSettings(BaseSettings):
     @property
     def apple_audiences(self) -> list[str]:
         return _split(self.apple_client_ids)
+
+    @property
+    def google_web_enabled(self) -> bool:
+        """The web Google flow (/api/auth/google/start) needs the client id AND secret."""
+        return bool(self.google_client_id and self.google_client_secret)
+
+    @property
+    def apple_enabled(self) -> bool:
+        return bool(self.apple_audiences)

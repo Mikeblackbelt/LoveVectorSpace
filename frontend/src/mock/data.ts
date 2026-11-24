@@ -255,14 +255,15 @@ export const scales: ScaleDef[] = [
   {
     id: 'csi4', name: 'Couples Satisfaction Index (CSI-4)', mode: ['established'],
     items: [
-      { id: 'q1', text: 'Please indicate the degree of happiness, all things considered, of your relationship.', min: 0, max: 6 },
-      { id: 'q2', text: 'I have a warm and comfortable relationship with my partner.' },
-      { id: 'q3', text: 'How rewarding is your relationship with your partner?' },
-      { id: 'q4', text: 'In general, how satisfied are you with your relationship?' },
+      // Published wording is never shipped: the real server fills it from a local overlay file.
+      { id: 'q1', text: null, display_text: 'Item 1 (text from local overlay)', min: 0, max: 6 },
+      { id: 'q2', text: null, display_text: 'Item 2 (text from local overlay)' },
+      { id: 'q3', text: null, display_text: 'Item 3 (text from local overlay)' },
+      { id: 'q4', text: null, display_text: 'Item 4 (text from local overlay)' },
     ],
     subscales: { total: { items: ['q1', 'q2', 'q3', 'q4'], aggregate: 'sum' } },
     response: { min: 0, max: 5 },
-    source: { citation: 'Funk & Rogge, 2007' }, item_text: 'inline', verified: true,
+    source: { citation: 'Funk & Rogge, 2007 (item text from the official form, local overlay)' }, item_text: 'local_overlay', verified: true,
     measures: 'overall relationship satisfaction', does_not_measure: 'whether the relationship is safe or will last',
   },
   {
@@ -275,12 +276,16 @@ export const scales: ScaleDef[] = [
     ],
     subscales: { balance: { items: ['r1', 'r2', 'r3', 'r4'], aggregate: 'mean' } },
     response: { min: 1, max: 7 },
-    source: { citation: 'LoveVectorSpace custom (unverified)' }, item_text: 'inline', verified: false,
+    source: { citation: 'LoveVectorSpace custom (unverified)' }, item_text: 'inline', verified: false, custom: true,
     measures: 'how mutual the effort feels to you', does_not_measure: 'what the other person feels',
   },
   {
     id: 'cdaq_items', name: 'Controlling behaviours (CDAQ items)', mode: ['established'],
-    items: [{ id: 'c1', text: null }, { id: 'c2', text: null }, { id: 'c3', text: null }],
+    items: [
+      { id: 'c1', text: null, display_text: 'Item 1 (text from local overlay)' },
+      { id: 'c2', text: null, display_text: 'Item 2 (text from local overlay)' },
+      { id: 'c3', text: null, display_text: 'Item 3 (text from local overlay)' },
+    ],
     subscales: { control: { items: ['c1', 'c2', 'c3'], aggregate: 'sum' } },
     response: { min: 0, max: 3 },
     source: { citation: 'CDAQ (item text from the official form, local overlay)', terms: 'research use only' },

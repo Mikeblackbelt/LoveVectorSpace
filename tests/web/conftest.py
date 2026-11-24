@@ -71,7 +71,8 @@ def make_settings(tmp_path, **over):
                 app_origin=APP_ORIGIN, extension_id=EXT_ID, frontend_dist=str(tmp_path / "dist"),
                 google_client_id=GOOGLE_WEB, google_client_secret="google-secret",
                 google_client_ids=GOOGLE_NATIVE, apple_client_ids=APPLE_AUD, admin_email="admin@example.com",
-                sse_heartbeat_s=0.2, native_nonce_required=False)   # nonce tests opt in (production default: on)
+                sse_heartbeat_s=0.2, native_nonce_required=False,   # nonce tests opt in (production default: on)
+                registration="invite")   # most tests exercise invite mode; open-mode tests override it
     base.update(over)
     return AppSettings(_env_file=None, **base)
 

@@ -251,3 +251,44 @@ def test_settings_fail_closed(tmp_path, missing, monkeypatch):
     kw.pop(missing)
     with pytest.raises(ValidationError):
         AppSettings(_env_file=None, **kw)
+
+
+def test_open_registration_needs_no_invite(tmp_path):
+    h = Harness(tmp_path, registration="open")
+    with h.client() as c:
+        r = c.post("/api/auth/signup", json={"email": "new@example.com", "password": PASSWORD},
+                   headers={"X-Client": "native"})
+        assert r.status_code == 201, r.text
+        assert r.json()["user"]["email"] == "new@example.com"
+        dup = c.post("/api/auth/signup", json={"email": "new@example.com", "password": PASSWORD})
+        assert dup.status_code == 409
+        code = h.invite()                       # a valid invite given anyway is consumed
+        r = c.post("/api/auth/signup", json={"email": "inv@example.com", "password": PASSWORD, "invite_code": code},
+                   headers={"X-Client": "native"})
+        assert r.status_code == 201 and h.accounts.invites.get(code)["used_by"] == r.json()["user"]["id"]
+
+
+def test_open_registration_social_sign_in_needs_no_invite(tmp_path):
+    h = Harness(tmp_path, registration="open")
+    with h.client() as c:
+        r = c.post("/api/auth/google/token", json={"id_token": h.idp.token(email="g@example.com")},
+                   headers={"X-Client": "native"})
+        assert r.status_code == 200, r.text
+
+
+def test_providers_endpoint(tmp_path):
+    h = Harness(tmp_path)
+    with h.client() as c:
+        assert c.get("/api/auth/providers").json() == {"google": True, "apple": True, "registration": "invite"}
+    h2 = Harness(tmp_path / "b", google_client_secret=None, apple_client_ids=None, registration="open")
+    with h2.client() as c:
+        assert c.get("/api/auth/providers").json() == {"google": False, "apple": False, "registration": "open"}
+        r = c.get("/api/auth/google/start", follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["location"] == "https://app.example/auth/complete#error=not_configured"
+
+
+def test_registration_defaults_to_open():
+    from analyzer.web.settings import AppSettings
+    s = AppSettings(_env_file=None, master_key="m" * 32, jwt_secret="j" * 32)
+    assert s.registration == "open"

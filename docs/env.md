@@ -1,7 +1,7 @@
 # Server environment variables
 
 The server reads these from the environment (or a local `.env`, which is never committed). Start it with
-`uvicorn analyzer.web.main:app --no-proxy-headers`. X-Forwarded-For is parsed only by the app (`TRUSTED_PROXIES`, rightmost hop); uvicorn must not rewrite the peer address, because with `--forwarded-allow-ips=*` it takes the client-supplied leftmost value.
+`uvicorn analyzer.web.main:app --no-proxy-headers --no-access-log` (the RequestLog middleware already logs redacted route templates). X-Forwarded-For is parsed only by the app (`TRUSTED_PROXIES`, rightmost hop); uvicorn must not rewrite the peer address, because with `--forwarded-allow-ips=*` it takes the client-supplied leftmost value.
 
 ## Required (the server refuses to start without them)
 
@@ -39,12 +39,13 @@ The server reads these from the environment (or a local `.env`, which is never c
 | `APPLE_CLIENT_IDS` | Comma-separated audiences (bundle id and services id) accepted on `/api/auth/apple/token`. |
 | `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` | Accepted but not used yet. They are only needed for Apple's code exchange; ID-token verification uses Apple's JWKS. |
 
-## Accounts and demo
+## Accounts
 
 | Variable | Meaning |
 |---|---|
-| `ADMIN_EMAIL` | This account becomes admin once its email is verified, or immediately on a Google/Apple sign-in with that provider-verified email. Only that social path skips the invite; password sign-ups always need one. |
-| `SEED_DEMO=1`, `DEMO_PASSWORD` | Create `judge1@demo.lvs` and `judge2@demo.lvs` with the synthetic people Yu Cheng, Sam and Jordan. |
+| `REGISTRATION` | `open` (default): anyone can create an account with email and password, or Google/Apple when configured. `invite`: sign-up needs an invite code (admins create them in Settings, or run `scripts/create_invite.py`). Sign-ups are rate limited per IP in both modes. |
+| `ADMIN_EMAIL` | This account becomes admin once its email is verified, or immediately on a Google/Apple sign-in with that provider-verified email. In `invite` mode only that social path skips the invite. |
+| `SEED_DEMO=1`, `DEMO_PASSWORD` | Optional, off by default; not for production. Creates two shared sample accounts (`judge1@demo.lvs`, `judge2@demo.lvs`) holding synthetic people, seeded in the background after start-up. Password change, account deletion and revoking other sessions or tokens are blocked for these accounts (403 `demo_locked`). |
 
 ## Agent
 

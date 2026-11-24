@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from analyzer.agent.checkins import checkin_triggers
 from analyzer.agent.interview import INTERVIEW_TOPICS, topics_for
 from analyzer.agent.next_steps import generate_next_steps
+from analyzer.store._base import fmt
 from analyzer.store.snapshots import Snapshots
 from lvs_fakes import say, tool_call, wa_export
 from test_agent import boot, run
@@ -12,7 +13,7 @@ CARD = {"title": "Suggest a plan", "why": "You start most chats.", "evidence_ref
         "kind": "plan"}
 
 
-def test_auto_next_steps_only_on_material_change(make_factory, conn, events):
+def test_completed_analysis_refreshes_next_steps_capped_per_10_minutes(make_factory, conn, events):
     f, svc, pid, fake = boot(make_factory, conn, events, [], import_chat=False)
     fake.script[:] = [tool_call("propose_next_step", CARD), say("done")]
     svc.import_file(pid, "c.txt", wa_export(), "UTC", ["Alex"])  # first analysis is material
@@ -21,12 +22,20 @@ def test_auto_next_steps_only_on_material_change(make_factory, conn, events):
     assert [s["kind"] for s in svc.list_next_steps(pid) if s["kind"] == "plan"] == ["plan"]
     assert "next_steps" in events.types()
     n = len(fake.calls)
-    svc.start_analysis(pid)  # identical data: not material, nothing auto-generated
+    svc.start_analysis(pid)  # within 10 minutes of the last auto run: capped
     assert f.wait_idle(30)
     assert len(fake.calls) == n
+    conn.execute("UPDATE settings SET value=? WHERE key=?",
+                 (json.dumps(fmt(datetime(2000, 1, 1, tzinfo=timezone.utc))), f"next_steps_auto_at:{pid}")); conn.commit()
+    fake.script[:] = [say("none")]
+    svc.submit_questionnaire(pid, "reciprocity", {i: 4 for i in (
+        "reciprocity_01", "reciprocity_02", "reciprocity_03", "reciprocity_04", "reciprocity_05",
+        "reciprocity_06")})   # a questionnaire (even with unchanged data) refreshes once the cap has passed
+    assert f.wait_idle(30)
+    assert len(fake.calls) == n + 1
 
 
-def test_daily_cap_and_on_demand_unlimited(make_factory, conn, events):
+def test_auto_cap_and_on_demand_unlimited(make_factory, conn, events):
     f, svc, pid, fake = boot(make_factory, conn, events, [say("none"), say("none"), say("none")])
     # boot's import already used today's auto-run for this person
     assert generate_next_steps(svc, pid, on_demand=False) == [] and fake.calls == []

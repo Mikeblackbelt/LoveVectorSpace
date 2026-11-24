@@ -1,6 +1,6 @@
 id: cdaq_items
 name: Digital monitoring and aggression screen
-mode: [early, established]
+mode: [potential, established]
 item_text: inline
 response: {min: 0, max: 5}
 items:
@@ -25,7 +25,7 @@ subscales:
 source:
   citation: "Borrajo, E., Gamez-Guadix, M., Pereda, N., & Calvete, E. (2015). The development and validation of the Cyber Dating Abuse Questionnaire among young couples. Computers in Human Behavior, 48, 358-365. Note: original items motivated by the CDAQ; not the published items."
   url: "https://diposit.ub.edu/items/8715a427-3b10-4cf3-8c34-40f50cd63e7a/full"
-verified: true
+verified: false  # original custom items: no published validation
 custom: true
 owner_approved: false
 measures: "How often, in the past year, monitoring/control and direct aggression happen in both directions: experienced from the partner and done by you. Responses run from 0 (never) to 5 (very often). Frequency only, with no bands or cut-offs."

@@ -14,10 +14,11 @@ FROM python:3.13-slim AS models
 COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
 WORKDIR /app
 ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy HF_HOME=/tmp/hf PIP_NO_CACHE_DIR=1
-# CPU-only torch from the PyTorch CPU index (the default PyPI wheel drags in ~2 GB of CUDA libraries),
-# then the rest of the `export` extra (see pyproject.toml).
-RUN uv pip install torch --index-url https://download.pytorch.org/whl/cpu \
- && uv pip install "huggingface_hub>=0.23" "optimum[onnxruntime]>=1.21"
+# Pinned, mutually compatible export toolchain (scripts/export-requirements.txt): CPU-only torch from the
+# PyTorch CPU index (the default PyPI wheel drags in ~2 GB of CUDA libraries), everything else from PyPI.
+COPY scripts/export-requirements.txt scripts/export-requirements.txt
+RUN uv pip install -r scripts/export-requirements.txt --index-url https://download.pytorch.org/whl/cpu \
+      --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match
 COPY scripts/fetch_models.py scripts/fetch_models.py
 RUN mkdir models && python scripts/fetch_models.py --export \
  && test -s models/emotion/model.onnx && test -s models/toxicity/model.onnx
@@ -32,6 +33,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/app/.venv
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
+COPY scripts/create_invite.py ./scripts/create_invite.py
 COPY --from=models /app/models ./models
 COPY --from=frontend /build/dist ./frontend/dist
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
@@ -44,4 +46,4 @@ ENV PATH=/app/.venv/bin:$PATH PYTHONPATH=/app/src PYTHONUNBUFFERED=1 \
 EXPOSE 8000
 ENTRYPOINT ["docker-entrypoint.sh"]
 # One worker: rate limits, OAuth state and the event bus are per process.
-CMD ["sh", "-c", "exec uvicorn analyzer.web.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --no-proxy-headers"]
+CMD ["sh", "-c", "exec uvicorn analyzer.web.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --no-proxy-headers --no-access-log"]

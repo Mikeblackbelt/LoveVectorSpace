@@ -23,6 +23,17 @@ class Scores:
                 out[mid] = json.loads(score)
         return out
 
+    def ids(self, message_ids: list[int], model: str) -> set[int]:
+        """Which of `message_ids` already have a cached score for `model` (no JSON decoding)."""
+        out: set[int] = set()
+        ids = list(message_ids)
+        for i in range(0, len(ids), _CHUNK):
+            part = ids[i:i + _CHUNK]
+            q = ",".join("?" * len(part))
+            out |= {r[0] for r in self.conn.execute(
+                f"SELECT message_id FROM message_scores WHERE model=? AND message_id IN ({q})", [model, *part])}
+        return out
+
     def put(self, model: str, mapping: dict[int, list[float]]) -> None:
         with tx(self.conn) as c:
             c.executemany(

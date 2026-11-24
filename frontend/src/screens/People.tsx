@@ -57,6 +57,7 @@ export function PeopleScreen() {
         <div className="ls glyph">$ ls -l ~/people</div>
         {q.isLoading && <Loading what="people" />}
         <ErrorLine error={q.error} />
+        {q.data?.length === 0 && !adding && <EmptyPeople onAdd={() => setAdding(true)} onSample={(id) => setSel(id)} />}
         {q.data && (
           <>
             <div className="hdr" aria-hidden="true">
@@ -144,6 +145,35 @@ export function PeopleScreen() {
         </section>
       )}
     </main>
+  );
+}
+
+/** First run: guide a new user to add someone and import a chat; a sample person is optional. */
+function EmptyPeople({ onAdd, onSample }: { onAdd: () => void; onSample: (id: number) => void }) {
+  const qc = useQueryClient();
+  const sample = useMutation({
+    mutationFn: peopleApi.loadSample,
+    onSuccess: (p) => {
+      say('lvs people add --sample', '↳ sample person added · delete it any time');
+      void qc.invalidateQueries({ queryKey: ['people'] });
+      onSample(p.id);
+    },
+  });
+  return (
+    <div className="empty-people" data-testid="empty-people">
+      <p><L t="> no people yet." p="No one here yet." /></p>
+      <ol className="dimt">
+        <li><L t="1. NEW PERSON: a nickname is enough (no real names needed)." p="Add a person. A nickname is enough." /></li>
+        <li><L t="2. import a chat export: WhatsApp, Discord, Instagram, Tinder, Hinge, Bumble, Grindr or plain text." p="Import a chat export from WhatsApp, Discord, Instagram or a dating app." /></li>
+        <li><L t="3. read the dashboard, answer a check-in, ask the assistant." p="Read the dashboard, answer a check-in and ask the assistant." /></li>
+      </ol>
+      <div className="row-actions">
+        <Key variant="pri" tech="ADD YOUR FIRST PERSON" plain="Add your first person" onClick={onAdd} />
+        <Key variant="ghost" tech="LOAD SAMPLE PERSON" plain="Explore with a sample person" disabled={sample.isPending} onClick={() => sample.mutate()} />
+      </div>
+      <ErrorLine error={sample.error} />
+      <p className="dimt small"><L t="// the sample is invented data, labelled as such. delete it any time." p="The sample is invented and labelled as such. Delete it any time." /></p>
+    </div>
   );
 }
 

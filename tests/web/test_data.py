@@ -2,7 +2,7 @@ import json
 
 from fastapi.routing import APIRoute
 
-from .conftest import PASSWORD, Harness, auth
+from .conftest import FAST_PW, PASSWORD, Harness, auth
 
 M = "ALICE_MARKER"
 
@@ -98,12 +98,14 @@ PROBES = {
         {"ts_utc": "2026-11-20T18:00:00Z", "ts_precision": "second", "direction": "incoming", "speaker_raw": "x",
          "text": "hello"}]}},
     ("GET", "/api/events"): None,   # covered by test_events (SSE)
+    ("POST", "/api/people/sample"): None,   # creates only in the caller's own account (no ids)
 }
 NOT_USER_DATA = {  # credential endpoints that take no session (cannot reach another user's data by design)
     ("POST", "/api/auth/signup"), ("POST", "/api/auth/login"), ("POST", "/api/auth/refresh"),
     ("POST", "/api/auth/logout"), ("POST", "/api/auth/verify-email"), ("POST", "/api/auth/password/forgot"),
     ("POST", "/api/auth/password/reset"), ("GET", "/api/auth/google/start"), ("GET", "/api/auth/google/callback"),
     ("POST", "/api/auth/google/token"), ("POST", "/api/auth/apple/token"), ("POST", "/api/auth/nonce"),
+    ("GET", "/api/auth/providers"),
 }
 GLOBAL_IDS = {"/api/metrics/{metric_id}/explain"}   # metric definitions are not per-user data
 # create-style routes run last: after them Bob owns ids that may collide with Alice's
@@ -316,11 +318,92 @@ def test_lru_eviction_and_reopen(tmp_path):
 def test_seed_demo(tmp_path):
     h = Harness(tmp_path, seed_demo=True, demo_password="demo-password-for-judges")
     with h.client() as c:
+        assert h.app.state.seed_done.wait(10)
         assert len(h.factory.seeded) == 2
         r = c.post("/api/auth/login", json={"email": "judge1@demo.lvs", "password": "demo-password-for-judges"})
         assert r.status_code == 200
         people = c.get("/api/people", headers=auth(r.json()["access_token"])).json()
         assert people[0]["pseudonym"] == "Yu Cheng"
     h2 = Harness(tmp_path, seed_demo=True, demo_password="demo-password-for-judges")   # idempotent
-    assert h2.factory.seeded == []
-    h2.accounts.close()
+    with h2.client() as c:
+        assert h2.app.state.seed_done.wait(10)
+        assert len(h2.factory.seed_calls) == 2 and h2.factory.seeded == []   # checked again, nothing added
+        r = c.post("/api/auth/login", json={"email": "judge1@demo.lvs", "password": "demo-password-for-judges"})
+        assert len(c.get("/api/people", headers=auth(r.json()["access_token"])).json()) == 1
+
+
+def test_seed_demo_runs_in_background_and_healthz_answers(tmp_path):
+    import threading
+    import time
+    h = Harness(tmp_path, seed_demo=True, demo_password="demo-password-for-judges")
+    h.factory.seed_gate = threading.Event()          # a seeder that would take "forever"
+    t0 = time.monotonic()
+    with h.client() as c:
+        r = c.get("/healthz")
+        assert r.status_code == 200 and r.json()["seeding"] is True
+        assert time.monotonic() - t0 < 5             # startup did not wait for the seeder
+        h.factory.seed_gate.set()
+        assert h.app.state.seed_done.wait(10)
+        assert c.get("/healthz").json()["seeding"] is False
+        assert len(h.factory.seeded) == 2
+
+
+def test_seed_demo_repairs_user_without_db_and_rotated_password(tmp_path):
+    h = Harness(tmp_path, seed_demo=True, demo_password="demo-password-for-judges")
+    with h.client():
+        assert h.app.state.seed_done.wait(10)
+        uid = h.accounts.users.by_email("judge1@demo.lvs").id
+        path = h.accounts.userdbs.path(uid)
+    path.unlink()                                     # half-seeded: user row but no database
+    h2 = Harness(tmp_path, seed_demo=True, demo_password="a-new-demo-password-123")
+    with h2.client() as c:
+        assert h2.app.state.seed_done.wait(10)
+        assert h2.factory.seeded == [uid]
+        r = c.post("/api/auth/login", json={"email": "judge1@demo.lvs", "password": "a-new-demo-password-123"})
+        assert r.status_code == 200
+        assert [p["pseudonym"] for p in c.get("/api/people", headers=auth(r.json()["access_token"])).json()] ==             ["Yu Cheng"]
+
+
+def test_demo_accounts_are_locked_only_with_seed_demo(tmp_path):
+    h = Harness(tmp_path, seed_demo=True, demo_password="demo-password-for-judges")
+    with h.client() as c:
+        assert h.app.state.seed_done.wait(10)
+        login = {"email": "judge1@demo.lvs", "password": "demo-password-for-judges"}
+        s1 = c.post("/api/auth/login", json=login, headers={"X-Client": "native"}).json()
+        s2 = c.post("/api/auth/login", json=login, headers={"X-Client": "native"}).json()
+        a = auth(s1["access_token"])
+        r = c.post("/api/auth/password/change", json={"current_password": login["password"],
+                                                       "new_password": "Another-Long-Password-9"}, headers=a)
+        assert r.status_code == 403 and r.json()["error"]["code"] == "demo_locked"
+        assert c.request("DELETE", "/api/account", json={"confirm": "DELETE MY ACCOUNT",
+                                                         "password": login["password"]},
+                         headers=a).json()["error"]["code"] == "demo_locked"
+        tok = c.post("/api/tokens", json={"kind": "api"}, headers=a).json()["info"]["id"]
+        assert c.delete(f"/api/tokens/{tok}", headers=a).json()["error"]["code"] == "demo_locked"
+        sessions = c.get("/api/auth/sessions", headers=a).json()
+        other = next(s["id"] for s in sessions if not s["current"])
+        assert c.delete(f"/api/auth/sessions/{other}", headers=a).json()["error"]["code"] == "demo_locked"
+        mine = next(s["id"] for s in sessions if s["current"])
+        assert c.delete(f"/api/auth/sessions/{mine}", headers=a).status_code == 204   # own sign-out works
+        assert s2["access_token"]
+
+
+def test_demo_lock_off_without_seed_demo(h, client):
+    import secrets
+    from analyzer.accounts import crypto
+    uid = secrets.token_hex(16)
+    h.accounts.users.create(email="judge1@demo.lvs", wrapped_dek=crypto.wrap_dek(h.settings.master_key,
+                            crypto.new_dek(), uid), user_id=uid, password_hash=FAST_PW.hash(PASSWORD),
+                            email_verified=True)
+    h.accounts._create_db(uid)
+    r = client.post("/api/auth/login", json={"email": "judge1@demo.lvs", "password": PASSWORD})
+    a = auth(r.json()["access_token"])
+    tok = client.post("/api/tokens", json={"kind": "api"}, headers=a).json()["info"]["id"]
+    assert client.delete(f"/api/tokens/{tok}", headers=a).status_code == 204
+
+
+def test_load_sample_person_route(h, client, alice):
+    r = client.post("/api/people/sample", headers=auth(alice["access_token"]))
+    assert r.status_code == 201 and r.json()["pseudonym"].startswith("Sample")
+    assert [x["pseudonym"] for x in client.get("/api/people", headers=auth(alice["access_token"])).json()] == \
+        ["Sample: Yu Cheng"]

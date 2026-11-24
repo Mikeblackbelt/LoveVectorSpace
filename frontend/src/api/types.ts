@@ -26,6 +26,13 @@ export interface AuthResult {
   user: User;
 }
 
+/** GET /api/auth/providers: sign-in options this server offers. */
+export interface AuthProviders {
+  google: boolean;
+  apple: boolean;
+  registration: 'open' | 'invite';
+}
+
 export interface SessionInfo {
   id: string;
   device: string;
@@ -254,6 +261,8 @@ export interface PersonOverview {
   weekly: WeekPoint[];
   coverage_ratio: number;
   skipped_non_english: number;
+  /** model-scoring progress of the recent window; null/absent when no model is installed */
+  scoring?: { scored: number; total: number; complete: boolean } | null;
   next_steps: NextStep[];
 }
 
@@ -296,6 +305,8 @@ export interface ScaleDef {
   measures?: string;
   does_not_measure?: string;
   verified?: boolean;
+  /** an original LoveVectorSpace item set (not a published instrument) */
+  custom?: boolean;
 }
 
 export interface ScaleResult {
@@ -364,7 +375,7 @@ export type AgentEvent =
   | { type: 'token'; text: string }
   | { type: 'tool_call'; name: string; args: Record<string, unknown> }
   | { type: 'tool_result'; name: string; ok: boolean; summary: string }
-  | { type: 'done'; message_id: number }
+  | { type: 'done'; message_id: number | null }
   | { type: 'error'; code: string; message: string };
 
 export interface InterviewProgress {

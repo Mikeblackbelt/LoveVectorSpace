@@ -51,6 +51,7 @@ class UserService(Protocol):
     def get_person(self, pid: int) -> Json: ...                    # Person
     def update_person(self, pid: int, **fields: Any) -> Json: ...  # Person
     def delete_person(self, pid: int) -> None: ...
+    def load_sample(self) -> Json: ...                              # Person: optional synthetic "Sample: ..." person
     def preview_import(self, filename: str, raw: bytes) -> Json: ...   # chat: {format, speakers, lines, one_sided}; dating (tinder|hinge|grindr|bumble): {format, matches: [MatchInfo], one_sided}
     def import_file(self, pid: int, filename: str, raw: bytes, tz: str, me_names: list[str],
                     match_id: str | None = None) -> Json: ...  # ImportResult; match_id required for dating formats (InvalidInput field "match_id")
@@ -112,4 +113,6 @@ class UserService(Protocol):
 
 class ServiceFactory(Protocol):
     def for_user(self, user_id: str, conn: Any, events: EventSink) -> UserService: ...
-    def seed_demo(self, user_id: str, conn: Any) -> None: ...      # synthetic Yu Cheng / Sam / Jordan data
+    def seed_demo(self, user_id: str, conn: Any) -> None: ...      # synthetic Yu Cheng / Sam / Jordan data;
+    # idempotent and resumable: called on every start, it completes a partial seed and is a no-op otherwise.
+    # Called WITHOUT the user lock held (it takes the lock itself and releases it while models run).

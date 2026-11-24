@@ -114,6 +114,25 @@ def build_registry(svc, settings: dict, person_id: int | None = None, thread_kin
         return svc.interview_progress(pid_of(a))
 
     metric_prop = {"metric": {"type": "string", "description": "metric id, e.g. message_share"}}
+    rating = {"type": "integer", "minimum": 1, "maximum": 7}
+    who = {"type": "string", "enum": ["me", "them", "mutual"]}
+    interaction_fields = {
+        "type": "object",
+        "description": "One in-person hangout. Ask, never guess; leave out what the owner did not say.",
+        "properties": {
+            "ts": {"type": "string", "description": "ISO-8601 start time, e.g. 2026-11-20T19:00:00Z"},
+            "place": {"type": "string"}, "duration_min": {"type": "integer", "minimum": 0},
+            "initiated_by": who, "activity": {"type": "string"},
+            "closeness_1_7": {**rating, "description": "how close the owner felt, 1-7"},
+            "comfort_1_7": {**rating, "description": "how comfortable the owner felt, 1-7"},
+            "responsiveness": {"type": "array", "items": {"type": "string"},
+                               "description": "concrete signs they listened or responded"},
+            "tension": {"type": "string"}, "affection": {"type": "string"},
+            "next_plan_proposed_by": {"type": "string", "enum": ["me", "them", "none"]},
+            "followed_through_prev": {"type": "boolean", "description": "did the last agreed plan happen"},
+        },
+        "required": ["ts", "initiated_by", "closeness_1_7", "comfort_1_7"],
+    }
     specs = [
         ToolSpec("get_person_overview", "Latest overview: mode, headline estimate (with its tag), safety "
                  "block, reciprocity and other metrics with evidence tags, scales.", pprop({}), overview),
@@ -143,7 +162,7 @@ def build_registry(svc, settings: dict, person_id: int | None = None, thread_kin
                         "confidence": {"type": "string", "enum": ["owner_sure", "owner_unsure"]}},
                        ["key", "value"]), save_fact, write=True),
         ToolSpec("log_interaction", "Log an in-person hangout with structured fields.",
-                 pprop({"fields": {"type": "object"}, "notes": {"type": "string"}}, ["fields"]),
+                 pprop({"fields": interaction_fields, "notes": {"type": "string"}}, ["fields"]),
                  log_inter, write=True),
         ToolSpec("list_interactions", "Logged hangouts, optionally since an ISO timestamp.",
                  pprop({"since": {"type": "string"}}), list_inter),

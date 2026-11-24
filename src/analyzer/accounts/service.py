@@ -269,10 +269,15 @@ class AccountService:
         if wait:
             raise AccountError(429, "rate_limited", "Too many attempts. Try again later.", retry_after=wait)
 
-    def _signup_checks(self, email: str, invite_code: str | None) -> dict:
-        """Password sign-ups always need an invite (ADMIN_EMAIL bootstrap is provider-verified sign-in only)."""
+    @property
+    def invite_only(self) -> bool:
+        return getattr(self.s, "registration", "open") == "invite"
+
+    def _signup_checks(self, email: str, invite_code: str | None) -> dict | None:
+        """REGISTRATION=invite: password sign-ups need an invite (the ADMIN_EMAIL bootstrap is provider-verified
+        sign-in only). REGISTRATION=open: no invite needed; a valid one given anyway is still consumed."""
         invite = self.invites.usable(invite_code, email)
-        if invite is None:
+        if invite is None and self.invite_only:
             raise AccountError(403, "invite_required", "A valid invite code is required.", "invite_code")
         if self.users.by_email(email) is not None:
             raise AccountError(409, "conflict", "An account with this email already exists.", "email")
@@ -291,7 +296,8 @@ class AccountService:
         with self.db.lock:
             invite = self._signup_checks(email, invite_code)   # re-check: another request may have raced us
             user = self._new_user(email, password_hash=pw_hash, display_name=(display_name or None))
-            self.invites.consume(invite["code"], user.id)
+            if invite is not None:
+                self.invites.consume(invite["code"], user.id)
         self._create_db(user.id)
         self.audit.log(user.id, "signup", self.ip_hash(ip))
         self._send_verification(user)
@@ -457,6 +463,7 @@ class AccountService:
         user = self.users.get(row[0]) if row else None
         if user is None:
             raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
+        self._check_demo_lock(user)
         problem = password_problem(new_password or "", user.email)
         if problem:
             raise AccountError(422, "validation_error", problem, "new_password")
@@ -488,8 +495,15 @@ class AccountService:
         self._maybe_promote(self.users.get(user.id))
         self.audit.log(user.id, "password_reset")
 
+    def _check_demo_lock(self, user: UserRow) -> None:
+        """With SEED_DEMO on, the shared seeded accounts cannot be locked or wiped by one of their users."""
+        if getattr(self.s, "seed_demo", False) and user.email in DEMO_EMAILS:
+            raise AccountError(403, "demo_locked", "This is a shared sample account: password, sessions, "
+                               "tokens and deletion cannot be changed. Create your own account for that.")
+
     def change_password(self, p: Principal, current: str | None, new: str) -> None:
         user = p.user
+        self._check_demo_lock(user)
         if user.password_hash and not self.passwords.verify(user.password_hash, current or ""):
             raise AccountError(403, "forbidden", "Current password is incorrect.", "current_password")
         if not user.password_hash:
@@ -588,7 +602,7 @@ class AccountService:
                 if not ident.email or not ident.email_verified:
                     raise AccountError(400, "invalid_input", "The provider did not share a verified email.")
                 invite = self.invites.usable(invite_code, ident.email)
-                if invite is None and not self._is_admin_email(ident.email):
+                if invite is None and self.invite_only and not self._is_admin_email(ident.email):
                     raise AccountError(403, "invite_required", "A valid invite code is required.", "invite_code")
                 display = (name or ident.name or None)
                 user = self._new_user(ident.email, display_name=display, email_verified=True, **{col: ident.sub})
@@ -598,9 +612,13 @@ class AccountService:
                 self.audit.log(user.id, f"signup_{ident.provider}", self.ip_hash(ip))
         return user, created, took_over
 
+    def providers(self) -> dict:
+        return {"google": self.s.google_web_enabled, "apple": self.s.apple_enabled,
+                "registration": "invite" if self.invite_only else "open"}
+
     def google_start(self, redirect: str, invite: str | None) -> tuple[str, str]:
-        if not (self.s.google_client_id and self.s.google_client_secret):
-            raise AccountError(404, "not_found", "Google sign-in is not configured.")
+        if not self.s.google_web_enabled:
+            raise AccountError(404, "not_configured", "Google sign-in is not configured.")
         verifier, challenge = pkce_pair()
         nonce = secrets.token_urlsafe(16)
         state = self.oauth_states.put({"verifier": verifier, "nonce": nonce, "redirect": redirect, "invite": invite})
@@ -633,6 +651,7 @@ class AccountService:
         return raw, info
 
     def revoke_api_token(self, user: UserRow, token_id: str) -> None:
+        self._check_demo_lock(user)
         if not self.api_tokens.owned(user.id, token_id):
             raise AccountError(404, "not_found", "Token not found.")
         self.api_tokens.revoke(user.id, token_id)
@@ -645,6 +664,8 @@ class AccountService:
     def revoke_session(self, p: Principal, family_id: str) -> None:
         if self.refresh_tokens.family_owner(family_id) != p.user.id:
             raise AccountError(404, "not_found", "Session not found.")
+        if family_id != p.sid:
+            self._check_demo_lock(p.user)       # signing out of one's own session stays possible
         self.refresh_tokens.revoke_family(family_id)
         self.audit.log(p.user.id, "session_revoked")
 
@@ -656,6 +677,7 @@ class AccountService:
 
     # ---------- deletion / demo ----------
     def delete_account(self, user: UserRow, confirm: str, password: str | None) -> None:
+        self._check_demo_lock(user)
         if confirm != DELETE_PHRASE:
             raise AccountError(400, "invalid_input", f'Type "{DELETE_PHRASE}" to confirm.', "confirm")
         if user.password_hash and not self.passwords.verify(user.password_hash, password or ""):
@@ -675,15 +697,31 @@ class AccountService:
         self.users.hard_delete(user.id)
         self.audit.log(user.id, "account_deleted")
 
+    def request_stop(self) -> None:
+        """Ask background loops (maintenance, demo seeding) to stop at their next check."""
+        self._stop.set()
+
     def seed_demo(self) -> None:
+        """Create the demo accounts if missing and bring their data to a complete state. Idempotent and
+        resumable: runs on every start (from a background thread, see web/app.py); a user row without a
+        database file, or a partial seed, is completed; an already complete account is left as it is."""
         if not self.s.demo_password:
             log.warning("SEED_DEMO=1 but DEMO_PASSWORD is not set; skipping demo accounts")
             return
         for i, email in enumerate(DEMO_EMAILS, start=1):
-            if self.users.by_email(email) is not None:
-                continue
-            user = self._new_user(email, password_hash=self.passwords.hash(self.s.demo_password),
-                                  display_name=f"Judge {i}", email_verified=True)
-            with self.userdbs.use(user.id, create=True) as h, h.lock:
-                self.factory.seed_demo(user.id, h.conn)
-            self.audit.log(user.id, "demo_seeded")
+            if self._stop.is_set():
+                return
+            try:
+                user = self.users.by_email(email)
+                if user is None:
+                    user = self._new_user(email, password_hash=self.passwords.hash(self.s.demo_password),
+                                          display_name=f"Judge {i}", email_verified=True)
+                elif not self.passwords.verify(user.password_hash, self.s.demo_password):
+                    self.users.update(user.id, password_hash=self.passwords.hash(self.s.demo_password))
+                # create=True also recreates a missing file. No user lock here: seed_demo takes it itself
+                # and releases it while the models run, so the judge can sign in and browse meanwhile.
+                with self.userdbs.use(user.id, create=True) as h:
+                    self.factory.seed_demo(user.id, h.conn)
+                self.audit.log(user.id, "demo_seeded")
+            except Exception as e:
+                log.warning("demo seeding for judge %d failed: %s", i, type(e).__name__)

@@ -1,6 +1,6 @@
 id: ecr_r
 name: Experiences in Close Relationships-Revised (ECR-R)
-mode: [established, early]
+mode: [established, potential]
 item_text: local_overlay
 response: {min: 1, max: 7}
 items:

@@ -82,7 +82,7 @@ def test_ecr_r_has_two_subscales_of_18_with_reverse_keys():
     assert r.subscales["avoidance"] == (6 * 7 + 12 * 1) / 18
 
 
-def test_custom_scales_are_draft():
+def test_custom_scales_are_unverified_drafts():
     custom = [d for d in ALL.values() if d.custom]
     assert {d.id for d in custom} >= {
         "joel_predictors", "reciprocity", "disclosure_balance", "breadcrumbing", "cdaq_items"
@@ -90,7 +90,7 @@ def test_custom_scales_are_draft():
     for d in custom:
         assert not d.owner_approved and d.item_text == "inline" and not d.cutoffs and not d.norms
         answers = {i.id: d.item_range(i)[1] for i in d.items}
-        assert score(d, answers).status == "draft"
+        assert score(d, answers).status == "unverified"
     cd = ALL["cdaq_items"]
     assert {"monitoring_experienced", "monitoring_done", "aggression_experienced",
             "aggression_done", "sum"} == set(cd.subscales)
@@ -102,3 +102,21 @@ def test_joel_predictors_scores_without_optional_item():
     answers = {i.id: 4 for i in d.items if not i.optional}
     r = score(d, answers)
     assert r.subscales["total"] == 4 and r.notes
+
+
+def test_modes_use_person_modes_and_early_is_an_alias():
+    for d in ALL.values():
+        assert set(d.mode) <= {"potential", "established"}, d.id
+    assert {"reciprocity", "breadcrumbing", "disclosure_balance"} <= {
+        d.id for d in ALL.values() if "potential" in d.mode}
+    from analyzer.scales.schema import ScaleDef
+    base = dict(id="x", name="x", items=[{"id": "a"}], subscales={"t": {"items": ["a"], "aggregate": "sum"}},
+                response={"min": 0, "max": 1}, source={"citation": "c"})
+    assert ScaleDef.model_validate({**base, "mode": ["early", "potential", "established"]}).mode == \
+        ["potential", "established"]
+
+
+def test_custom_scales_are_unverified():
+    for d in ALL.values():
+        if d.custom:
+            assert d.verified is False, d.id

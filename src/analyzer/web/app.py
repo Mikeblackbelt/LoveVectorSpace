@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -24,6 +25,7 @@ from .spa import install_spa
 
 log = logging.getLogger("analyzer.web")
 NATIVE_ORIGINS = ["capacitor://localhost", "https://localhost"]
+SEED_JOIN_S = 20.0
 
 
 def _version() -> str:
@@ -43,19 +45,39 @@ def create_app(settings: AppSettings, factory: ServiceFactory, *, mailer: Any = 
     accounts = AccountService(settings, factory, bus, mailer=mailer, fetch=fetch,
                               google_transport=google_transport, passwords=passwords)
     mcp = build_mcp(accounts)
+    seed_done = threading.Event()   # set once demo seeding finished (or was never requested)
+    if not settings.seed_demo:
+        seed_done.set()
+
+    def run_seed() -> None:
+        try:
+            accounts.seed_demo()
+        except Exception as e:
+            log.warning("demo seeding failed: %s", type(e).__name__)
+        finally:
+            seed_done.set()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # Demo seeding (model scoring included) can take minutes: run it in the background so the port
+        # opens and /healthz answers at once. It is resumable, so a restart mid-seed completes it.
+        seeder = None
+        if not seed_done.is_set():
+            seeder = threading.Thread(target=run_seed, name="demo-seed", daemon=True)
+            seeder.start()
         try:
             async with mcp.session_manager.run():
                 yield
         finally:
+            accounts.request_stop()
             shutdown = getattr(factory, "shutdown", None)
             if callable(shutdown):
                 try:
                     shutdown()          # stop background work before closing user connections
                 except Exception:
                     log.exception("factory shutdown failed")
+            if seeder is not None:
+                seeder.join(SEED_JOIN_S)    # its next locked step raises ServiceClosed after shutdown()
             accounts.close()
 
     app = FastAPI(title="LoveVectorSpace API", version=_version(), lifespan=lifespan,
@@ -63,12 +85,13 @@ def create_app(settings: AppSettings, factory: ServiceFactory, *, mailer: Any = 
     app.state.settings = settings
     app.state.accounts = accounts
     app.state.events = bus
+    app.state.seed_done = seed_done
     app.state.ingest_limiter = SlidingWindow(settings.ingest_msgs_per_min, 60)
     install_error_handlers(app)
 
     @app.get("/healthz")
     def healthz():
-        return {"ok": True, "version": _version()}
+        return {"ok": True, "version": _version(), "seeding": not seed_done.is_set()}
 
     for r in (auth.router, account.router, data.router, agent.router, ext.router, events.router):
         app.include_router(r)
@@ -83,6 +106,4 @@ def create_app(settings: AppSettings, factory: ServiceFactory, *, mailer: Any = 
                        extension_id=settings.extension_id,
                        bearer_only_origins=[o for o in NATIVE_ORIGINS if o != settings.app_origin.rstrip("/")])   # outermost, so error responses carry CORS headers
 
-    if settings.seed_demo:
-        accounts.seed_demo()
     return app

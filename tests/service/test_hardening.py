@@ -46,8 +46,8 @@ def test_auto_run_allowed_stores_passed_now(svc, person):
     pid = person["id"]
     t = datetime(2030, 5, 5, 12, 0, tzinfo=timezone.utc)
     assert svc._auto_run_allowed(pid, t) is True
-    assert svc._auto_run_allowed(pid, t + timedelta(hours=1)) is False
-    assert svc._auto_run_allowed(pid, t + timedelta(days=1, minutes=1)) is True
+    assert svc._auto_run_allowed(pid, t + timedelta(minutes=5)) is False
+    assert svc._auto_run_allowed(pid, t + timedelta(minutes=11)) is True
 
 
 def test_safety_fact_changes_schedule_reanalysis(svc, factory, person):
@@ -116,7 +116,7 @@ def test_no_private_text_in_logs(make_factory, conn, events, caplog, monkeypatch
 
     def boom(*a, **k):
         raise RuntimeError("sounds good to me and we can talk ZEBRA-FACT-VALUE")
-    monkeypatch.setattr(analysis, "compute_overview", boom)
+    monkeypatch.setattr(analysis, "build_overview", boom)
     svc.start_analysis(pid)
     assert f.wait_idle(20)
     for s in SECRETS:

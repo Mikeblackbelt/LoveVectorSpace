@@ -44,7 +44,7 @@ def test_run_now_bypasses_debounce(make_factory, conn, events):
 def test_failed_job_records_error(factory, svc, person, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("secret message text")
-    monkeypatch.setattr(analysis, "compute_overview", boom)
+    monkeypatch.setattr(analysis, "build_overview", boom)
     jid = svc.start_analysis(person["id"])
     assert factory.wait_idle(20)
     j = svc.job(jid)

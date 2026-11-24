@@ -4,7 +4,9 @@ Threading model (chosen design): the API layer hands us one already-open SQLCiph
 `open_db` opens connections with check_same_thread=False, and *every* touch of a user's database, from
 request threads, the single background worker and debounce timers, happens while holding that user's
 RLock (kept in the factory, keyed by user id, so several `UserServiceImpl` objects for one user share
-it). Background jobs run on one worker thread. They use the connection of the service object that
+it). The one exception is model scoring: `analyze_now` reads the texts under the lock, runs the ONNX
+models and builds the metrics with the lock released (no DB access), then re-acquires it to write
+(see its docstring). Background jobs run on one worker thread. They use the connection of the service object that
 scheduled them, unless the factory was given a `conn_opener(user_id)`, in which case each background
 task opens (and closes) its own connection, which is the right choice if the API closes request
 connections. Either way the per-user lock serialises all access.
@@ -74,6 +76,7 @@ from .material import material_change
 log = logging.getLogger("analyzer.service")
 
 DEBOUNCE_S = 900
+FOLLOWUP_S = 2.0  # delay before the next run scores the rest of a backlog (see analyze_now)
 PLATFORMS = ("whatsapp", "discord", "instagram", "tinder", "grindr", "bumble")
 THEMES = ("signal", "pulse", "riso", "blueprint", "journal", "matcha", "midnight", "inkwell", "crt")
 DATING = {"tinder": tinder_json, "hinge": hinge_json, "grindr": grindr_json, "bumble": bumble_json}
@@ -305,8 +308,10 @@ class ServiceFactoryImpl:
         return svc
 
     def seed_demo(self, user_id: str, conn: Any) -> None:
+        """Idempotent and resumable (see service/seed.py): safe to call on every start."""
         from .seed import seed
-        seed(self.for_user(user_id, conn, NullEvents()))
+        status = seed(self.for_user(user_id, conn, NullEvents()))
+        log.info("demo seed: %s", ", ".join(f"{k}={v}" for k, v in status.items()))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -437,6 +442,14 @@ class UserServiceImpl:
         if mode not in ("potential", "established"):
             raise InvalidInput("mode must be potential or established", "mode")
         return person_dict(People(self.conn).add(pseudonym, mode, _tz(timezone)))
+
+    @locked
+    def load_sample(self) -> dict:
+        """Add one synthetic, clearly labelled sample person (optional, for exploring) and analyse it."""
+        from .seed import add_sample_person
+        pid = add_sample_person(self)
+        self.start_analysis(pid)
+        return person_dict(self._person(pid))
 
     @locked
     def get_person(self, pid: int) -> dict:
@@ -726,16 +739,41 @@ class UserServiceImpl:
         self._publish({"type": "job", "person_id": pid, "job_id": job_id, "status": status})
 
     def analyze_now(self, pid: int) -> dict:
-        """Synchronous analysis + snapshot (no job row). Returns (snapshot data, material)."""
+        """Synchronous analysis + snapshot (no job row). Returns the snapshot data plus `_material` (bool)
+        and `_backlog` (window messages still unscored after this run).
+
+        The per-user lock is NOT held while the models or the metrics run: (1) under the lock, read the
+        texts to score (at most MAX_SYNC_SCORED); (2) release it and score (no DB access); (3) re-acquire
+        it, drop the results if the service was closed (ServiceClosed) or the person deleted (NotFound)
+        meanwhile, else cache the scores and read the analysis inputs; (4) release it and build the
+        overview (pure CPU); (5) re-acquire it, re-check, and save the snapshot. A backlog is left
+        to a follow-up run, scheduled here with a short debounce. If the caller already holds the lock
+        (RLock), it simply stays held throughout."""
+        clf = self.factory.classifiers()  # model load: outside the user lock
         with self._live():
+            self._person(pid)
+            plan = analysis.scoring_plan(self.conn, pid, clf)
+        fresh = analysis.run_scoring(plan, clf) if plan.count else {}
+        with self._live():
+            if People(self.conn).get(pid) is None:
+                raise NotFound(f"person {pid}")
+            analysis.store_scores(self.conn, fresh)
+            inputs = analysis.load_inputs(self.conn, pid, clf)
+        data = analysis.build_overview(inputs, self.factory.scales, clf)  # CPU-heavy, no DB: lock released
+        with self._live():
+            if People(self.conn).get(pid) is None:
+                raise NotFound(f"person {pid}")
             prev = self._latest_overview(pid)
-            data = analysis.compute_overview(self.conn, pid, self.factory.scales, self.factory.classifiers())
             Snapshots(self.conn).save(pid, data)
             steps = NextSteps(self.conn).list(pid)
             last_cards = max((s.created_at for s in steps), default=None)
             material = material_change(prev.data if prev else None, data, last_cards)
         self._publish({"type": "snapshot", "person_id": pid})
+        backlog = plan.remaining if plan.count else 0  # nothing scored this run: do not loop
+        if backlog:
+            self.schedule_reanalysis(pid, debounce_s=min(self.factory.debounce_s, FOLLOWUP_S))
         data["_material"] = material
+        data["_backlog"] = backlog
         return data
 
     def _exec_analysis(self, job_id: int, pid: int) -> None:
@@ -748,7 +786,13 @@ class UserServiceImpl:
         self._job_event(pid, job_id, "running")
         try:
             data = self.analyze_now(pid)
-            material = data.pop("_material")
+            data.pop("_material")
+            backlog = data.pop("_backlog")
+        except NotFound:
+            with self._live():
+                Jobs(self.conn).update(job_id, "error", "person removed")
+            self._job_event(pid, job_id, "error")
+            return
         except Exception as e:
             log.warning("analysis job %s failed: %s", job_id, e.__class__.__name__)
             with self._live():
@@ -758,7 +802,7 @@ class UserServiceImpl:
         with self._live():
             Jobs(self.conn).update(job_id, "done")
         self._job_event(pid, job_id, "done")
-        if material:
+        if not backlog:  # every completed analysis refreshes next steps (auto runs: max once / person / 10 min)
             self._submit(lambda svc: svc._exec_next_steps(None, pid, on_demand=False))
 
     def _exec_next_steps(self, job_id: int | None, pid: int, on_demand: bool) -> None:
@@ -968,7 +1012,7 @@ class UserServiceImpl:
         return [_step_dict(s) for s in NextSteps(self.conn).list(pid) if s.id > step_id]
 
     @locked
-    def _auto_run_allowed(self, pid: int, now: datetime, cap: timedelta = timedelta(days=1)) -> bool:
+    def _auto_run_allowed(self, pid: int, now: datetime, cap: timedelta = timedelta(minutes=10)) -> bool:
         from analyzer.store._base import fmt
         st, key = Settings(self.conn), f"next_steps_auto_at:{pid}"
         last = st.get(key)

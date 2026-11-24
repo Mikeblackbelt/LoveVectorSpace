@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError, refreshOnce } from '../api/client';
-import { API_MODE } from '../api/config';
+import { API_MODE, isNative } from '../api/config';
 import { auth } from '../api/endpoints';
+import type { AuthProviders } from '../api/types';
 import { signInWithApple, signInWithGoogle } from '../api/social';
 import { Footer } from '../components/Shell';
 import { ThemePopover } from '../components/ThemePopover';
@@ -111,8 +112,41 @@ function AppleIcon() {
   );
 }
 
-/** Google + Apple buttons with invite_required handling (new social users need an invite). */
+/** What this server offers (GET /api/auth/providers). While loading or on error: nothing is assumed.
+ *  Kept out of React Query on purpose: that cache is per user and is cleared on sign-out. */
+let providersReq: Promise<AuthProviders> | null = null;
+function useProviders(): { data: AuthProviders | undefined } {
+  const [data, setData] = useState<AuthProviders | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    const req = (providersReq ||= auth.providers());
+    req.then((p) => live && setData(p), () => {
+      providersReq = null;   // retry on the next mount
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return { data };
+}
+
+/** Tests: forget the cached providers answer. */
+export function resetProvidersCache() {
+  providersReq = null;
+}
+
+/** Which social buttons to show. Native apps keep both (their plugins are configured at build time); on the
+ *  web each button needs the server to support it, and Apple's web flow also needs VITE_APPLE_CLIENT_ID. */
+export function socialButtons(p: { google: boolean; apple: boolean } | undefined, native: boolean, appleWebClientId: string | undefined) {
+  if (native) return { google: true, apple: true };
+  if (!p) return { google: false, apple: false };
+  return { google: p.google, apple: p.apple && !!appleWebClientId };
+}
+
+/** Google + Apple buttons with invite_required handling (new social users need an invite in invite mode). */
 function SocialButtons({ next, invite }: { next: string; invite?: string }) {
+  const providers = useProviders();
+  const show = socialButtons(providers.data, isNative(), import.meta.env.VITE_APPLE_CLIENT_ID);
   const nav = useNavigate();
   const [needInvite, setNeedInvite] = useState(false);
   const [code, setCode] = useState(invite || '');
@@ -135,6 +169,7 @@ function SocialButtons({ next, invite }: { next: string; invite?: string }) {
       setBusy(false);
     }
   };
+  if (!show.google && !show.apple) return null;
   return (
     <>
       <div className="or" aria-hidden="true"><span className="ln">────────────────────────</span><L t="OR" p="or" /><span className="ln">────────────────────────</span></div>
@@ -143,12 +178,16 @@ function SocialButtons({ next, invite }: { next: string; invite?: string }) {
           <input id={`soc-code-${next.length}`} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} autoComplete="off" spellCheck={false} />
         </Field>
       )}
-      <button className="btn out" type="button" disabled={busy} onClick={() => void run('google')}>
-        <GoogleIcon /><span className="glyph">[ </span>Continue with Google<span className="glyph"> ]</span>
-      </button>
-      <button className="btn out" type="button" disabled={busy} onClick={() => void run('apple')}>
-        <AppleIcon /><span className="glyph">[ </span>Continue with Apple<span className="glyph"> ]</span>
-      </button>
+      {show.google && (
+        <button className="btn out" type="button" disabled={busy} onClick={() => void run('google')}>
+          <GoogleIcon /><span className="glyph">[ </span>Continue with Google<span className="glyph"> ]</span>
+        </button>
+      )}
+      {show.apple && (
+        <button className="btn out" type="button" disabled={busy} onClick={() => void run('apple')}>
+          <AppleIcon /><span className="glyph">[ </span>Continue with Apple<span className="glyph"> ]</span>
+        </button>
+      )}
       {err && <div className="err" role="alert"><span className="glyph">[ ERR ] </span>{err}</div>}
     </>
   );
@@ -195,7 +234,7 @@ function LoginPane({ on, next }: { on: boolean; next: string }) {
       <SocialButtons next={next} />
       <div className="links">
         <Link to="/auth/forgot"><L t="forgot password?" p="Forgot your password?" /></Link>
-        <Link to="/auth/signup"><L t="have an invite? sign up" p="Have an invite? Sign up" /></Link>
+        <Link to="/auth/signup"><L t="new here? sign up" p="New here? Create an account" /></Link>
       </div>
     </section>
   );
@@ -204,6 +243,8 @@ function LoginPane({ on, next }: { on: boolean; next: string }) {
 function SignupPane({ on, next }: { on: boolean; next: string }) {
   const nav = useNavigate();
   const [sp] = useSearchParams();
+  const providers = useProviders();
+  const inviteOnly = providers.data?.registration !== 'open';   // until we know, ask for one
   const [code, setCode] = useState(sp.get('invite') || sp.get('code') || '');
   const [email, setEmail] = useState(sp.get('email') || '');
   const [name, setName] = useState('');
@@ -215,8 +256,17 @@ function SignupPane({ on, next }: { on: boolean; next: string }) {
   return (
     <section className={`apane${on ? ' on' : ''}`} id="pane-signup" role="tabpanel" aria-labelledby="tab-signup">
       <span className="ttl"><span className="glyph">┌─[ S ] </span><L t="SIGN UP" p="Sign up" /><span className="glyph"> ─┐</span></span>
-      <h2 className="acc"><span className="glyph">&gt; </span><L t="auth --invite" p="Join with an invite" /></h2>
-      <p className="cmt"><span className="glyph">// </span><L t="access is by invite code only." p="You need an invite code to join." /></p>
+      {inviteOnly ? (
+        <>
+          <h2 className="acc"><span className="glyph">&gt; </span><L t="auth --invite" p="Join with an invite" /></h2>
+          <p className="cmt"><span className="glyph">// </span><L t="access is by invite code only." p="You need an invite code to join." /></p>
+        </>
+      ) : (
+        <>
+          <h2 className="acc"><span className="glyph">&gt; </span><L t="auth --signup" p="Create your account" /></h2>
+          <p className="cmt"><span className="glyph">// </span><L t="free. your data stays encrypted under your account." p="Free to join. Your data stays encrypted under your account." /></p>
+        </>
+      )}
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -225,7 +275,7 @@ function SignupPane({ on, next }: { on: boolean; next: string }) {
           setErr(null);
           setBusy(true);
           try {
-            await auth.signup({ email: email.trim(), password: pw, invite_code: code.trim(), display_name: name.trim() || undefined });
+            await auth.signup({ email: email.trim(), password: pw, invite_code: code.trim() || undefined, display_name: name.trim() || undefined });
             haptic();
             nav(next, { replace: true });
           } catch (ex) {
@@ -236,9 +286,11 @@ function SignupPane({ on, next }: { on: boolean; next: string }) {
           }
         }}
       >
-        <Field id="s-code" label="Invite code" err={err?.field === 'invite_code' ? err.text : null}>
-          <input id="s-code" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} autoComplete="off" autoCapitalize="characters" spellCheck={false} required />
-        </Field>
+        {inviteOnly && (
+          <Field id="s-code" label="Invite code" err={err?.field === 'invite_code' ? err.text : null}>
+            <input id="s-code" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} autoComplete="off" autoCapitalize="characters" spellCheck={false} required />
+          </Field>
+        )}
         <Field id="s-email" label="Email" err={err?.field === 'email' ? err.text : null}>
           <input id="s-email" type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </Field>
@@ -363,7 +415,7 @@ function AuthFrame({ children, tab }: { children: ReactNode; tab?: Tab }) {
           </svg>
           <div className="txt">
             <h1 className="wm"><span>LoveVectorSpace</span><span className="cur glyph" aria-hidden="true" /></h1>
-            <p className="sub"><span className="glyph">// </span><L t="invite-only · hackathon demo build" p="Invite-only preview" /></p>
+            <p className="sub"><span className="glyph">// </span><L t="relationship signals from your own chats · private by design" p="Understand your relationships from your own chats, privately" /></p>
           </div>
         </header>
         {tab && (
@@ -503,6 +555,7 @@ export function VerifyScreen() {
 }
 
 const SOCIAL_ERR: Record<string, string> = {
+  not_configured: 'That sign-in option is not set up on this server. Use your email and password instead.',
   invite_required: 'New accounts need an invite. Open Sign up, enter your invite code, then choose Continue with Google.',
   access_denied: 'Google sign-in was cancelled.',
 };

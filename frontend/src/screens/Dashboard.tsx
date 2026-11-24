@@ -66,6 +66,11 @@ function Dashboard({ o, pid, lastSync }: { o: PersonOverview; pid: number; lastS
         ) : (
           <span className="chip-warn"><L t="SAFETY [ SEE WARNING ]" p="Please read the note above" /></span>
         )}
+        {o.scoring && !o.scoring.complete && (
+          <span className="glyph dimt" data-testid="scoring-progress" role="status">
+            <L t={`SCORING ${o.scoring.scored}/${o.scoring.total}`} p={`Scored ${o.scoring.scored.toLocaleString()} of ${o.scoring.total.toLocaleString()} recent messages so far; the rest are on their way`} />
+          </span>
+        )}
         {o.skipped_non_english > 0 && (
           <span className="glyph dimt">SKIPPED {o.skipped_non_english} NON-ENGLISH</span>
         )}
