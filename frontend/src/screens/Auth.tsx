@@ -1,9 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError, refreshOnce } from '../api/client';
 import { API_MODE, isNative } from '../api/config';
 import { auth } from '../api/endpoints';
+import type { AuthProviders } from '../api/types';
 import { signInWithApple, signInWithGoogle } from '../api/social';
 import { Footer } from '../components/Shell';
 import { ThemePopover } from '../components/ThemePopover';
@@ -112,9 +112,27 @@ function AppleIcon() {
   );
 }
 
-/** What this server offers (GET /api/auth/providers). While loading or on error: nothing is assumed. */
-function useProviders() {
-  return useQuery({ queryKey: ['auth-providers'], queryFn: auth.providers, staleTime: 5 * 60_000, retry: false });
+/** What this server offers (GET /api/auth/providers). While loading or on error: nothing is assumed.
+ *  Kept out of React Query on purpose: that cache is per user and is cleared on sign-out. */
+let providersReq: Promise<AuthProviders> | null = null;
+function useProviders(): { data: AuthProviders | undefined } {
+  const [data, setData] = useState<AuthProviders | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    const req = (providersReq ||= auth.providers());
+    req.then((p) => live && setData(p), () => {
+      providersReq = null;   // retry on the next mount
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return { data };
+}
+
+/** Tests: forget the cached providers answer. */
+export function resetProvidersCache() {
+  providersReq = null;
 }
 
 /** Which social buttons to show. Native apps keep both (their plugins are configured at build time); on the
@@ -397,7 +415,7 @@ function AuthFrame({ children, tab }: { children: ReactNode; tab?: Tab }) {
           </svg>
           <div className="txt">
             <h1 className="wm"><span>LoveVectorSpace</span><span className="cur glyph" aria-hidden="true" /></h1>
-            <p className="sub"><span className="glyph">// </span><L t="invite-only · hackathon demo build" p="Invite-only preview" /></p>
+            <p className="sub"><span className="glyph">// </span><L t="relationship signals from your own chats · private by design" p="Understand your relationships from your own chats, privately" /></p>
           </div>
         </header>
         {tab && (

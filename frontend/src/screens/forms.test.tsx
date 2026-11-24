@@ -43,3 +43,27 @@ describe('questionnaires', () => {
     expect(row.textContent).toContain('[CUSTOM]');
   });
 });
+
+describe('first run', () => {
+  it('guides a new user to add a person; the sample person is optional', async () => {
+    const { PeopleScreen } = await import('./People');
+    const { setTransport } = await import('../api/client');
+    const { mockFetch } = await import('../mock/server');
+    const { json } = await import('../test/utils');
+    const posts: string[] = [];
+    let empty = true;
+    setTransport(async (url, init) => {
+      if (url.endsWith('/api/people') && (!init.method || init.method === 'GET') && empty) return json([]);
+      if (init.method === 'POST') posts.push(url);
+      if (url.endsWith('/api/people/sample')) empty = false;
+      return mockFetch(url, init);
+    });
+    renderAt(<PeopleScreen />, { route: '/people' });
+    const box = await screen.findByTestId('empty-people');
+    expect(box.textContent).toContain('ADD YOUR FIRST PERSON');
+    expect(box.textContent).not.toMatch(/judge|demo/i);
+    fireEvent.click(within(box).getByText('LOAD SAMPLE PERSON'));
+    await screen.findByText('SAMPLE: YU CHENG');
+    expect(posts.some((u) => u.endsWith('/api/people/sample'))).toBe(true);
+  });
+});

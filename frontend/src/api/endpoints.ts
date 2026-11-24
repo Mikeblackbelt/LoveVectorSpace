@@ -72,6 +72,8 @@ export const accountApi = {
 export const peopleApi = {
   list: () => api.get<PersonSummary[]>('/api/people'),
   create: (b: { pseudonym: string; mode: 'potential' | 'established'; timezone?: string }) => api.post<Person>('/api/people', b),
+  /** optional: one synthetic, labelled person to explore the app */
+  loadSample: () => api.post<Person>('/api/people/sample'),
   get: (pid: number) => api.get<Person>(`/api/people/${pid}`),
   patch: (pid: number, b: Partial<Pick<Person, 'pseudonym' | 'mode' | 'timezone'>>) => api.patch<Person>(`/api/people/${pid}`, b),
   remove: (pid: number) => api.del<void>(`/api/people/${pid}`),

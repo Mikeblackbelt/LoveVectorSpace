@@ -97,7 +97,8 @@ describe('sign-in providers', () => {
   });
 
   it('open registration hides the invite field; invite mode shows it', async () => {
-    const { AuthScreen } = await import('./Auth');
+    const { AuthScreen, resetProvidersCache } = await import('./Auth');
+    resetProvidersCache();
     setTransport(async (url, init) =>
       url.endsWith('/api/auth/providers') ? json({ google: false, apple: false, registration: 'open' }) : mockFetch(url, init));
     const a = renderAt(<AuthScreen tab="signup" />, { route: '/auth/signup' });
@@ -105,6 +106,7 @@ describe('sign-in providers', () => {
     expect(a.container.querySelector('#s-code')).toBeNull();
     expect(screen.queryByText(/Continue with Google/)).toBeNull();
     a.unmount();
+    resetProvidersCache();
     setTransport(async (url, init) =>
       url.endsWith('/api/auth/providers') ? json({ google: true, apple: false, registration: 'invite' }) : mockFetch(url, init));
     const b = renderAt(<AuthScreen tab="signup" />, { route: '/auth/signup' });

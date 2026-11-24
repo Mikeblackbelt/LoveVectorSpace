@@ -267,6 +267,12 @@ const routes: [string, RegExp, Handler][] = [
     D.units[pid] = []; D.facts[pid] = []; D.interactions[pid] = []; D.nextSteps[pid] = []; D.threads[pid] = []; D.coverage[pid] = []; D.interviewCovered[pid] = []; D.questionnaireHistory[pid] = [];
     return json({ id: pid, pseudonym: b.pseudonym.trim(), mode: b.mode || 'potential', timezone: b.timezone || null, created_at: nowIso() }, 201);
   }],
+  ['POST', /^\/api\/people\/sample$/, () => {
+    const pid = id();
+    D.people.push({ id: pid, pseudonym: 'Sample: Yu Cheng', mode: 'potential', sources: [], success: { percent: null, low: null, high: null, status: 'insufficient_data' }, safety: 'none', updated_at: null });
+    D.units[pid] = []; D.facts[pid] = []; D.interactions[pid] = []; D.nextSteps[pid] = []; D.threads[pid] = []; D.coverage[pid] = []; D.interviewCovered[pid] = []; D.questionnaireHistory[pid] = [];
+    return json({ id: pid, pseudonym: 'Sample: Yu Cheng', mode: 'potential', timezone: 'America/New_York', created_at: nowIso() }, 201);
+  }],
   ['GET', /^\/api\/people\/(\d+)$/, ({ params }) => {
     const p = person(+params[0]);
     return p ? json({ id: p.id, pseudonym: p.pseudonym, mode: p.mode, timezone: 'America/New_York', created_at: '2026-09-01T10:00:00Z' }) : err(404, 'not_found', 'Person not found.');

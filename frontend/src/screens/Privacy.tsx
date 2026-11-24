@@ -7,7 +7,7 @@ export function PrivacyScreen() {
     <main className="screen doc-screen">
       <article className="pane doc">
         <h1 className="doc-h">Privacy policy</h1>
-        <p className="dimt">LoveVectorSpace · invite-only demo · last updated 2026-11-23</p>
+        <p className="dimt">LoveVectorSpace · last updated 2026-11-24</p>
         <h2>What the app does</h2>
         <p>
           LoveVectorSpace helps you reflect on a relationship using chats you import, questionnaires you fill in and notes you
@@ -39,7 +39,7 @@ export function PrivacyScreen() {
         <h2>Age</h2>
         <p>The app is for people aged 17 and over.</p>
         <h2>Contact</h2>
-        <p>Questions about privacy: use the contact address given with your invite.</p>
+        <p>Questions about privacy: contact the operator of this server (the address on its sign-in page or in the app store listing).</p>
         <p>
           <Link to="/people">Back to the app</Link>
         </p>
