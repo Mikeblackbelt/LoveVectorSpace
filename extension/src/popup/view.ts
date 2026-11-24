@@ -9,6 +9,9 @@ export interface PopupState {
   runs: Partial<Record<Platform, RunState>>;
   queueLength: number;
   queueFull: boolean;
+  storageError: boolean;
+  /** messages the server refused (413/422) and the queue dropped */
+  rejected: number;
   lastFlush: { at: number; sent: number; error?: string } | null;
 }
 
@@ -126,6 +129,8 @@ export async function mountPopup(root: HTMLElement, d: PopupDeps): Promise<void>
     const { platform } = chat;
     const hs = st.health[platform];
     const healthy = chat.health.ok && (hs?.ok ?? true);
+    if (st.storageError) body.append(h("div", { class: "alert" }, "Capture paused: browser storage is full or refused a write. Free space or let the queue upload."));
+    if (st.rejected > 0) body.append(h("div", { class: "concern" }, `${st.rejected} message(s) were rejected by the server and dropped.`));
     if (st.queueFull) body.append(h("div", { class: "alert" }, "Capture paused: the queue holds 5,000 messages. Check the API settings so it can upload."));
     if (!healthy) {
       body.append(

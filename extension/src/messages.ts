@@ -6,10 +6,11 @@ export type BgRequest =
   | { type: "enqueue"; platform: Platform; chat_key: string; tz: string; msgs: CapturedMessage[] }
   | { type: "summary"; platform: Platform; chat_key: string }
   | { type: "import"; platform: Platform; chat_key: string; tz: string; unit_id: string; msgs: CapturedMessage[] }
+  | { type: "config" }
   | { type: "flush" };
 
 export type BgResponse =
-  | { ok: true; accepted?: boolean; summary?: ExtSummary; sent?: number }
+  | { ok: true; accepted?: boolean; waDateFormat?: "auto" | "month_first" | "day_first"; summary?: ExtSummary; sent?: number }
   | { ok: false; code: string; error: string };
 
 /** popup -> content script */

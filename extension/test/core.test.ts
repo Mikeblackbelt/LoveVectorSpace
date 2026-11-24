@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../src/api";
-import { BATCH_MAX, Queue, QUEUE_CAP } from "../src/queue";
+import { BATCH_MAX, MAX_TEXT, Queue, QUEUE_CAP } from "../src/queue";
 import { RateLimiter, RunGuard } from "../src/ratelimit";
 import { getKey } from "../src/storage";
 import type { CapturedMessage, QueueItem } from "../src/adapters/types";
@@ -110,5 +110,71 @@ describe("themes", () => {
     const css = readFileSync("src/theme.css", "utf8");
     expect(THEMES).toHaveLength(9);
     for (const t of THEMES) expect(css).toContain(`[data-theme="${t}"] {`);
+  });
+});
+
+describe("queue hardening", () => {
+  it("accepts or rejects a batch whole at the cap", async () => {
+    const q = new Queue();
+    await q.enqueue("discord", "c", "UTC", many(QUEUE_CAP - 2));
+    expect(await q.enqueue("discord", "c", "UTC", many(5))).toBe(false);
+    expect(await q.length()).toBe(QUEUE_CAP - 2); // none of the 5 was kept
+    expect(await q.isFull()).toBe(true);
+    expect(await q.enqueue("discord", "c", "UTC", many(2))).toBe(true);
+    expect(await q.length()).toBe(QUEUE_CAP);
+  });
+
+  it("truncates long text and marks it", async () => {
+    const q = new Queue();
+    await q.enqueue("discord", "c", "UTC", [{ ...m(1), text: "x".repeat(9000) }]);
+    const [item] = await getKey<QueueItem[]>("queue", []);
+    expect(item.msg.text.length).toBe(MAX_TEXT);
+    expect(item.msg.text.endsWith("[truncated]")).toBe(true);
+  });
+
+  it("splits a 413 batch until it fits and drops a lone message that still fails", async () => {
+    const q = new Queue();
+    await q.enqueue("discord", "c", "UTC", many(8));
+    const sizes: number[] = [];
+    const r = await q.flush(async (b) => {
+      sizes.push(b.messages.length);
+      if (b.messages.length > 2) throw new ApiError(413, "too_large", "big");
+      if (b.messages.some((x) => x.text === "m3")) throw new ApiError(413, "too_large", "big");
+    }, true);
+    expect(r.error).toBeUndefined();
+    expect(await q.length()).toBe(0);
+    expect(await getKey<number>("rejected_count", 0)).toBe(1); // only m3 was dropped
+    expect(sizes[0]).toBe(8);
+  });
+
+  it("drops a 422 message, counts it, and keeps the queue moving", async () => {
+    const q = new Queue();
+    await q.enqueue("discord", "c", "UTC", many(3));
+    await q.flush(async (b) => {
+      if (b.messages.some((x) => x.text === "m1")) throw new ApiError(422, "invalid_input", "bad");
+    }, true);
+    expect(await q.length()).toBe(0);
+    expect(await getKey<number>("rejected_count", 0)).toBe(1);
+  });
+
+  it("5xx keeps the queue intact", async () => {
+    const q = new Queue();
+    await q.enqueue("discord", "c", "UTC", many(3));
+    const r = await q.flush(async () => {
+      throw new ApiError(503, "http_error", "down");
+    }, true);
+    expect(r.error).toBeTruthy();
+    expect(await q.length()).toBe(3);
+  });
+
+  it("storage quota errors reject the batch and flag the popup", async () => {
+    const q = new Queue();
+    const real = chrome.storage.local.set;
+    (chrome.storage.local as { set: unknown }).set = async (o: Record<string, unknown>) => {
+      if ("queue" in o) throw new Error("QUOTA_BYTES quota exceeded");
+      return (real as (o: Record<string, unknown>) => Promise<void>).call(chrome.storage.local, o);
+    };
+    expect(await q.enqueue("discord", "c", "UTC", many(2))).toBe(false);
+    expect(await getKey<boolean>("storage_error", false)).toBe(true);
   });
 });

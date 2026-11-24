@@ -5,6 +5,10 @@ import { getKey, setKey } from "./storage";
 export const QUEUE_CAP = 5000;
 export const BATCH_MAX = 200;
 export const MIN_FLUSH_MS = 30_000;
+export const MAX_TEXT = 4000;
+const TRUNC_MARK = "…[truncated]";
+
+export const clampText = (t: string): string => (t.length <= MAX_TEXT ? t : t.slice(0, MAX_TEXT - TRUNC_MARK.length) + TRUNC_MARK);
 
 type IngestFn = (b: CaptureBatch) => Promise<unknown>;
 
@@ -33,23 +37,33 @@ export class Queue implements MessageSink {
     return getKey<boolean>("queue_full", false);
   }
 
-  /** Returns false when the cap was hit (capture is then paused and the popup warns). */
+  /**
+   * Accepts or rejects the whole batch. Returns false (and flags the popup) when it would pass the cap or
+   * storage refuses the write, so callers keep the rows unseen and read them again later.
+   */
   enqueue(platform: Platform, chat_key: string, tz: string, msgs: CapturedMessage[]): Promise<boolean> {
     return this.serial(async () => {
-      const q = await getKey<QueueItem[]>("queue", []);
-      let nextId = await getKey<number>("queue_next_id", 1);
-      let accepted = true;
-      for (const msg of msgs) {
-        if (q.length >= QUEUE_CAP) {
-          accepted = false;
-          break;
+      try {
+        const q = await getKey<QueueItem[]>("queue", []);
+        if (q.length + msgs.length > QUEUE_CAP) {
+          await setKey("queue_full", true);
+          return false;
         }
-        q.push({ id: nextId++, platform, chat_key, tz, msg });
+        let nextId = await getKey<number>("queue_next_id", 1);
+        for (const msg of msgs) q.push({ id: nextId++, platform, chat_key, tz, msg: { ...msg, text: clampText(msg.text) } });
+        await setKey("queue", q);
+        await setKey("queue_next_id", nextId);
+        if (q.length >= QUEUE_CAP) await setKey("queue_full", true);
+        return true;
+      } catch {
+        // chrome.storage.local quota (or other write failure): pause capture and warn in the popup.
+        try {
+          await setKey("storage_error", true);
+        } catch {
+          /* nothing more we can do */
+        }
+        return false;
       }
-      await setKey("queue", q);
-      await setKey("queue_next_id", nextId);
-      if (!accepted || q.length >= QUEUE_CAP) await setKey("queue_full", true);
-      return accepted;
     });
   }
 
@@ -63,6 +77,7 @@ export class Queue implements MessageSink {
       if (!force && this.now() - lastAt < MIN_FLUSH_MS) return { sent: 0 };
       await setKey("flush_attempt", { at: this.now() });
       let sent = 0;
+      let size = BATCH_MAX;
       const dropped: string[] = [];
       for (;;) {
         const q = await getKey<QueueItem[]>("queue", []);
@@ -70,11 +85,24 @@ export class Queue implements MessageSink {
         const head = q[0];
         const batchItems = q
           .filter((i) => i.platform === head.platform && i.chat_key === head.chat_key && i.tz === head.tz)
-          .slice(0, BATCH_MAX);
+          .slice(0, size);
         const ids = new Set(batchItems.map((i) => i.id));
         try {
           await ingest({ platform: head.platform, chat_key: head.chat_key, tz: head.tz, messages: batchItems.map((i) => i.msg) });
         } catch (e) {
+          if (e instanceof ApiError && (e.status === 413 || e.status === 422)) {
+            // Poison batch: halve until it fits or is accepted; a single message that still fails is dropped and counted.
+            if (batchItems.length > 1) {
+              size = Math.max(1, Math.floor(batchItems.length / 2));
+              continue;
+            }
+            await setKey(
+              "queue",
+              q.filter((i) => !ids.has(i.id)),
+            );
+            await setKey("rejected_count", (await getKey<number>("rejected_count", 0)) + 1);
+            continue;
+          }
           if (e instanceof ApiError && e.code === "chat_not_linked") {
             // The server no longer has this chat linked: drop its items instead of retrying forever.
             dropped.push(`${head.platform}:${head.chat_key}`);
@@ -93,6 +121,7 @@ export class Queue implements MessageSink {
           q.filter((i) => !ids.has(i.id)),
         );
         sent += batchItems.length;
+        size = Math.min(BATCH_MAX, size * 2);
       }
       await this.afterFlush((await getKey<QueueItem[]>("queue", [])).length);
       await setKey("last_flush", { at: this.now(), sent });
@@ -101,6 +130,9 @@ export class Queue implements MessageSink {
   }
 
   private async afterFlush(len: number): Promise<void> {
-    if (len < QUEUE_CAP * 0.9) await setKey("queue_full", false);
+    if (len < QUEUE_CAP * 0.9) {
+      await setKey("queue_full", false);
+      await setKey("storage_error", false);
+    }
   }
 }

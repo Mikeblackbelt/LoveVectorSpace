@@ -1,12 +1,15 @@
 import type { Health, MessageSink, SiteAdapter } from "../adapters/types";
 import { Harvester } from "./common";
+import { SeenSet } from "./seen";
 
 export interface LiveOptions {
   tz: string;
   /** Opt-in per chat: nothing is read from a chat unless this says it is linked. */
   isLinked: (chat_key: string) => boolean | Promise<boolean>;
-  /** Platform enabled, not paused, queue not full. */
-  isAllowed: () => boolean | Promise<boolean>;
+  /** "paused": platform off or user paused (what arrives is skipped). "full": queue full (nothing is marked seen, so it is read later). */
+  isAllowed: () => "ok" | "paused" | "full" | Promise<"ok" | "paused" | "full">;
+  /** Persistent per-chat seen-set; defaults to memory only. */
+  seenFor?: (chat_key: string) => SeenSet | Promise<SeenSet>;
   onHealth?: (h: Health) => void;
   debounceMs?: number;
   pollMs?: number;
@@ -43,14 +46,20 @@ export function startLiveCapture(adapter: SiteAdapter, sink: MessageSink, opts: 
     if (list !== observed || chat.chat_key !== chatKey) {
       attach(list);
       chatKey = chat.chat_key;
-      harvester = new Harvester(adapter, sink, opts.tz);
+      harvester = new Harvester(adapter, sink, opts.tz, {
+        chatKey: chat.chat_key,
+        isLinked: opts.isLinked,
+        seen: opts.seenFor ? await opts.seenFor(chat.chat_key) : undefined,
+      });
     }
     if (!(await opts.isLinked(chat.chat_key))) return; // unlinked: never extracted
     if (!harvester) return;
-    if (!(await opts.isAllowed())) {
-      harvester.skipVisible(); // paused: what arrives now is not captured later either
+    const allowed = await opts.isAllowed();
+    if (allowed === "paused") {
+      await harvester.skipVisible(); // paused: what arrives now is not captured later either
       return;
     }
+    if (allowed === "full") return;
     await harvester.harvest();
   }
 
