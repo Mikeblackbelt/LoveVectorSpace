@@ -1,6 +1,6 @@
 id: reciprocity
 name: Effort and initiative balance
-mode: [early, established]
+mode: [potential, established]
 item_text: inline
 response: {min: 1, max: 7}
 items:
@@ -15,7 +15,7 @@ subscales:
 source:
   citation: "Teichmann, Petrowsky, Boecker, Soliman, & Loschelder (2026), on the timing of texting and romantic interest. Original items motivated by the paper; not a published instrument."
   url: "https://fis.leuphana.de/en/publications/how-the-timing-of-texting-triggers-romantic-interest-after-the-fi/"
-verified: true
+verified: false  # original custom items: no published validation
 custom: true
 owner_approved: false
 measures: "How evenly initiating, planning and following through are shared. Higher means a more even split; items about one side doing most of it are reverse-keyed. Responses run from 1 (strongly disagree) to 7 (strongly agree)."

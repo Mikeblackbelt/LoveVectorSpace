@@ -1,6 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
+
+MODE_ALIASES = {"early": "potential"}  # older defs used "early" for what people call "potential"
 
 
 class ResponseFormat(BaseModel):
@@ -58,6 +60,16 @@ class ScaleDef(BaseModel):
     item_text: Literal["inline", "local_overlay"] = "inline"
     measures: str = ""
     does_not_measure: str = ""
+
+    @field_validator("mode")
+    @classmethod
+    def _norm_mode(cls, v: list[str]) -> list[str]:
+        out: list[str] = []
+        for m in v:
+            m = MODE_ALIASES.get(m, m)
+            if m not in out:
+                out.append(m)
+        return out
 
     @model_validator(mode="after")
     def _check_refs(self):

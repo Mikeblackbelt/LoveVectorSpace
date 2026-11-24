@@ -23,7 +23,13 @@ Do not commit overlay files or paste published item text anywhere in the reposit
 
 `joel_predictors`, `reciprocity`, `disclosure_balance`, `breadcrumbing` and `cdaq_items` use
 original wording written for this app, motivated by the cited papers; they are not the published
-items. They are `custom: true, owner_approved: false` (draft status) and carry no bands or cut-offs.
+items. They are `custom: true, verified: false` (results carry status `unverified`; the app tags them
+[UNVERIFIED] and [CUSTOM]) and carry no bands or cut-offs.
+
+## Modes
+
+`mode` lists the person modes a scale applies to: `potential` and/or `established` (the same values as
+a person's mode). The loader also accepts the older alias `early` for `potential`.
 
 ## Omitted scales
 

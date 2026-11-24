@@ -23,3 +23,11 @@ def test_seed_demo(factory, conn):
     assert jordan["success"]["status"] == "insufficient_data" and jordan["success"]["percent"] is None
     factory.seed_demo("u1", conn)  # idempotent
     assert len(svc.list_people()) == 3
+
+
+def test_forms_lists_scales_for_a_potential_person(svc):
+    """Forms shows a scale as available when the person's mode is in scale.mode (YAMLs once said "early")."""
+    p = svc.create_person("Riley", "potential", "UTC")
+    available = {s["id"] for s in svc.list_scales() if p["mode"] in s["mode"]}
+    assert {"reciprocity", "breadcrumbing", "disclosure_balance", "cdaq_items"} <= available
+    assert all(not s["verified"] for s in svc.list_scales() if s["custom"])
