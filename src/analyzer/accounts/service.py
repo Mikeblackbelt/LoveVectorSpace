@@ -88,11 +88,16 @@ class AccountService:
         self.userdbs = UserDBManager(data_dir, self._key_for,
                                      lambda uid, conn: factory.for_user(uid, conn, events),
                                      capacity=settings.user_db_cache_size,
-                                     close_user=getattr(factory, "close_user", None))
+                                     close_user=self._close_user)
         if hasattr(factory, "conn_opener") and getattr(factory, "conn_opener") is None:
             factory.conn_opener = self.userdbs.open_existing   # background jobs never re-create a deleted DB
         self._grace: dict[str, tuple[float, str, str]] = {}   # old refresh hash -> (deadline, new raw, family)
         self._grace_lock = threading.Lock()
+
+    def _close_user(self, user_id: str) -> None:
+        close_user = getattr(self.factory, "close_user", None)
+        if callable(close_user):
+            close_user(user_id)
 
     def close(self) -> None:
         self.userdbs.close_all()
