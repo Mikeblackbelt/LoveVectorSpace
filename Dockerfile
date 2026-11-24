@@ -44,4 +44,4 @@ ENV PATH=/app/.venv/bin:$PATH PYTHONPATH=/app/src PYTHONUNBUFFERED=1 \
 EXPOSE 8000
 ENTRYPOINT ["docker-entrypoint.sh"]
 # One worker: rate limits, OAuth state and the event bus are per process.
-CMD ["sh", "-c", "exec uvicorn analyzer.web.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --no-proxy-headers"]
+CMD ["sh", "-c", "exec uvicorn analyzer.web.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --no-proxy-headers --no-access-log"]

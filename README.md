@@ -25,7 +25,7 @@ export MASTER_KEY=... JWT_SECRET=...     # paste the printed values
 export COOKIE_SECURE=0 MAIL_DEV_ALLOW=1  # plain http and a console mailer for local use
 export SEED_DEMO=1 DEMO_PASSWORD=...     # optional: judge1@demo.lvs with synthetic people
 python scripts/fetch_models.py           # optional: emotion model (add --export for toxicity; needs the `export` extra)
-python -m uv run uvicorn analyzer.web.main:app --reload
+python -m uv run uvicorn analyzer.web.main:app --reload --no-proxy-headers --no-access-log
 python -m uv run pytest -q -m "not models and not slow"
 ```
 

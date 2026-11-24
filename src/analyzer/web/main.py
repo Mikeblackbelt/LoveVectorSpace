@@ -1,4 +1,7 @@
-"""ASGI entry point: `uvicorn analyzer.web.main:app --proxy-headers`.
+"""ASGI entry point: `uvicorn analyzer.web.main:app --no-proxy-headers --no-access-log`.
+
+Proxy headers are handled by the app itself (TRUSTED_PROXIES, rightmost X-Forwarded-For hop), never by
+uvicorn; uvicorn's access log is off because the RequestLog middleware logs redacted route templates.
 
 The app is built lazily on first access of `app`, wiring create_app to the service layer's
 `analyzer.service.impl.ServiceFactoryImpl`.
@@ -39,4 +42,4 @@ def __getattr__(name: str) -> Any:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(build_app(), host="0.0.0.0", port=8000, proxy_headers=True)
+    uvicorn.run(build_app(), host="0.0.0.0", port=8000, proxy_headers=False, access_log=False)
