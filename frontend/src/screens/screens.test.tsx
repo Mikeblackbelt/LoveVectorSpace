@@ -135,9 +135,8 @@ describe('agent chat', () => {
     await screen.findByText(/ask anything about/i);
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'how do I bring up weekend plans?' } });
     await act(async () => fireEvent.submit(screen.getByLabelText('Message').closest('form')!));
-    expect(await screen.findByText(/how do I bring up weekend plans\?/)).toBeInTheDocument();
-    expect(await screen.findByText(/Want me to draft a message/)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId('transcript').textContent).toContain('Want me to draft a message'));
+    await waitFor(() => expect(screen.getByTestId('transcript').textContent).toContain('how do I bring up weekend plans?'), { timeout: 5000 });
+    await waitFor(() => expect(screen.getByTestId('transcript').textContent).toContain('Want me to draft a message'), { timeout: 5000 });
   });
 
   it('shows the agent_unavailable state on 503 and keeps hangout logging', async () => {

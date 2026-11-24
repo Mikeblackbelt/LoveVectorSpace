@@ -98,11 +98,31 @@ export interface Person {
   created_at: string;
 }
 
+export interface MatchInfo {
+  match_id: string;
+  label: string;
+  first_ts: string | null;
+  last_ts: string | null;
+  message_count: number;
+  one_sided: boolean;
+}
+
+/** Chat formats return speakers/lines; dating formats (tinder, hinge, grindr, bumble) return matches. */
 export interface ImportPreview {
   format: string;
-  speakers: string[];
-  lines: number;
+  speakers?: string[];
+  lines?: number;
+  matches?: MatchInfo[];
   one_sided: boolean;
+}
+
+export const DATING_FORMATS = ['tinder', 'hinge', 'grindr', 'bumble'];
+
+/** POST /api/people/{pid}/imports/messages (phone capture: screenshots, Android readers). */
+export interface ImportMessagesBody {
+  source: string;
+  tz: string;
+  messages: { ts_local?: string; ts_utc?: string; ts_precision: 'second' | 'minute' | 'approx'; role: 'me' | 'them'; text: string }[];
 }
 
 export interface ImportResult {

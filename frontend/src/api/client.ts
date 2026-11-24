@@ -60,6 +60,15 @@ function baseHeaders(method: string, extra?: HeadersInit): Headers {
   return h;
 }
 
+async function errorCode(res: Response): Promise<string | null> {
+  try {
+    const b = await res.clone().json();
+    return b?.error?.code ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function toError(res: Response): Promise<ApiError> {
   let code = 'http_' + res.status;
   let message = res.statusText || 'Request failed';
@@ -161,6 +170,12 @@ export async function rawRequest(path: string, opts: ReqOpts = {}): Promise<Resp
     return transport(apiUrl(path), { method, headers, body, credentials: nativeMode() ? 'omit' : 'include', signal: opts.signal });
   };
   let res = await send();
+  // 503 `unavailable` (not `agent_unavailable`): wait Retry-After (capped) and retry once
+  if (res.status === 503 && opts.retry !== false && (await errorCode(res)) === 'unavailable') {
+    const ra = Number(res.headers.get('Retry-After'));
+    await new Promise((r) => setTimeout(r, Math.min(Number.isFinite(ra) && ra > 0 ? ra : 1, 5) * 1000));
+    res = await send();
+  }
   if (res.status === 401 && opts.retry !== false) {
     const r = await refreshOnce();
     if (r) res = await send();

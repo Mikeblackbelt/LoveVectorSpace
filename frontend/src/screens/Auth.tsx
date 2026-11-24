@@ -98,7 +98,8 @@ function SocialButtons({ next, invite }: { next: string; invite?: string }) {
     setBusy(true);
     haptic();
     try {
-      const r = which === 'google' ? await signInWithGoogle(next, code || undefined) : await signInWithApple(code || undefined);
+      const inv = code || invite || undefined;
+      const r = which === 'google' ? await signInWithGoogle(next, inv) : await signInWithApple(inv);
       if (r) nav(next, { replace: true });
     } catch (e) {
       if (e instanceof ApiError && e.code === 'invite_required') {
@@ -386,9 +387,15 @@ export function AuthScreen({ tab }: { tab: Tab }) {
 }
 
 /** /auth/reset?token=… — the second step, from the emailed link. */
-export function ResetScreen() {
+/** Email links carry the token in the fragment (`#token=…`, never sent to servers); `?token=` also works. */
+function useLinkToken(): string {
   const [sp] = useSearchParams();
-  const token = sp.get('token') || '';
+  const loc = useLocation();
+  return sp.get('token') || new URLSearchParams(loc.hash.replace(/^#/, '')).get('token') || '';
+}
+
+export function ResetScreen() {
+  const token = useLinkToken();
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -438,8 +445,7 @@ export function ResetScreen() {
 
 /** /auth/verify?token=… — confirms the email address. */
 export function VerifyScreen() {
-  const [sp] = useSearchParams();
-  const token = sp.get('token') || '';
+  const token = useLinkToken();
   const [state, setState] = useState<'busy' | 'ok' | 'err'>('busy');
   const [err, setErr] = useState('');
   useEffect(() => {
@@ -472,7 +478,7 @@ export function VerifyScreen() {
 }
 
 const SOCIAL_ERR: Record<string, string> = {
-  invite_required: 'New accounts need an invite. Sign up with your invite code first, then link Google from the same email.',
+  invite_required: 'New accounts need an invite. Open Sign up, enter your invite code, then choose Continue with Google.',
   access_denied: 'Google sign-in was cancelled.',
 };
 

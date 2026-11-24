@@ -2,7 +2,7 @@ import { acceptAuth, api, clearSession, nativeMode, rawRequest, request, streamA
 import { refreshStore } from './tokens';
 import type {
   AgentEvent, AgentMessage, AgentThread, AuthResult, CoverageSpan, Fact, ImportPreview, ImportResult,
-  Interaction, InteractionFields, InterviewProgress, Invite, Job, MetricInfo, NextStep, Person,
+  ImportMessagesBody, Interaction, InteractionFields, InterviewProgress, Invite, Job, MetricInfo, NextStep, Person,
   PersonOverview, PersonSummary, QuestionnaireRecord, ScaleDef, ScaleResult, SessionInfo, Settings,
   SpeakerMapping, TokenInfo, Unit, User,
 } from './types';
@@ -79,14 +79,17 @@ export const peopleApi = {
     f.append('file', file, name);
     return api.form<ImportPreview>(`/api/people/${pid}/imports/preview`, f);
   },
-  importChat(pid: number, b: { file: Blob; name?: string; tz: string; me_names: string[]; source?: string }) {
+  importChat(pid: number, b: { file: Blob; name?: string; tz: string; me_names: string[]; match_id?: string; source?: string }) {
     const f = new FormData();
     f.append('file', b.file, b.name || 'chat.txt');
     f.append('tz', b.tz);
     b.me_names.forEach((n) => f.append('me_names', n));
+    if (b.match_id) f.append('match_id', b.match_id);
     if (b.source) f.append('source', b.source);
     return api.form<ImportResult>(`/api/people/${pid}/imports`, f);
   },
+  /** Structured messages from phone capture (screenshot OCR, Android SMS / notification readers). */
+  importMessages: (pid: number, body: ImportMessagesBody) => api.post<ImportResult>(`/api/people/${pid}/imports/messages`, body),
   units: (pid: number) => api.get<Unit[]>(`/api/people/${pid}/units`),
   deleteUnit: (unitId: string) => api.del<{ removed_messages: number }>(`/api/units/${encodeURIComponent(unitId)}`),
   speakers: (pid: number) => api.get<SpeakerMapping[]>(`/api/people/${pid}/speakers`),

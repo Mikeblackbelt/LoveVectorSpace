@@ -132,6 +132,26 @@ async function readFile(body: unknown): Promise<{ file?: Blob; fields: Record<st
   }
   return { file, fields };
 }
+const DATING = ['tinder', 'hinge', 'grindr', 'bumble'];
+/** Dating-app exports (JSON with matches/conversations): one match = one import unit. */
+function detectDating(text: string, name: string) {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const lower = name.toLowerCase();
+  const fmt = DATING.find((d) => lower.includes(d)) || (/"(Messages|matches|conversations)"/.test(text) ? 'tinder' : null);
+  if (!fmt) return null;
+  const o = obj as { matches?: { match_id?: string; id?: string; label?: string; name?: string; messages?: unknown[] }[] };
+  const list = Array.isArray(o.matches) && o.matches.length
+    ? o.matches.map((m, i) => ({ match_id: String(m.match_id ?? m.id ?? i + 1), label: m.label ?? m.name ?? `Match ${i + 1}`, n: m.messages?.length ?? 0 }))
+    : [{ match_id: 'm1', label: 'Match 1', n: 42 }, { match_id: 'm2', label: 'Match 2', n: 7 }];
+  const matches = list.map((m) => ({ match_id: m.match_id, label: m.label, first_ts: '2026-10-02T19:00:00Z', last_ts: '2026-11-20T22:10:00Z', message_count: m.n, one_sided: fmt === 'tinder' }));
+  return { format: fmt, matches, one_sided: matches.every((m) => m.one_sided) };
+}
+
 function detect(text: string) {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
   const names = new Map<string, number>();
@@ -263,14 +283,24 @@ const routes: [string, RegExp, Handler][] = [
     const { file } = await readFile(body);
     if (!file) return err(400, 'invalid_input', 'Choose a chat export file.', 'file');
     if (file.size > 50 * 1024 * 1024) return err(413, 'too_large', 'That file is over 50 MB.');
-    return json(detect(await file.text()));
+    const text = await file.text();
+    return json(detectDating(text, (file as File).name || '') || detect(text));
   }],
   ['POST', /^\/api\/people\/(\d+)\/imports$/, async ({ params, body }) => {
     const pid = +params[0];
     const { file, fields } = await readFile(body);
     if (!file) return err(400, 'invalid_input', 'Choose a chat export file.', 'file');
+    const text = await file.text();
+    const dating = detectDating(text, (file as File).name || '');
+    if (dating) {
+      const m = dating.matches.find((x) => x.match_id === fields.match_id?.[0]);
+      if (!m) return err(400, 'invalid_input', 'Pick which match this chat is with.', 'match_id');
+      const unit = { unit_id: `import:${dating.format}:${m.match_id}`, source: dating.format, created_at: nowIso(), message_count: m.message_count, start_ts: m.first_ts, end_ts: m.last_ts };
+      (D.units[pid] ||= []).unshift(unit);
+      return json({ unit_id: unit.unit_id, added: m.message_count, merged: 0, skipped_non_english: 0, one_sided: m.one_sided, job_id: id() }, 201);
+    }
     if (!fields.me_names?.length) return err(422, 'validation_error', 'Pick which name is you.', 'me_names');
-    const d = detect(await file.text());
+    const d = detect(text);
     const unit = { unit_id: 'up_' + id(), source: fields.source?.[0] || d.format, created_at: nowIso(), message_count: d.lines, start_ts: nowIso(), end_ts: nowIso() };
     (D.units[pid] ||= []).unshift(unit);
     const p = person(pid);
@@ -278,6 +308,16 @@ const routes: [string, RegExp, Handler][] = [
     const job = id();
     setTimeout(() => pushEvent({ type: 'ingest', person_id: pid, added: d.lines }), 300);
     return json({ unit_id: unit.unit_id, added: d.lines, merged: 0, skipped_non_english: 0, one_sided: d.one_sided, job_id: job }, 201);
+  }],
+  ['POST', /^\/api\/people\/(\d+)\/imports\/messages$/, ({ params, body }) => {
+    const pid = +params[0];
+    const b = body as { source?: string; messages?: { role: string }[] };
+    if (!b?.source || !/^(screenshot_import|android_sms|android_notify_\w+|android_a11y_\w+)$/.test(b.source)) return err(400, 'invalid_input', 'Unknown capture source.', 'source');
+    const n = b.messages?.length || 0;
+    const unit = { unit_id: `capture:${b.source}:${nowIso().slice(0, 10)}`, source: b.source, created_at: nowIso(), message_count: n, start_ts: nowIso(), end_ts: nowIso() };
+    (D.units[pid] ||= []).unshift(unit);
+    const oneSided = b.source.startsWith('android_notify_');
+    return json({ unit_id: unit.unit_id, added: n, merged: 0, skipped_non_english: 0, one_sided: oneSided, job_id: id() }, 201);
   }],
   ['GET', /^\/api\/people\/(\d+)\/units$/, ({ params }) => json(D.units[+params[0]] || [])],
   ['DELETE', /^\/api\/units\/([^/]+)$/, ({ params }) => {

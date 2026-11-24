@@ -9,8 +9,12 @@ import { auth } from './endpoints';
 import type { AuthResult } from './types';
 import { nativeAppleIdToken, nativeGoogleIdToken } from '../native/native';
 
-export function googleStartUrl(redirect: string): string {
-  return apiUrl(`/api/auth/google/start?redirect=${encodeURIComponent(redirect)}`);
+/** Web: full-page redirect; a new user's invite rides along as `invite=`. Success lands on /auth/complete?redirect=…#ok. */
+export function googleStartUrl(redirect: string, invite?: string): string {
+  const q = new URLSearchParams();
+  if (invite) q.set('invite', invite);
+  q.set('redirect', redirect);
+  return apiUrl(`/api/auth/google/start?${q.toString()}`);
 }
 
 export async function signInWithGoogle(redirect: string, inviteCode?: string): Promise<AuthResult | null> {
@@ -18,7 +22,7 @@ export async function signInWithGoogle(redirect: string, inviteCode?: string): P
     const idToken = await nativeGoogleIdToken();
     return auth.googleToken(idToken, inviteCode || undefined);
   }
-  window.location.assign(googleStartUrl(redirect));
+  window.location.assign(googleStartUrl(redirect, inviteCode || undefined));
   return null;
 }
 

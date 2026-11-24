@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { peopleApi } from '../api/endpoints';
-import type { CoverageSpan, ImportPreview, Unit } from '../api/types';
+import { DATING_FORMATS, type CoverageSpan, type ImportPreview, type Unit } from '../api/types';
 import { ErrorLine, Key, Loading } from '../components/Pane';
 import { useShell } from '../components/Shell';
 import { say } from '../components/prompt';
@@ -140,6 +140,7 @@ export function ImportDialog({ pid, onClose, initial }: { pid: number; onClose: 
   const [me, setMe] = useState<string | null>(null);
   const [tz, setTz] = useState(timezoneGuess());
   const [localErr, setLocalErr] = useState<string | null>(null);
+  const [matchId, setMatchId] = useState<string | null>(null);
   const firstRef = useRef<HTMLInputElement>(null);
 
   const pv = useMutation({
@@ -147,10 +148,12 @@ export function ImportDialog({ pid, onClose, initial }: { pid: number; onClose: 
     onSuccess: (r) => {
       setPreview(r);
       setMe(null);
+      setMatchId(r.matches?.length === 1 ? r.matches[0].match_id : null);
     },
   });
   const imp = useMutation({
-    mutationFn: () => peopleApi.importChat(pid, { file: file!.blob, name: file!.name, tz, me_names: me ? [me] : [] }),
+    mutationFn: () =>
+      peopleApi.importChat(pid, { file: file!.blob, name: file!.name, tz, me_names: dating ? [] : me ? [me] : [], match_id: dating ? matchId ?? undefined : undefined }),
     onSuccess: (r) => {
       haptic();
       say(`lvs import ${file?.name}`, `↳ +${r.added} new · ${r.merged} merged${r.skipped_non_english ? ` · ${r.skipped_non_english} non-English skipped` : ''}`);
@@ -170,10 +173,14 @@ export function ImportDialog({ pid, onClose, initial }: { pid: number; onClose: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const dating = !!preview && (DATING_FORMATS.includes(preview.format) || !!preview.matches);
+  const chosenMatch = preview?.matches?.find((m) => m.match_id === matchId);
+  const oneSided = !!preview && (preview.one_sided || !!chosenMatch?.one_sided);
   const serverMeErr = imp.error instanceof ApiError && imp.error.field === 'me_names';
   const submit = () => {
     if (!file) return setLocalErr('Choose a chat export file first.');
-    if (!me) return setLocalErr('Pick which name is you before importing.');
+    if (dating && !matchId) return setLocalErr('Pick which match this chat is with.');
+    if (!dating && !me) return setLocalErr('Pick which name is you before importing.');
     setLocalErr(null);
     imp.mutate();
   };
@@ -210,27 +217,42 @@ export function ImportDialog({ pid, onClose, initial }: { pid: number; onClose: 
         {preview && file && (
           <>
             <div className="detected">
-              <span className="ok">✓</span> <L t="DETECTED" p="Found" /> <span className="c-me">{file.name}</span> · {preview.format} · {fmtN(preview.lines)} lines
+              <span className="ok">✓</span> <L t="DETECTED" p="Found" /> <span className="c-me">{file.name}</span> · {preview.format}{preview.lines != null ? ` · ${fmtN(preview.lines)} lines` : ''}{preview.matches ? ` · ${preview.matches.length} matches` : ''}
             </div>
             <div className="field">
               <label className="lbl" htmlFor="imp-tz"><L t="TIMEZONE" p="Time zone" /></label>
               <span className="glyph">›</span>
               <input id="imp-tz" value={tz} onChange={(e) => setTz(e.target.value)} autoComplete="off" />
             </div>
+            {dating ? (
+              <fieldset className="me-pick" data-testid="match-picker">
+                <legend className="lbl"><L t="WHICH MATCH IS THIS?" p="Which match is this chat with?" /></legend>
+                {(preview.matches || []).map((m) => (
+                  <label key={m.match_id} className={`radio match${matchId === m.match_id ? ' on' : ''}`}>
+                    <input type="radio" name="match" value={m.match_id} checked={matchId === m.match_id} onChange={() => setMatchId(m.match_id)} />
+                    <span className="glyph">{matchId === m.match_id ? '(•)' : '( )'}</span>
+                    <span className="m-label">{m.label}</span>
+                    <span className="dimt small">{ymd(m.first_ts)} → {ymd(m.last_ts)} · {fmtN(m.message_count)} msgs</span>
+                    {m.one_sided && <span className="tag t-desc"><L t="[ONE-SIDED]" p="one side only" /></span>}
+                  </label>
+                ))}
+              </fieldset>
+            ) : (
             <fieldset className="me-pick">
               <legend className="lbl"><L t="WHICH NAME IS YOU?" p="Which name is you?" /></legend>
-              {preview.speakers.map((s) => (
+              {(preview.speakers || []).map((s) => (
                 <label key={s} className={`radio${me === s ? ' on' : ''}`}>
                   <input type="radio" name="me-name" value={s} checked={me === s} onChange={() => setMe(s)} />
                   <span className="glyph">{me === s ? '(•)' : '( )'}</span> {s}
                 </label>
               ))}
             </fieldset>
-            {preview.one_sided && (
+            )}
+            {oneSided && (
               <p>
                 <span className="paper">
                   <span className="glyph">[ NOTE ] </span>
-                  <L t="this export only contains one side of the chat — signals that need both people will be marked partial." p="This export only has one person's messages, so some results will be partial." />
+                  <L t="this export only contains one side of the chat — coverage is partial, and signals that need both people will be marked partial." p="This export only has one person's messages, so coverage is partial and some results will be partial." />
                 </span>
               </p>
             )}
@@ -244,7 +266,7 @@ export function ImportDialog({ pid, onClose, initial }: { pid: number; onClose: 
         )}
         {!serverMeErr && <ErrorLine error={imp.error} />}
         <div className="keys">
-          <Key k="ENTER" variant="pri" tech="IMPORT" plain="Import" onClick={submit} disabled={!file || !me || imp.isPending} id="btn-import-go" />
+          <Key k="ENTER" variant="pri" tech="IMPORT" plain="Import" onClick={submit} disabled={!file || !preview || (dating ? !matchId : !me) || imp.isPending} id="btn-import-go" />
           <Key k="ESC" variant="ghost" tech="CANCEL" plain="Cancel" onClick={onClose} />
         </div>
       </div>
