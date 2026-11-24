@@ -32,6 +32,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/app/.venv
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
+COPY scripts/create_invite.py ./scripts/create_invite.py
 COPY --from=models /app/models ./models
 COPY --from=frontend /build/dist ./frontend/dist
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
