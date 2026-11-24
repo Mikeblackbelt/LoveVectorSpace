@@ -5,7 +5,7 @@ The repository ships a multi-stage `Dockerfile` and a `railway.toml` (Dockerfile
 ## What the image contains
 
 1. `frontend` stage: `npm ci && npm run build` with `VITE_API_MODE=live` (same-origin API).
-2. `models` stage: CPU-only torch from the PyTorch CPU index, then `scripts/fetch_models.py --export` (downloads the emotion model, exports and int8-quantizes the toxicity model). Only `/app/models` is copied forward, so the runtime image has no torch.
+2. `models` stage: the pinned export toolchain from `scripts/export-requirements.txt` (CPU-only torch 2.9.1, transformers 4.57.6, optimum 2.1.0 + optimum-onnx 0.1.0, onnx 1.20.1, onnxruntime 1.23.2), then `scripts/fetch_models.py --export` (downloads the emotion model, exports and int8-quantizes the toxicity model). Only `/app/models` is copied forward, so the runtime image has no torch.
 3. `runtime` stage: `uv sync --frozen --no-dev`, the source, the models and `frontend/dist`. It starts as root only to `chown` the volume, then drops to the unprivileged user `app` (uid 10001) through `docker-entrypoint.sh`.
 
 The first build takes several minutes (torch download and model export). SQLCipher comes from the `sqlcipher3-wheels` manylinux wheel, so no extra apt packages are needed.

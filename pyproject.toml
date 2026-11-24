@@ -26,11 +26,15 @@ dependencies = [
 [project.optional-dependencies]
 # plain model download (emotion model only), no torch
 fetch = ["huggingface_hub>=0.23"]
-# build-time ONNX export of the toxicity model; never installed in the runtime image
+# build-time ONNX export of the toxicity model; never installed in the runtime image.
+# The Docker build installs the exact pins in scripts/export-requirements.txt (CPU torch index).
 export = [
-    "huggingface_hub>=0.23",
-    "torch>=2.3",
-    "optimum[onnxruntime]>=1.21",
+    "huggingface_hub==0.36.2",
+    "torch==2.9.1",
+    "transformers==4.57.6",
+    "optimum==2.1.0",
+    "optimum-onnx[onnxruntime]==0.1.0",
+    "onnx==1.20.1",
 ]
 
 [dependency-groups]

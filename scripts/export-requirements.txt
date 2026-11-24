@@ -1,0 +1,43 @@
+# Build-time pins for the Dockerfile "models" stage (toxicity ONNX export + emotion download). Never installed
+# in the runtime image. Resolved for CPython 3.13 / linux x86_64 with:
+#   uv pip compile <torch==2.9.1 transformers==4.57.6 optimum==2.1.0 optimum-onnx[onnxruntime]==0.1.0 onnx==1.20.1
+#     onnxruntime==1.23.2 huggingface_hub==0.36.2 numpy<2.4 protobuf<7> --python-version 3.13
+#     --python-platform x86_64-unknown-linux-gnu --index-url https://download.pytorch.org/whl/cpu
+#     --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match
+# A mutually compatible set from the optimum-onnx 0.1.0 era (Dec 2025 - Jan 2026): optimum-onnx 0.1.0 needs
+# optimum~=2.1.0 and transformers<4.58, exports with dynamo=False on torch>=2.9 and provides
+# optimum.onnxruntime.ORTQuantizer. Models exported with onnxruntime 1.23 load in the runtime's newer onnxruntime.
+certifi==2026.11.20
+charset-normalizer==3.5.3
+coloredlogs==15.0.1
+filelock==4.3.1
+flatbuffers==25.12.19
+fsspec==2026.9.0
+hf-xet==1.8.0
+huggingface-hub==0.36.2
+humanfriendly==10.0
+idna==3.20
+jinja2==3.1.6
+markupsafe==3.0.4
+ml-dtypes==0.7.0
+mpmath==1.3.0
+networkx==3.7
+numpy==2.3.5
+onnx==1.20.1
+onnxruntime==1.23.2
+optimum==2.1.0
+optimum-onnx==0.1.0
+packaging==26.4
+protobuf==6.33.6
+pyyaml==6.0.4
+regex==2026.11.23
+requests==2.34.2
+safetensors==0.8.0
+setuptools==84.2.1
+sympy==1.14.0
+tokenizers==0.22.2
+torch==2.9.1+cpu
+tqdm==4.70.1
+transformers==4.57.6
+typing-extensions==4.16.0
+urllib3==2.8.0
