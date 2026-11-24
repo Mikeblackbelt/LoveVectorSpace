@@ -17,7 +17,6 @@ The first build takes several minutes (torch download and model export). SQLCiph
    python scripts/gen_secrets.py
    # or, without the repo:
    openssl rand -base64 48        # MASTER_KEY, then again for JWT_SECRET
-   openssl rand -base64 18        # DEMO_PASSWORD
    ```
    Keep `MASTER_KEY` in a password manager. Losing it makes every database unreadable.
 2. **Create the project.** On railway.com choose New Project, then Deploy from GitHub repo, and pick this repository (or run `railway init` and `railway up` after `railway login`). Railway reads `railway.toml` and builds the `Dockerfile`.
@@ -33,29 +32,36 @@ The first build takes several minutes (torch download and model export). SQLCiph
    | `PUBLIC_URL` | the same URL |
    | `TRUSTED_PROXIES` | `*` (Railway has a single edge proxy; without it the login rate limit degrades to per-email) |
    | `COOKIE_SECURE` | `1` |
-   | `RESEND_API_KEY`, `MAIL_FROM` | for real verification and reset emails (a verified sender domain in Resend) |
-   | `MAIL_DEV_ALLOW` | `1` instead of the two above, for the demo only: links are logged, not emailed |
+   | `RESEND_API_KEY`, `MAIL_FROM` | **required in production**: verification and password-reset emails must reach real users (a verified sender domain in Resend). Without them the server refuses to start unless `MAIL_DEV_ALLOW=1`, which only logs links and is for local development. |
+   | `REGISTRATION` | `open` (the default: anyone can sign up) or `invite` (sign-up needs an invite code) |
    | `GROQ_API_KEY` | from console.groq.com |
    | `GROQ_MODEL` | `openai/gpt-oss-120b` (see below) |
-   | `ADMIN_EMAIL` | your email; it becomes admin once verified (then create invites in Settings) |
-   | `SEED_DEMO` | `1` |
-   | `DEMO_PASSWORD` | from step 1; gives `judge1@demo.lvs` and `judge2@demo.lvs` the synthetic people Yu Cheng, Sam and Jordan |
+   | `ADMIN_EMAIL` | your email; it becomes admin once verified (admins can create invites in Settings) |
    | `EXTENSION_ID` | the unpacked extension's ID, once you have loaded it (below) |
    | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CLIENT_IDS`, `APPLE_CLIENT_IDS` | optional sign-in providers |
 
-   `DATA_DIR` (`/data`), `FRONTEND_DIST`, `MODELS_DIR` and `PORT` are already set in the image.
-6. **Deploy and check.** Wait for the health check to go green, then run the smoke test from your machine:
+   `DATA_DIR` (`/data`), `FRONTEND_DIST`, `MODELS_DIR` and `PORT` are already set in the image. Leave `SEED_DEMO` and `MAIL_DEV_ALLOW` unset in production: users sign up and bring their own data (an empty account offers an optional, labelled sample person).
+6. **Deploy and check.** The health check (`/healthz`, 300 s timeout in `railway.toml`) answers as soon as the server listens. Then run the smoke test from your machine:
    ```bash
-   python -m uv run python scripts/smoke.py --base-url https://YOUR-URL \
-     --email judge1@demo.lvs --password "$DEMO_PASSWORD" --agent
+   python -m uv run python scripts/smoke.py --base-url https://YOUR-URL --signup --agent
    ```
-   It creates a synthetic person, imports a fake WhatsApp chat, analyzes it, checks the extension routes and the security headers, and deletes the person again. `--agent` also exercises the Groq agent when a key is set. To use an invite instead of a demo login, pass `--invite CODE`.
+   It signs up a throwaway account, creates a synthetic person, imports a fake WhatsApp chat, analyzes it, checks the extension routes and the security headers, and deletes the person and the account again. `--agent` also exercises the Groq agent when a key is set. With `REGISTRATION=invite`, pass `--invite CODE` instead of `--signup`.
+7. **Become admin.** Sign up with `ADMIN_EMAIL` and verify the address; the account becomes admin. With `REGISTRATION=invite` you need an invite first; create one bound to `ADMIN_EMAIL` from a Railway shell in the service (it uses the same `DATA_DIR` and `MASTER_KEY` and runs as the unprivileged user):
+   ```bash
+   docker-entrypoint.sh python scripts/create_invite.py --admin      # prints the code
+   docker-entrypoint.sh python scripts/create_invite.py --email someone@example.com --days 7
+   ```
+   Locally: `DATA_DIR=data MASTER_KEY=... python scripts/create_invite.py --admin`. After that, admins create invites in Settings.
+
+### Optional: shared sample accounts
+
+`SEED_DEMO=1` with `DEMO_PASSWORD` creates two shared accounts (`judge1@demo.lvs`, `judge2@demo.lvs`) with three invented people. Seeding runs in the background after start-up (the health check does not wait for it) and resumes after a restart. Their password, sessions, tokens and deletion are locked (403 `demo_locked`). Not for production; real users sign up and use their own data.
 
 ## Groq model
 
 `GROQ_MODEL=openai/gpt-oss-120b`. On Groq's models page (console.groq.com/docs/models, checked 2026-11-23) it is the production-tier flagship open-weight reasoning model with a 131,072-token context window and 65,536 max completion tokens, and Groq documents tool use for it. The other production models are `llama-3.3-70b-versatile` (131k, 32k completion, a smaller fallback) and the 8B and 20B models. Preview models (for example `minimaxai/minimax-m2.7`, 196k) are not for production use. Re-check the page before the demo; if a stronger production model with tool use has appeared, change only `GROQ_MODEL`.
 
-**Zero Data Retention.** The agent sends conversation excerpts to Groq. Before using real data, enable Zero Data Retention in the Groq console (Settings, Data Controls). Without it, Groq may keep prompts and outputs. The demo data is synthetic, so this matters only for real chats.
+**Zero Data Retention.** The agent sends conversation excerpts to Groq. Before using real data, enable Zero Data Retention in the Groq console (Settings, Data Controls). Without it, Groq may keep prompts and outputs. Users bring real chats, so turn it on before launch.
 
 ## Load the browser extension against the deployed URL
 
@@ -81,4 +87,4 @@ Optionally also set `VITE_GOOGLE_WEB_CLIENT_ID`, `VITE_GOOGLE_IOS_CLIENT_ID`, `V
 - **Backups:** the volume holds `accounts.db` and `users/*.db`, all encrypted under `MASTER_KEY`. Snapshot the volume (Railway Volumes, Backups) and keep `MASTER_KEY` separately.
 - **Single instance:** do not scale to more than one replica.
 - **Rotating secrets:** changing `JWT_SECRET` signs everyone out. Do not change `MASTER_KEY` unless you intend to abandon the data.
-- **Logs:** with `MAIL_DEV_ALLOW=1`, verification links appear in the deploy logs.
+- **Logs:** uvicorn's access log is off; the app logs redacted route templates, ids and counts, never message text. (With `MAIL_DEV_ALLOW=1`, local only, verification links appear in the logs.)
