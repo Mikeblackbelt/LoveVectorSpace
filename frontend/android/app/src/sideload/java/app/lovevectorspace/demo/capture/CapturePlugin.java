@@ -56,6 +56,12 @@ public class CapturePlugin extends Plugin {
         o.put("pausedReason", st.isPaused() ? "user" : st.isA11yIdle() ? "idle" : null);
         o.put("queued", st.queued());
         o.put("notificationsGranted", CaptureIndicator.canPostNotifications(getContext()));
+        o.put("signedIn", st.owner() != null);
+        JSObject consent = new JSObject();
+        for (String m : new String[] { CaptureApps.NOTIFY, CaptureApps.SMS, CaptureApps.A11Y }) consent.put(m, st.consentVersion(m));
+        o.put("consent", consent);
+        o.put("consentVersion", CapturePolicy.CONSENT_VERSION);
+        o.put("droppedForCap", st.droppedForCap());
         return o;
     }
 
@@ -85,8 +91,11 @@ public class CapturePlugin extends Plugin {
             return;
         }
         try {
-            store().setLinks(CaptureStore.linksFromJson(a));
-            call.resolve();
+            List<ContactGate.Link> rejected = store().setLinks(CaptureStore.linksFromJson(a));
+            JSObject o = new JSObject();
+            o.put("rejected", new JSArray(CaptureStore.linksToJson(rejected).toString()));
+            o.put("links", new JSArray(CaptureStore.linksToJson(store().links()).toString()));
+            call.resolve(o);
         } catch (JSONException e) {
             call.reject("Invalid links");
         }
@@ -104,9 +113,67 @@ public class CapturePlugin extends Plugin {
             call.reject("method and enabled are required");
             return;
         }
-        store().setEnabled(m, on);
+        if (!store().setEnabled(m, on)) {
+            call.reject("Consent is required before turning this reader on", "consent_required");
+            return;
+        }
         CaptureIndicator.update(getContext());
         call.resolve(statusObject());
+    }
+
+    /** Record native consent ({ method, version }); version 0 withdraws it (reader off, links removed). */
+    @PluginMethod
+    public void setConsent(PluginCall call) {
+        String m = call.getString("method");
+        Integer v = call.getInt("version");
+        if (!validMethod(m) || v == null) {
+            call.reject("method and version are required");
+            return;
+        }
+        if (!store().setConsent(m, v)) {
+            call.reject("Sign in first", "signed_out");
+            return;
+        }
+        CaptureIndicator.update(getContext());
+        call.resolve(statusObject());
+    }
+
+    /** Bind capture to the signed-in account; a different account wipes the previous one's state first. */
+    @PluginMethod
+    public void bindOwner(PluginCall call) {
+        String user = call.getString("userId");
+        if (user == null || user.isEmpty()) {
+            call.reject("userId is required");
+            return;
+        }
+        String r = store().bindOwner(user);
+        if ("error".equals(r)) {
+            call.reject("Could not clear the previous account's capture data");
+            return;
+        }
+        CaptureIndicator.update(getContext());
+        JSObject o = new JSObject();
+        o.put("result", r);
+        call.resolve(o);
+    }
+
+    /** Sign-out / account deletion: forget links, queue, seen-set, cursors, switches, consent and owner. */
+    @PluginMethod
+    public void clearAll(PluginCall call) {
+        store().clearAll();
+        CaptureIndicator.update(getContext());
+        call.resolve();
+    }
+
+    /** Canonical form the SMS reader will store for a typed number (E.164), or null. */
+    @PluginMethod
+    public void normalizePhone(PluginCall call) {
+        String raw = call.getString("number", "");
+        String c = store().phoneMatcher().canonical(raw);
+        JSObject o = new JSObject();
+        o.put("canonical", c);
+        o.put("alphanumeric", c != null && PhoneMatcher.isAlphanumericSender(c));
+        call.resolve(o);
     }
 
     @PluginMethod
@@ -150,9 +217,14 @@ public class CapturePlugin extends Plugin {
     @PluginMethod
     public void drain(PluginCall call) {
         int max = call.getInt("max", 500);
+        List<CaptureQueue.Item> its = store().drain(Math.max(1, Math.min(max, 1000)), call.getString("userId"));
+        if (its == null) {
+            call.reject("The capture queue belongs to a different or signed-out account", "owner_mismatch");
+            return;
+        }
         try {
             JSArray items = new JSArray();
-            for (CaptureQueue.Item it : store().drain(Math.max(1, Math.min(max, 1000)))) items.put(CaptureStore.itemToJson(it, false));
+            for (CaptureQueue.Item it : its) items.put(CaptureStore.itemToJson(it, false));
             JSObject o = new JSObject();
             o.put("items", items);
             call.resolve(o);

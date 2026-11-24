@@ -6,7 +6,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
@@ -86,66 +85,18 @@ public class LvsAccessibilityService extends AccessibilityService {
         ContactGate gate = st.gate();
         if (!gate.hasLinks(CaptureApps.A11Y)) return;
 
-        Rect win = new Rect();
-        root.getBoundsInScreen(win);
-        int height = Math.max(1, win.height());
-        int headerLimit = win.top + (int) (height * 0.2);
-        int composeLimit = win.top + (int) (height * 0.6);
-
-        // One pass: header candidates, the input box position, and bubble candidates.
-        List<BubbleParser.Node> nodes = new ArrayList<>();
-        ContactGate.Link link = null;
-        int titleTop = -1;
-        int titleBottom = -1;
-        int footerTop = win.bottom;
-        boolean hasCompose = false;
-        ArrayDeque<AccessibilityNodeInfo> stack = new ArrayDeque<>();
-        stack.push(root);
-        int seen = 0;
-        Rect r = new Rect();
-        while (!stack.isEmpty() && seen++ < MAX_NODES) {
-            AccessibilityNodeInfo n = stack.pop();
-            if (n == null) continue;
-            if (n.isPassword()) continue; // never read, nor its children
-            n.getBoundsInScreen(r);
-            if (n.isEditable()) {
-                // The message box: marks a chat screen and the bottom of the chat area. Text not read.
-                if (r.top >= composeLimit) {
-                    hasCompose = true;
-                    footerTop = Math.min(footerTop, r.top);
-                }
-                continue;
-            }
-            for (int i = n.getChildCount() - 1; i >= 0; i--) {
-                AccessibilityNodeInfo child = n.getChild(i);
-                if (child != null) stack.push(child); // ArrayDeque rejects nulls
-            }
-            if (!n.isVisibleToUser()) continue;
-            CharSequence cs = n.getText();
-            if (cs == null || cs.length() == 0) continue;
-            String text = cs.toString();
-            if (link == null && r.bottom <= headerLimit) {
-                ContactGate.Link l = gate.match(CaptureApps.A11Y, pkg, text);
-                if (l != null) {
-                    link = l;
-                    titleTop = r.top;
-                    titleBottom = r.bottom;
-                    continue;
-                }
-            }
-            nodes.add(new BubbleParser.Node(text, r.left, r.top, r.right, r.bottom, false, false));
-        }
-        if (link == null || !hasCompose) return; // not a linked chat: nothing kept
+        // Copy the window into a plain tree (password/editable text is never read), then let the
+        // pure ChatScreen decide whether this is a linked one-to-one chat.
+        ChatScreen.UiNode tree = copyTree(root, new int[] { 0 });
+        ChatScreen.Result res = ChatScreen.analyze(tree, pkg, gate);
+        if (res.link == null) return; // not a linked 1:1 chat, or unsure: nothing kept
+        ContactGate.Link link = res.link;
         st.markLinkedSeen(now);
-        // Subtitle lines right under the title ("online", "typing…") belong to the header.
-        int headerBottom = titleBottom;
-        for (BubbleParser.Node n : nodes) {
-            if (n.top >= titleTop && n.top <= headerBottom + 12 && n.bottom <= headerLimit) headerBottom = Math.max(headerBottom, n.bottom);
-        }
 
         Calendar c = Calendar.getInstance();
         TimeParser.Ymd today = new TimeParser.Ymd(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
-        List<BubbleParser.Item> items = BubbleParser.parse(nodes, Math.max(1, win.width()), headerBottom, footerTop, today);
+        int width = Math.max(1, tree.right - tree.left);
+        List<BubbleParser.Item> items = BubbleParser.parse(res.bubbles, width, res.listTop, res.footerTop, today);
         List<TimeAssigner.Msg> msgs = TimeAssigner.assign(items, today, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE));
         if (msgs.isEmpty()) return;
 
@@ -161,5 +112,35 @@ public class LvsAccessibilityService extends AccessibilityService {
             keys.add(m.dedupeKey);
         }
         if (st.addAll(out, keys) > 0) CaptureIndicator.update(this);
+    }
+
+    /** Plain copy of the node tree, depth-first, capped at MAX_NODES. Never reads password/editable text. */
+    private ChatScreen.UiNode copyTree(AccessibilityNodeInfo n, int[] count) {
+        ChatScreen.UiNode u = new ChatScreen.UiNode();
+        count[0]++;
+        Rect r = new Rect();
+        n.getBoundsInScreen(r);
+        u.left = r.left;
+        u.top = r.top;
+        u.right = r.right;
+        u.bottom = r.bottom;
+        u.password = n.isPassword();
+        u.editable = n.isEditable();
+        u.scrollable = n.isScrollable();
+        u.visible = n.isVisibleToUser();
+        u.viewId = n.getViewIdResourceName();
+        u.className = n.getClassName() == null ? null : n.getClassName().toString();
+        if (u.password) return u; // neither its text nor its children are read
+        if (!u.editable) {
+            CharSequence cs = n.getText();
+            u.text = cs == null ? null : cs.toString();
+        } else {
+            return u; // the input box: position only
+        }
+        for (int i = 0; i < n.getChildCount() && count[0] < MAX_NODES; i++) {
+            AccessibilityNodeInfo child = n.getChild(i);
+            if (child != null) u.add(copyTree(child, count));
+        }
+        return u;
     }
 }

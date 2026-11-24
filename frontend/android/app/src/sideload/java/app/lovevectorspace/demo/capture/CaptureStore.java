@@ -1,6 +1,8 @@
 package app.lovevectorspace.demo.capture;
 
 import android.content.Context;
+import android.telephony.PhoneNumberUtils;
+import android.telephony.TelephonyManager;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -12,6 +14,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.json.JSONArray;
@@ -20,13 +23,14 @@ import org.json.JSONObject;
 
 /**
  * Process-wide capture state, persisted as one AES-GCM encrypted file in noBackupFilesDir:
- * linked contacts, per-reader switches, pause state, SMS cursors, the message queue and the
- * hashed seen-set. Shared by the plugin, the services and the pause receiver. Message text is
+ * owner account, native consent per reader, linked contacts, switches, pause state, SMS cursors,
+ * the queue and the hashed seen-set. Gating decisions go through CapturePolicy. Message text is
  * never logged.
  */
 public final class CaptureStore {
 
     public static final long IDLE_PAUSE_MS = 30L * 60L * 1000L;
+    private static final String[] READERS = { CaptureApps.NOTIFY, CaptureApps.SMS, CaptureApps.A11Y };
     private static CaptureStore instance;
 
     public static synchronized CaptureStore get(Context ctx) {
@@ -36,6 +40,8 @@ public final class CaptureStore {
 
     private final Context ctx;
     private final File file;
+    private String owner; // signed-in account; null = signed out, nothing runs
+    private final Map<String, Integer> consent = new HashMap<>();
     private List<ContactGate.Link> links = new ArrayList<>();
     private final Map<String, Boolean> enabled = new HashMap<>();
     private boolean paused;
@@ -51,47 +57,171 @@ public final class CaptureStore {
         load();
     }
 
-    // ---------------------------------------------------------------- state
+    // ---------------------------------------------------------------- owner / sign-in
+
+    public synchronized String owner() {
+        return owner;
+    }
+
+    /**
+     * Bind capture to the signed-in account. A different account wipes everything first; the new
+     * owner is written only after the wipe is durable. Returns "bound", "same" or "reset".
+     */
+    public synchronized String bindOwner(String userId) {
+        if (userId == null || userId.isEmpty()) throw new IllegalArgumentException("userId");
+        if (userId.equals(owner)) return "same";
+        boolean hadOther = owner != null;
+        if (hadOther || !links.isEmpty() || queue.size() > 0) {
+            wipe();
+            if (!save()) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete(); // the wipe must stick before anyone new owns the state
+                if (file.exists()) return "error";
+            }
+        }
+        owner = userId;
+        save();
+        return hadOther ? "reset" : "bound";
+    }
+
+    /** Sign-out / account deletion: forget everything, including the owner. */
+    public synchronized void clearAll() {
+        wipe();
+        if (!save()) {
+            //noinspection ResultOfMethodCallIgnored
+            file.delete();
+        }
+    }
+
+    private void wipe() {
+        owner = null;
+        consent.clear();
+        links = new ArrayList<>();
+        enabled.clear();
+        paused = false;
+        a11yIdle = false;
+        lastLinkedSeen = 0;
+        smsCursors.clear();
+        queue.clear();
+    }
+
+    // ---------------------------------------------------------------- consent
+
+    public synchronized int consentVersion(String method) {
+        Integer v = consent.get(method);
+        return v == null ? 0 : v;
+    }
+
+    /** Record agreement (version) or withdrawal (0). Withdrawing switches the reader off and unlinks its contacts. */
+    public synchronized boolean setConsent(String method, int version) {
+        if (owner == null && version > 0) return false;
+        if (version <= 0) {
+            consent.remove(method);
+            enabled.put(method, false);
+            List<ContactGate.Link> keep = new ArrayList<>();
+            for (ContactGate.Link l : links) if (l.method.equals(method)) forget(l); else keep.add(l);
+            links = keep;
+        } else {
+            consent.put(method, version);
+        }
+        save();
+        return true;
+    }
+
+    // ---------------------------------------------------------------- links
 
     public synchronized List<ContactGate.Link> links() {
         return new ArrayList<>(links);
     }
 
-    public synchronized void setLinks(List<ContactGate.Link> next) {
-        // Anything queued for a contact that is no longer linked is dropped right away.
-        List<ContactGate.Link> old = links;
-        links = new ArrayList<>(next);
-        ContactGate g = new ContactGate(links);
-        for (ContactGate.Link l : old) {
-            boolean still = CaptureApps.SMS.equals(l.method) ? g.matchPhone(l.contact) != null : containsName(l);
-            if (!still) queue.removeContact(l.method, l.app, l.contact);
-        }
-        save();
+    PhoneMatcher phoneMatcher() {
+        final String iso = countryIso();
+        return new PhoneMatcher(raw -> {
+            String e = null;
+            try {
+                e = PhoneNumberUtils.formatNumberToE164(raw, iso);
+            } catch (RuntimeException ignored) {
+                // fall through to the simple normaliser
+            }
+            return e != null ? e : PhoneMatcher.simpleE164(raw, null);
+        });
     }
 
-    private boolean containsName(ContactGate.Link l) {
-        for (ContactGate.Link x : links) {
+    private String countryIso() {
+        TelephonyManager tm = (TelephonyManager) ctx.getSystemService(Context.TELEPHONY_SERVICE);
+        String iso = null;
+        if (tm != null) {
+            iso = tm.getSimCountryIso();
+            if (iso == null || iso.isEmpty()) iso = tm.getNetworkCountryIso();
+        }
+        if (iso == null || iso.isEmpty()) iso = Locale.getDefault().getCountry();
+        return iso == null ? "" : iso.toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * Replace the linked contacts. Links for readers without native consent, and SMS links that
+     * can't be normalised, are rejected (returned). Contacts that are no longer linked lose their
+     * queued messages, seen-hashes and SMS cursor immediately.
+     */
+    public synchronized List<ContactGate.Link> setLinks(List<ContactGate.Link> next) {
+        List<ContactGate.Link> accepted = new ArrayList<>();
+        List<ContactGate.Link> rejected = new ArrayList<>();
+        PhoneMatcher pm = phoneMatcher();
+        for (ContactGate.Link l : next) {
+            if (!CapturePolicy.canLink(owner, consentVersion(l.method))) {
+                rejected.add(l);
+                continue;
+            }
+            if (CaptureApps.SMS.equals(l.method)) {
+                String c = pm.canonical(l.contact);
+                if (c == null) {
+                    rejected.add(l);
+                    continue;
+                }
+                accepted.add(new ContactGate.Link(l.method, "sms", c, l.pid));
+            } else {
+                accepted.add(l);
+            }
+        }
+        for (ContactGate.Link old : links) if (!contains(accepted, old)) forget(old);
+        links = accepted;
+        save();
+        return rejected;
+    }
+
+    private static boolean contains(List<ContactGate.Link> ls, ContactGate.Link l) {
+        for (ContactGate.Link x : ls) {
             if (x.method.equals(l.method) && x.app.equals(l.app) && ContactGate.normName(x.contact).equals(ContactGate.normName(l.contact))) return true;
         }
         return false;
+    }
+
+    private void forget(ContactGate.Link l) {
+        queue.removeContact(l.method, l.app, l.contact);
+        if (CaptureApps.SMS.equals(l.method)) smsCursors.remove(l.contact);
     }
 
     public synchronized ContactGate gate() {
         return new ContactGate(links);
     }
 
+    // ---------------------------------------------------------------- switches
+
     public synchronized boolean isEnabled(String method) {
         Boolean b = enabled.get(method);
         return b != null && b;
     }
 
-    public synchronized void setEnabled(String method, boolean on) {
+    /** False if refused (switching on needs a signed-in owner and native consent). */
+    public synchronized boolean setEnabled(String method, boolean on) {
+        if (!CapturePolicy.canEnable(on, owner, consentVersion(method))) return false;
         enabled.put(method, on);
         if (CaptureApps.A11Y.equals(method) && on) {
             a11yIdle = false;
             lastLinkedSeen = System.currentTimeMillis();
         }
         save();
+        return true;
     }
 
     public synchronized boolean isPaused() {
@@ -100,6 +230,11 @@ public final class CaptureStore {
 
     public synchronized boolean isA11yIdle() {
         return a11yIdle;
+    }
+
+    public synchronized boolean anyEnabled() {
+        for (String m : READERS) if (isEnabled(m)) return true;
+        return false;
     }
 
     /** User pause/resume. Resuming also lifts the accessibility idle pause and restarts its timer. */
@@ -112,15 +247,25 @@ public final class CaptureStore {
         save();
     }
 
-    /** May this reader capture right now? */
+    private CapturePolicy.State policyState(String method) {
+        CapturePolicy.State s = new CapturePolicy.State();
+        s.owner = owner;
+        s.consented = consentVersion(method) >= CapturePolicy.CONSENT_VERSION;
+        s.enabled = isEnabled(method);
+        s.paused = paused;
+        s.a11yIdle = a11yIdle;
+        s.notificationsOk = CaptureIndicator.canPostNotifications(ctx);
+        return s;
+    }
+
+    /** May this reader capture right now? (CapturePolicy.isActive) */
     public synchronized boolean isActive(String method) {
-        if (!isEnabled(method) || paused) return false;
-        return !(CaptureApps.A11Y.equals(method) && a11yIdle);
+        return CapturePolicy.isActive(method, policyState(method));
     }
 
     public synchronized void markLinkedSeen(long now) {
         lastLinkedSeen = now;
-        if (now - lastSavedAt > 60_000) save(); // keep the timer roughly durable without writing per event
+        if (now - lastSavedAt > 60_000) save();
     }
 
     /** Auto-pause the accessibility reader after 30 minutes without a linked chat. True if it just paused. */
@@ -133,13 +278,13 @@ public final class CaptureStore {
         return true;
     }
 
-    public synchronized long smsCursor(String contact) {
-        Long v = smsCursors.get(ContactGate.digits(contact));
+    public synchronized long smsCursor(String canonical) {
+        Long v = smsCursors.get(canonical);
         return v == null ? 0L : v;
     }
 
-    public synchronized void setSmsCursor(String contact, long ms) {
-        smsCursors.put(ContactGate.digits(contact), ms);
+    public synchronized void setSmsCursor(String canonical, long ms) {
+        smsCursors.put(canonical, ms);
         save();
     }
 
@@ -159,15 +304,18 @@ public final class CaptureStore {
         return it;
     }
 
-    /** Queue new items (skipping already-seen keys). keys.get(i) is the dedupe key for items.get(i). */
+    /** Queue new items (skipping already-seen keys). Refused while signed out. */
     public synchronized int addAll(List<CaptureQueue.Item> items, List<String> keys) {
+        if (owner == null) return 0;
         int n = 0;
         for (int i = 0; i < items.size(); i++) if (queue.addIfNew(items.get(i), keys.get(i))) n++;
         if (n > 0) save();
         return n;
     }
 
-    public synchronized List<CaptureQueue.Item> drain(int max) {
+    /** Oldest items, only for the owning account; null if the caller isn't the owner. */
+    public synchronized List<CaptureQueue.Item> drain(int max, String expectedUser) {
+        if (!CapturePolicy.canDrain(owner, expectedUser)) return null;
         return queue.drain(max);
     }
 
@@ -179,12 +327,20 @@ public final class CaptureStore {
 
     public synchronized int removeContact(String method, String app, String contact) {
         int n = queue.removeContact(method, app, contact);
+        if (CaptureApps.SMS.equals(method)) {
+            String c = phoneMatcher().canonical(contact);
+            smsCursors.remove(c != null ? c : contact);
+        }
         save();
         return n;
     }
 
     public synchronized int queued() {
         return queue.size();
+    }
+
+    public synchronized int droppedForCap() {
+        return queue.dropped;
     }
 
     // ---------------------------------------------------------------- persistence
@@ -200,6 +356,15 @@ public final class CaptureStore {
                 off += r;
             }
             JSONObject o = new JSONObject(new String(CryptoBox.decrypt(blob), StandardCharsets.UTF_8));
+            owner = o.has("owner") ? o.getString("owner") : null;
+            JSONObject cs = o.optJSONObject("consent");
+            if (cs != null) {
+                Iterator<String> k = cs.keys();
+                while (k.hasNext()) {
+                    String m = k.next();
+                    consent.put(m, cs.optInt(m));
+                }
+            }
             links = linksFromJson(o.optJSONArray("links"));
             JSONObject en = o.optJSONObject("enabled");
             if (en != null) {
@@ -233,18 +398,24 @@ public final class CaptureStore {
                 }
             }
             queue.restore(items, seen);
+            queue.dropped = o.optInt("dropped");
         } catch (Exception e) {
-            // Unreadable (key lost after a restore/reset, or corrupt): start clean rather than crash.
+            // Unreadable (key lost after a restore/reset, or corrupt): start clean, signed out.
+            wipe();
             //noinspection ResultOfMethodCallIgnored
             file.delete();
         }
     }
 
-    private void save() {
+    private boolean save() {
         lastSavedAt = System.currentTimeMillis();
         try {
             JSONObject o = new JSONObject();
-            o.put("v", 1);
+            o.put("v", 2);
+            if (owner != null) o.put("owner", owner);
+            JSONObject cs = new JSONObject();
+            for (Map.Entry<String, Integer> e : consent.entrySet()) cs.put(e.getKey(), e.getValue());
+            o.put("consent", cs);
             o.put("links", linksToJson(links));
             JSONObject en = new JSONObject();
             for (Map.Entry<String, Boolean> e : enabled.entrySet()) en.put(e.getKey(), e.getValue());
@@ -261,6 +432,7 @@ public final class CaptureStore {
             JSONObject s = new JSONObject();
             for (Map.Entry<String, String> e : queue.seenEntries().entrySet()) s.put(e.getKey(), e.getValue());
             o.put("seen", s);
+            o.put("dropped", queue.dropped);
             byte[] blob = CryptoBox.encrypt(o.toString().getBytes(StandardCharsets.UTF_8));
             File tmp = new File(file.getPath() + ".tmp");
             try (FileOutputStream out = new FileOutputStream(tmp)) {
@@ -268,8 +440,10 @@ public final class CaptureStore {
                 out.getFD().sync();
             }
             if (!tmp.renameTo(file)) throw new IOException("rename failed");
+            return true;
         } catch (Exception e) {
             android.util.Log.w("LvsCapture", "could not save capture state: " + e.getClass().getSimpleName());
+            return false;
         }
     }
 
@@ -301,7 +475,7 @@ public final class CaptureStore {
         return a;
     }
 
-    /** internal=true keeps method/app/contact (for persistence); the JS drain view omits them. */
+    /** internal=true keeps method/app/contact (persistence); the JS view carries only the opaque contact key "ck". */
     static JSONObject itemToJson(CaptureQueue.Item it, boolean internal) throws JSONException {
         JSONObject o = new JSONObject();
         o.put("id", it.id);
@@ -317,6 +491,8 @@ public final class CaptureStore {
             o.put("method", it.method);
             o.put("app", it.app);
             o.put("contact", it.contact);
+        } else {
+            o.put("ck", it.contactKey());
         }
         return o;
     }

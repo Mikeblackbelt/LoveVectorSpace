@@ -40,6 +40,8 @@ public final class CaptureQueue {
     }
 
     private final List<Item> items = new ArrayList<>();
+    /** Messages dropped because the queue was full (surfaced as a warning in status). */
+    public int dropped;
     /** contactKey -> set of message keys; insertion-ordered for eviction. */
     private final LinkedHashMap<String, String> seen = new LinkedHashMap<>(16, 0.75f, false);
 
@@ -63,7 +65,10 @@ public final class CaptureQueue {
             i.remove();
         }
         items.add(it);
-        while (items.size() > MAX_ITEMS) items.remove(0); // oldest first
+        while (items.size() > MAX_ITEMS) {
+            items.remove(0); // oldest first
+            dropped++;
+        }
         return true;
     }
 
@@ -109,6 +114,13 @@ public final class CaptureQueue {
     // ---- persistence hooks (CaptureStore) ----
     public Map<String, String> seenEntries() {
         return new LinkedHashMap<>(seen);
+    }
+
+    /** Forget everything (sign-out, account switch). */
+    public void clear() {
+        items.clear();
+        seen.clear();
+        dropped = 0;
     }
 
     public void restore(List<Item> its, Map<String, String> seenEntries) {

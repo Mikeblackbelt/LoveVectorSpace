@@ -69,6 +69,11 @@ public class CaptureQueueTest {
         for (int i = 0; i < CaptureQueue.MAX_ITEMS + 5; i++) q.addIfNew(item("Sam", "m" + i), "m" + i);
         assertEquals(CaptureQueue.MAX_ITEMS, q.size());
         assertEquals("m5", q.drain(1).get(0).text);
+        assertEquals(5, q.dropped);
+        q.clear();
+        assertEquals(0, q.size());
+        assertEquals(0, q.seenSize());
+        assertEquals(0, q.dropped);
     }
 
     @Test
