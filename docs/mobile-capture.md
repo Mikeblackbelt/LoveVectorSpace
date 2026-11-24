@@ -104,7 +104,7 @@ On the JS side, `detectCapabilities()` decides what to show: `Capacitor.isPlugin
 2. Sign in, create a person, then go to Settings → Phone capture.
    - **Notification reader:** Set up → agree → grant Notification access. Link the chat name exactly as the notification title shows it, e.g. "Sam" in WhatsApp. Have that contact message you, then tap *Upload now* and check the person's Sources for an `android_notify_whatsapp` unit.
    - **SMS reader:** Set up → agree → allow SMS. Link the phone number, then tap *Upload now*. Expect an `android_sms` unit with both sides.
-   - **Accessibility chat reader:** Set up → agree → switch on "LoveVectorSpace chat reader" in Accessibility. Link the chat title for, e.g., Hinge, open that chat and scroll, then return to the app. Expect an `android_a11y_hinge` unit. Open an unlinked chat and confirm the queue count does not move.
+   - **Accessibility chat reader:** Set up → agree → switch on "LoveVectorSpace chat reader" in Accessibility. If more than 30 minutes have passed since you turned it on, it has idle-paused: tap *Resume chat reader* first. Link the chat title for, e.g., Hinge, open that chat and scroll, then return to the app. Expect an `android_a11y_hinge` unit. Open an unlinked chat and confirm the queue count does not move.
 3. Pause from the notification and confirm nothing new is queued.
 4. **Screenshot import:** take two overlapping screenshots of a chat, then go to Sources → Import screenshots. Check the sides and dates, flip or drop a bubble, and import.
 
@@ -128,6 +128,8 @@ Automated tests:
   - Bubble sides come from node bounds. App updates that change layout, RTL layouts or bubble grouping can break this.
   - Sender names in group chats are not handled; link one-to-one chats only.
   - Bubbles with no time on screen get approximate times near "now" (today) or noon (other days).
+  - **Date assumption:** bubbles with no date separator visible above them are assumed to be from today. Opening an old chat stamps the visible old messages with today's date. Scrolling up until a separator shows re-captures them under the right date, but the wrongly dated copies stay. Scroll to a separator before relying on dates, or delete the unit and re-capture.
+- **Switching accounts:** the first account to sign in on a phone owns its capture state. If a different account signs in, linked contacts, the queue, reader switches and consents are cleared, so one account's captures never reach another account's person ids. Anything not yet uploaded is lost.
 - **SMS:** MMS-only threads (no SMS row in the window) are not found, group MMS is skipped, and the first sync is limited to 180 days.
 - **"Persistent" notification:** it is an ongoing notification, not a foreground service. On Android 14+ users can swipe it away, and it reappears on the next capture or state change.
 - **Not compiled here:** the Java code and the JUnit tests were written without a JDK, and the Swift without a Mac. The first Gradle and Xcode builds may surface small fixes.

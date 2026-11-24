@@ -61,6 +61,8 @@ public class CapturePlugin extends Plugin {
 
     @PluginMethod
     public void status(PluginCall call) {
+        // Cheap and idempotent: (re)posts the capturing notification once POST_NOTIFICATIONS is granted.
+        CaptureIndicator.update(getContext());
         call.resolve(statusObject());
     }
 

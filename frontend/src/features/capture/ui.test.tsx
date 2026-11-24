@@ -5,7 +5,7 @@ import { setTransport } from '../../api/client';
 import { mockFetch } from '../../mock/server';
 import { setCaptureEnv } from '../../native/capture';
 import { json, renderAt, useMockApi } from '../../test/utils';
-import { syncAndFlush } from './CaptureFlusher';
+import { ensureCaptureOwner, syncAndFlush } from './CaptureFlusher';
 import { W, H, layout } from './fixtures';
 import { PhoneCapturePane } from './PhoneCapture';
 import { ScreenshotImportKey } from './ScreenshotImport';
@@ -63,6 +63,19 @@ describe('PhoneCapturePane', () => {
     await waitFor(() => expect(screen.getByTestId('cap-state-a11y')).toHaveTextContent(/NEEDS ACCESS/));
     fireEvent.click(document.getElementById('btn-cap-grant-a11y')!);
     expect(cap.calls).toContain('openSystemSettings:a11y');
+  });
+
+  it('refreshes when the app returns from system settings with access granted', async () => {
+    const cap = new FakeCapture();
+    cap.enabled.a11y = true;
+    localStorage.setItem('lvs_capture_consent_a11y', '1');
+    setCaptureEnv(fakeEnv({ capture: cap }));
+    renderAt(<PhoneCapturePane />);
+    await waitFor(() => expect(screen.getByTestId('cap-state-a11y')).toHaveTextContent(/NEEDS ACCESS/));
+    cap.granted.a11y = true; // user switched the service on in Android settings
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    fireEvent(document, new Event('visibilitychange'));
+    await waitFor(() => expect(screen.getByTestId('cap-state-a11y')).toHaveTextContent(/CAPTURING/));
   });
 
   it('links a contact, unlinks it (purging its queue), and pauses', async () => {
@@ -133,6 +146,29 @@ describe('ScreenshotImportKey', () => {
       ],
     });
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+});
+
+describe('ensureCaptureOwner', () => {
+  it('a different account signing in clears links, readers and consents; same account keeps them', async () => {
+    const cap = new FakeCapture();
+    cap.links = [{ method: 'notify', app: 'tinder', contact: 'Sam', pid: 2 }];
+    cap.enabled.notify = true;
+    cap.queue = [queued()];
+    const env = fakeEnv({ capture: cap });
+    localStorage.setItem('lvs_capture_consent_notify', '1');
+    expect(await ensureCaptureOwner(env, 'user-a')).toBe(false); // first account
+    expect(await ensureCaptureOwner(env, 'user-a')).toBe(false);
+    expect(cap.links).toHaveLength(1);
+    expect(await ensureCaptureOwner(env, 'user-b')).toBe(true);
+    expect(cap.links).toEqual([]);
+    expect(cap.enabled).toEqual({ notify: false, sms: false, a11y: false });
+    expect(localStorage.getItem('lvs_capture_consent_notify')).toBeNull();
+    // syncAndFlush with the new owner does not upload the old account's queue.
+    localStorage.setItem('lvs_capture_owner', 'user-a');
+    cap.queue = [queued()];
+    expect(await syncAndFlush(env, 'user-b')).toBe(0);
+    expect(posted).toHaveLength(0);
   });
 });
 
