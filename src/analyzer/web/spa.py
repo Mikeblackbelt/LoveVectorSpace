@@ -19,7 +19,7 @@ def security_headers(app_origin: str) -> dict[str, str]:
         f"connect-src 'self' {origin}",
         "script-src 'self' https://appleid.cdn-apple.com",
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-        "font-src https://fonts.gstatic.com",
+        "font-src 'self' https://fonts.gstatic.com",
         "img-src 'self' data: blob:",
         "frame-ancestors 'none'",
         "base-uri 'self'",

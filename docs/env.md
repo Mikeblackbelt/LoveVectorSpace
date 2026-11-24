@@ -20,8 +20,8 @@ The server reads these from the environment (or a local `.env`, which is never c
 | `FRONTEND_DIST` | `frontend/dist` | The built SPA that is served at `/`. |
 | `EXTENSION_ID` | – | Enables CORS for `chrome-extension://<id>` on `/api/ingest` and `/api/ext/*` only. |
 | `COOKIE_SECURE` | `true` | Keep it `true` in production. The refresh cookie is `Secure`, `HttpOnly` and `SameSite=Lax`. |
-| `NATIVE_NONCE_REQUIRED` | `false` | Require `nonce` on `/api/auth/google/token` and `/api/auth/apple/token`. |
-| `TRUSTED_PROXIES` | – | Comma-separated IPs or CIDRs of reverse proxies whose `X-Forwarded-For` is trusted, or `*` to trust the single edge proxy in front of the app. **Railway: set `TRUSTED_PROXIES=*`.** Without it, the client IP is the TCP peer, so behind a proxy the login rate limit (5 failures per 15 minutes per email and IP) degrades to per-email. Never set it when the app is reachable directly. |
+| `NATIVE_NONCE_REQUIRED` | `true` | Native and Apple-JS ID tokens must carry a nonce issued by `POST /api/auth/nonce` (single use, 10 minutes). Set it to `0` only to debug a client; a nonce that is present is always checked. |
+| `TRUSTED_PROXIES` | – | Comma-separated IPs or CIDRs of reverse proxies whose `X-Forwarded-For` is trusted, or `*` to trust the single edge proxy in front of the app. **Railway: set `TRUSTED_PROXIES=*`.** Without it, the client IP is the TCP peer. Behind a proxy every client then shares the proxy's IP: the per-(email, IP) limit (5 failures per 15 minutes) becomes per-email, and the per-IP limit (`AUTH_IP_LIMIT`) applies to all users together. The server logs a warning on the first request that carries `X-Forwarded-For` while this is unset. Never set it when the app is reachable directly. |
 
 ## Mail (verification and password reset)
 
@@ -55,7 +55,15 @@ The server reads these from the environment (or a local `.env`, which is never c
 ## Limits (rarely changed)
 
 `MAX_IMPORT_BYTES` (50 MB), `MAX_INGEST_BYTES` (2 MB), `MAX_MESSAGES_IMPORT_BYTES` (2 MB), `INGEST_MSGS_PER_MIN` (10000),
-`AUTH_IP_LIMIT` (20 sign-ups or failed logins per IP per 15 minutes), `USER_DB_CACHE_SIZE` (256),
+`AUTH_IP_LIMIT` (60 sign-ups or failed logins per IP per 15 minutes), `USER_DB_CACHE_SIZE` (256),
 `SSE_HEARTBEAT_S` (15) and `SSE_SESSION_CHECK_S` (15). An open `/api/events` stream ends within this many seconds of logout, session revocation or account deletion.
 
 In-memory state (rate limits, OAuth state and the event bus) is per process, so run a single instance.
+
+## Quarantine (taken-over unverified accounts)
+
+When an unverified account is claimed by the address owner (password reset, or first Google/Apple sign-in),
+its old database moves to `DATA_DIR/quarantine/<user_id>-<ts>.db`. The wrapped data key is kept in
+`accounts.db`, so the data stays encrypted. Entries older than 30 days are purged at startup and daily.
+To restore one, stop the server and run `python scripts/restore_quarantine.py <user_id>`. It reads
+`MASTER_KEY` and `DATA_DIR` from the environment, and the database currently in place is quarantined first.

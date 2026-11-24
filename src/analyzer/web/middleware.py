@@ -37,9 +37,10 @@ async def _send_plain(send, status: int, body: bytes = b"", headers: list | None
 class PathCORS:
     """App origins on /api/* (except extension routes); only chrome-extension://$EXTENSION_ID on those."""
 
-    def __init__(self, app, app_origins: list[str], extension_id: str | None):
+    def __init__(self, app, app_origins: list[str], extension_id: str | None, bearer_only_origins=()):
         self.app = app
         self.app_origins = {o.rstrip("/") for o in app_origins if o}
+        self.bearer_only = {o.rstrip("/") for o in bearer_only_origins}   # native apps: no credentials
         self.ext_origin = f"chrome-extension://{extension_id}" if extension_id else None
 
     def _allowed(self, path: str, origin: str) -> tuple[bool, bool]:
@@ -47,7 +48,9 @@ class PathCORS:
         if is_ext_path(path):
             return (self.ext_origin is not None and origin == self.ext_origin), False
         if path.startswith("/api/") or path == "/healthz":
-            return origin in self.app_origins, True
+            if origin in self.app_origins:
+                return True, origin not in self.bearer_only
+            return False, False
         return False, False
 
     async def __call__(self, scope, receive, send):
@@ -123,6 +126,7 @@ class BodyLimit:
         seen = 0
         overrun = False
         replaced = False
+        started = finished = False
 
         async def limited_receive():
             nonlocal seen, overrun
@@ -135,12 +139,16 @@ class BodyLimit:
             return message
 
         async def guarded_send(message):
-            nonlocal replaced
+            nonlocal replaced, started, finished
             if overrun:
-                if message["type"] == "http.response.start" and not replaced:
+                if message["type"] == "http.response.start" and not replaced and not started:
                     replaced = True
                     await _send_plain(send, 413, TOO_LARGE, content_type=b"application/json")
                 return    # drop whatever the app tried to send after the overrun
+            if message["type"] == "http.response.start":
+                started = True
+            elif message["type"] == "http.response.body" and not message.get("more_body", False):
+                finished = True
             await send(message)
 
         try:
@@ -148,7 +156,10 @@ class BodyLimit:
         except _Overrun:
             pass
         if overrun and not replaced:
-            await _send_plain(send, 413, TOO_LARGE, content_type=b"application/json")
+            if not started:
+                await _send_plain(send, 413, TOO_LARGE, content_type=b"application/json")
+            elif not finished:   # a response was already under way: just end it, never send a second start
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
 
 
 class RequestLog:

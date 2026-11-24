@@ -103,7 +103,7 @@ NOT_USER_DATA = {  # credential endpoints that take no session (cannot reach ano
     ("POST", "/api/auth/signup"), ("POST", "/api/auth/login"), ("POST", "/api/auth/refresh"),
     ("POST", "/api/auth/logout"), ("POST", "/api/auth/verify-email"), ("POST", "/api/auth/password/forgot"),
     ("POST", "/api/auth/password/reset"), ("GET", "/api/auth/google/start"), ("GET", "/api/auth/google/callback"),
-    ("POST", "/api/auth/google/token"), ("POST", "/api/auth/apple/token"),
+    ("POST", "/api/auth/google/token"), ("POST", "/api/auth/apple/token"), ("POST", "/api/auth/nonce"),
 }
 GLOBAL_IDS = {"/api/metrics/{metric_id}/explain"}   # metric definitions are not per-user data
 # create-style routes run last: after them Bob owns ids that may collide with Alice's

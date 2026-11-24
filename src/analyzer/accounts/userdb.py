@@ -30,6 +30,10 @@ class UserGone(Exception):
     """The user no longer exists (deleted or deletion in progress)."""
 
 
+class UserBusy(Exception):
+    """The user's database is being replaced (takeover in progress): retry shortly."""
+
+
 @dataclass
 class UserHandle:
     user_id: str
@@ -104,6 +108,8 @@ class UserDBManager:
             closing.wait(CLOSE_TIMEOUT_S * 3)   # only this user waits for its own eviction to finish
         if h is None:
             # Open outside the cache lock: _key_for reads accounts.db and for_user takes the user lock.
+            if not create and not self.path(user_id).exists():
+                raise UserBusy(user_id)
             conn = open_db(self.path(user_id), self._key(user_id), create=create)
             try:
                 service = self._make_service(user_id, conn)
@@ -119,7 +125,7 @@ class UserDBManager:
                     fresh = None
                 evicted = self._pin(h)
             if fresh is not None:          # lost a race with a concurrent opener: close only our duplicate
-                self._close_conn(fresh, whole_user=False)
+                self._close_conn(fresh, "service")
         self._close_in_background(evicted)
         return h
 
@@ -159,7 +165,7 @@ class UserDBManager:
     def _finish_evictions(self, handles: list[UserHandle]) -> None:
         for h in handles:
             try:
-                self._close_conn(h, whole_user=True)
+                self._close_conn(h, "evict")
             finally:
                 with self._cv:
                     ev = self._closing.pop(h.user_id, None)
@@ -172,14 +178,24 @@ class UserDBManager:
         for t in closers:
             t.join(timeout)
 
-    def _close_conn(self, h: UserHandle, whole_user: bool) -> None:
-        """Stop the user's work (never while holding a lock), then close the connection under the user lock."""
-        if whole_user and self._close_user is not None:
-            try:
-                self._close_user(h.user_id)       # closes every service of the user and forgets its state
-            except Exception:
-                log.exception("close_user failed")
-        close = getattr(h.service, "close", None)    # idempotent; also covers factories without close_user
+    @staticmethod
+    def _still_busy(service: Any) -> bool:
+        """True if the user's background work did not stop within the close timeout (service-layer state)."""
+        st = getattr(service, "_state", None)
+        cv = getattr(st, "cv", None)
+        if st is None or cv is None:
+            return False
+        with cv:
+            return bool(getattr(st, "running", 0) or getattr(st, "firing", 0))
+
+    def _close_conn(self, h: UserHandle, mode: str) -> None:
+        """Stop the user's work (never while holding a lock), then close the connection under the user lock.
+
+        mode "evict": close the service; forget the user's service state (`close_user`) only if its background
+        work actually stopped, so a job still running on its own connection is never marked failed by the
+        recovery that runs on the next open. "remove": always `close_user` (deletion / quarantine).
+        "service": close only this service object."""
+        close = getattr(h.service, "close", None)
         if callable(close):
             try:
                 close(timeout=CLOSE_TIMEOUT_S)
@@ -187,6 +203,14 @@ class UserDBManager:
                 close()
             except Exception:
                 log.exception("service close failed")
+        if mode in ("evict", "remove") and self._close_user is not None:
+            if mode == "evict" and self._still_busy(h.service):
+                log.warning("eviction: background work still running; keeping its state (jobs recover later)")
+            else:
+                try:
+                    self._close_user(h.user_id)   # closes every service of the user and forgets its state
+                except Exception:
+                    log.exception("close_user failed")
         with h.lock:
             try:
                 h.conn.close()
@@ -201,10 +225,10 @@ class UserDBManager:
                 return
             self._cv.wait_for(lambda: h.pins == 0, timeout=timeout)
             self._entries.pop(user_id, None)
-        self._close_conn(h, whole_user=True)
+        self._close_conn(h, "evict")
 
-    def delete(self, user_id: str, unlink_attempts: int = 50) -> None:
-        """Hard-delete the user's database file (and SQLite side files) after stopping all their work."""
+    def _stop_user(self, user_id: str) -> None:
+        """Wait for any eviction in progress, close the cached connection and forget the user's service state."""
         with self._cv:
             closing = self._closing.get(user_id)
         if closing is not None:
@@ -215,12 +239,16 @@ class UserDBManager:
                 self._cv.wait_for(lambda: h.pins == 0, timeout=30.0)
                 self._entries.pop(user_id, None)
         if h is not None:
-            self._close_conn(h, whole_user=True)
+            self._close_conn(h, "remove")
         elif self._close_user is not None:
             try:
                 self._close_user(user_id)
             except Exception:
                 log.exception("close_user failed")
+
+    def delete(self, user_id: str, unlink_attempts: int = 50) -> None:
+        """Hard-delete the user's database file (and SQLite side files) after stopping all their work."""
+        self._stop_user(user_id)
         base = self.path(user_id)
         for suffix in ("", "-wal", "-shm", "-journal"):
             p = base.with_name(base.name + suffix)
@@ -233,10 +261,21 @@ class UserDBManager:
                         raise
                     time.sleep(0.1)
 
+    def quarantine_file(self, user_id: str, dest: Path, attempts: int = 50) -> bool:
+        """Stop the user's work and move their database (and side files) to `dest`.
+        Returns False if there was no file; raises OSError (nothing moved) if the move fails."""
+        from .quarantine import move_db
+        self._stop_user(user_id)
+        src = self.path(user_id)
+        if not src.exists():
+            return False
+        move_db(src, dest, attempts)
+        return True
+
     def close_all(self) -> None:
         self.wait_closers()
         with self._cv:
             handles = list(self._entries.values())
             self._entries.clear()
         for h in handles:
-            self._close_conn(h, whole_user=False)
+            self._close_conn(h, "service")

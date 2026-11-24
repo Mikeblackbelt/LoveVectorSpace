@@ -54,6 +54,8 @@ def test_social_takeover_revokes_squatter_tokens_and_wipes_data(h, client):
     assert client.get("/api/tokens", headers=v).json() and all(
         t["revoked_at"] for t in client.get("/api/tokens", headers=v).json())
     assert h.accounts.userdbs.path(me["id"]).read_bytes() != old_db                  # fresh DB (new key)
+    q = h.accounts.quarantine.entries(me["id"])                                      # old data set aside, not deleted
+    assert len(q) == 1 and q[0]["path"].read_bytes() == old_db
     # the squatter cannot reclaim: reset mail goes to the real owner, and no credential of theirs works
     client.post("/api/auth/password/forgot", json={"email": "victim@example.com"})
     assert all(m["to"] == "victim@example.com" for m in h.mailer.sent)
@@ -293,23 +295,40 @@ def test_console_mailer_refused_in_production(tmp_path):
     ok.close()
 
 
-def test_native_nonce(tmp_path):
-    h = Harness(tmp_path)
+def test_native_nonce_is_server_issued_and_single_use(tmp_path):
+    h = Harness(tmp_path, native_nonce_required=True)
     with h.client() as c:
         code = h.invite()
-        tok = h.idp.token(email="n@example.com", sub="g-n", nonce="raw-nonce-1")
-        assert c.post("/api/auth/google/token", json={"id_token": tok, "invite_code": code, "nonce": "other"},
+        r = c.post("/api/auth/nonce")
+        assert r.status_code == 200 and r.json()["expires_in"] == 600
+        raw = r.json()["nonce"]
+        missing = c.post("/api/auth/google/token", json={"id_token": h.idp.token(email="n@example.com", sub="g-n"),
+                                                          "invite_code": code}, headers=NATIVE)
+        assert missing.status_code == 401
+        forged = h.idp.token(email="n@example.com", sub="g-n", nonce="client-made-up")
+        assert c.post("/api/auth/google/token", json={"id_token": forged, "invite_code": code, "nonce": "client-made-up"},
+                      headers=NATIVE).status_code == 401      # a client-chosen nonce is never accepted
+        tok = h.idp.token(email="n@example.com", sub="g-n", nonce=raw)
+        assert c.post("/api/auth/google/token", json={"id_token": tok, "invite_code": code}, headers=NATIVE).status_code == 200
+        assert c.post("/api/auth/google/token", json={"id_token": tok}, headers=NATIVE).status_code == 401   # single use
+        raw2 = c.post("/api/auth/nonce").json()["nonce"]
+        apple = h.idp.token(iss="https://appleid.apple.com", aud="app.lovevectorspace.demo", sub="a-n",
+                            email="n@example.com", nonce=hashlib.sha256(raw2.encode()).hexdigest())
+        assert c.post("/api/auth/apple/token", json={"id_token": apple}).status_code == 200
+
+
+def test_nonce_expires_and_is_rate_limited(tmp_path):
+    h = Harness(tmp_path, native_nonce_required=True)
+    with h.client() as c:
+        raw = c.post("/api/auth/nonce").json()["nonce"]
+        h.accounts.nonces._raw[raw] = 0.0          # expired
+        tok = h.idp.token(email="e@example.com", sub="g-e", nonce=raw)
+        assert c.post("/api/auth/google/token", json={"id_token": tok, "invite_code": h.invite()},
                       headers=NATIVE).status_code == 401
-        assert c.post("/api/auth/google/token", json={"id_token": tok, "invite_code": code, "nonce": "raw-nonce-1"},
-                      headers=NATIVE).status_code == 200
-        hashed = h.idp.token(iss="https://appleid.apple.com", aud="app.lovevectorspace.demo", sub="a-n",
-                             email="n@example.com", nonce=hashlib.sha256(b"apple-raw").hexdigest())
-        assert c.post("/api/auth/apple/token", json={"id_token": hashed, "nonce": "apple-raw"}).status_code == 200
-    h2 = Harness(tmp_path / "req", native_nonce_required=True)
-    with h2.client() as c:
-        r = c.post("/api/auth/google/token", json={"id_token": h2.idp.token(), "invite_code": h2.invite()},
-                   headers=NATIVE)
-        assert r.status_code == 400 and r.json()["error"]["field"] == "nonce"
+        h.accounts.nonce_limiter = SlidingWindow(2, 900)
+        assert c.post("/api/auth/nonce").status_code == 200 and c.post("/api/auth/nonce").status_code == 200
+        r = c.post("/api/auth/nonce")
+        assert r.status_code == 429 and r.headers["Retry-After"]
 
 
 def test_login_rehashes_outdated_argon2_params(h, client, alice):

@@ -103,6 +103,7 @@ class Identity:
     email: str | None
     email_verified: bool
     name: str | None
+    nonce: str | None = None
 
 
 def verify_id_token(token: str, jwks: JwksCache, issuers: Sequence[str], audiences: Sequence[str],
@@ -128,8 +129,10 @@ def verify_id_token(token: str, jwks: JwksCache, issuers: Sequence[str], audienc
     ev = claims.get("email_verified", False)
     verified = ev is True or (isinstance(ev, str) and ev.lower() == "true")
     email = claims.get("email")
+    claim_nonce = claims.get("nonce")
     return Identity(provider, str(claims["sub"]), email.lower() if isinstance(email, str) else None,
-                    bool(email and verified), claims.get("name"))
+                    bool(email and verified), claims.get("name"),
+                    claim_nonce if isinstance(claim_nonce, str) and claim_nonce else None)
 
 
 # ---- Google web authorisation-code flow with PKCE ----

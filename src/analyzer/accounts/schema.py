@@ -67,6 +67,16 @@ STEPS: list[str] = [
         ip_hash TEXT
     );
     """,
+    """
+    CREATE TABLE quarantine (
+        id INTEGER PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        wrapped_dek BLOB NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_quarantine_user ON quarantine(user_id);
+    """,
 ]
 
 

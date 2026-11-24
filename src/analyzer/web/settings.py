@@ -23,7 +23,7 @@ class AppSettings(BaseSettings):
     frontend_dist: str = "frontend/dist"
     cookie_secure: bool = True
     mail_dev_allow: bool = False           # allow the console mailer (logs links) even with COOKIE_SECURE=true
-    native_nonce_required: bool = False    # require `nonce` on /api/auth/{google,apple}/token
+    native_nonce_required: bool = True     # native ID tokens must carry a nonce from POST /api/auth/nonce
     trusted_proxies: str | None = None     # comma-separated IPs/CIDRs (or "*") whose X-Forwarded-For is honoured
 
     groq_api_key: str | None = None
@@ -48,7 +48,7 @@ class AppSettings(BaseSettings):
     max_import_bytes: int = 50 * 1024 * 1024
     max_ingest_bytes: int = 2 * 1024 * 1024
     max_messages_import_bytes: int = 2 * 1024 * 1024
-    auth_ip_limit: int = 20                # signup / failed-login attempts per IP per 15 minutes
+    auth_ip_limit: int = 60                # signup / failed-login attempts per IP per 15 minutes
     ingest_msgs_per_min: int = 10_000
     user_db_cache_size: int = 256
     sse_heartbeat_s: float = 15.0

@@ -127,6 +127,10 @@ class Users:
         """Including soft-deleted rows (deletion in progress)."""
         return _user(self.db.one(f"SELECT {_USER_COLS} FROM users WHERE id=?", (user_id,)))
 
+    def replace_password_hash(self, user_id: str, old: str, new: str) -> bool:
+        """Compare-and-set: only replaces the hash if it is still `old`."""
+        return self.db.x("UPDATE users SET password_hash=? WHERE id=? AND password_hash=?", (new, user_id, old)) == 1
+
     def mark_deleted(self, user_id: str) -> None:
         self.db.x("UPDATE users SET deleted_at=? WHERE id=?", (now_iso(), user_id))
 
