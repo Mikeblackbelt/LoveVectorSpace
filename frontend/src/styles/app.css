@@ -476,3 +476,8 @@ html,body{margin:0;min-height:100%}
   .lvs .spec-radar .swp,.lvs .spec-radar .v,.lvs .intro-wm,.lvs[data-theme="pulse"] .wm{animation:none}
   .lvs .spec{transition:none}
 }
+
+/* journal: white on terracotta --me is 4.35:1, so filled controls use the darker text-safe --me-t (≥4.5:1) */
+.lvs[data-theme="journal"] .key.pri,.lvs[data-theme="journal"] .cmds a.on,.lvs[data-theme="journal"] .mbar a.on,
+.lvs[data-theme="journal"] .thread-tabs .tab.on,.lvs[data-theme="journal"] .row.sel .c-me{background:var(--me-t);border-color:var(--me-t)}
+.lvs[data-theme="journal"] .row.sel .c-me{background:none}
