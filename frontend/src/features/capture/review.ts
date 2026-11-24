@@ -1,4 +1,5 @@
 // Screenshot pipeline (segment -> merge -> timestamps) and the review step's state.
+import { truncateText } from './batches';
 import { mergeScreens } from './dedupe';
 import { APP_PROFILES, segmentScreenshot, type ProfileId } from './segment';
 import { assignTimestamps } from './timestamps';
@@ -65,6 +66,6 @@ export function buildScreenshotBody(bubbles: ReviewBubble[], tz: string): Import
     tz,
     messages: bubbles
       .filter((b) => !b.dropped && b.text.trim())
-      .map((b) => ({ ts_local: b.ts_local, ts_precision: 'approx' as const, role: b.role, text: b.text.trim() })),
+      .map((b) => ({ ts_local: b.ts_local, ts_precision: 'approx' as const, role: b.role, text: truncateText(b.text.trim()) })),
   };
 }

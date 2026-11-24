@@ -2,9 +2,11 @@
 import type { ReaderMethod } from './types';
 
 export const PRIVACY_NOTE =
-  'Phone capture only ever reads chats you linked to a person. Screenshots are read on this phone and never uploaded; ' +
-  'only the extracted messages are sent, after you review them. Captured messages wait encrypted on this phone until ' +
-  'they upload, and message text is never written to any log. You can pause capture or delete what was captured for a contact at any time.';
+  'Phone capture only reads one-to-one chats you linked to a person; group chats and everything else are skipped. ' +
+  'Screenshots are read on this phone and never uploaded; only the messages you review are sent. Captured messages wait ' +
+  'encrypted on this phone until they upload. The app does not write message text to logs, and the native bridge has ' +
+  'logging switched off. Capture stops and its data on this phone is wiped when you sign out. You can pause capture or ' +
+  'delete what was captured for a contact at any time.';
 
 export interface MethodCopy {
   title: string;
@@ -22,7 +24,7 @@ export const METHOD_COPY: Record<ReaderMethod, MethodCopy> = {
     short: 'Saves incoming message notifications from linked contacts (WhatsApp, Instagram, Tinder, Grindr, Bumble, Discord).',
     reads: [
       'The sender and text of new message notifications from those apps.',
-      'Only when the sender matches a contact you linked to a person. Everything else is ignored immediately and never stored.',
+      'Only one-to-one chats whose sender matches a contact you linked to a person. Group chats and everything else are ignored immediately and never stored.',
     ],
     never: [
       'Messages you send (notifications only show the other side), so this counts as one-sided unless you add another source.',
@@ -35,10 +37,10 @@ export const METHOD_COPY: Record<ReaderMethod, MethodCopy> = {
     tech: 'SMS READER',
     short: 'Reads both sides of text-message threads with linked phone numbers.',
     reads: [
-      'SMS and MMS text sent to and received from the phone numbers you link.',
-      'Only new messages since the last sync, when the app is open.',
+      'SMS and MMS text sent to and received from the phone numbers you link (matched on the full international number).',
+      'The first sync of a newly linked number reads up to the last 180 days of that thread; after that only new messages, when the app is open.',
     ],
-    never: ['Texts with any number you did not link.', 'Photos or other MMS attachments.'],
+    never: ['Texts with any number you did not link.', 'Group MMS threads.', 'Photos or other MMS attachments.'],
     access: 'Android asks you to allow "SMS" permission.',
   },
   a11y: {
@@ -47,7 +49,7 @@ export const METHOD_COPY: Record<ReaderMethod, MethodCopy> = {
     short: 'Reads both sides of a linked chat from the screen while you have it open (WhatsApp, Instagram, Tinder, Hinge, Grindr, Bumble, Discord, Google Messages).',
     reads: [
       'The message bubbles and date separators visible on screen, only in those eight apps.',
-      'Only while a chat whose title matches a linked contact is open. Other chats and screens are skipped.',
+      "Only while a one-to-one chat whose title (in the app's header) matches a linked contact is open. Group chats, comment screens and anything it can't identify for sure are skipped.",
       'Bubble sides (left = them, right = you) are worked out on this phone.',
     ],
     never: [
@@ -63,3 +65,7 @@ export const METHOD_COPY: Record<ReaderMethod, MethodCopy> = {
 export const RESTRICTED_SETTINGS_HINT =
   'On Android 13 and later, apps installed from an APK cannot get notification or accessibility access until you open ' +
   'App info → ⋮ → "Allow restricted settings".';
+
+export const NOTIFICATIONS_REQUIRED =
+  'Capture is stopped: Android is not letting LoveVectorSpace show its "capturing" notification, and the readers never ' +
+  'run without it. Allow notifications for the app to continue.';

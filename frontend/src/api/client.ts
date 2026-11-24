@@ -180,9 +180,25 @@ export async function acceptAuth(result: AuthResult): Promise<void> {
   emit({ type: 'authed', user: result.user });
 }
 
+// Hooks run whenever a session ends (logout, account deletion, rejected refresh), before the
+// logged_out event. Used by phone capture to wipe its native state. Failures never block sign-out.
+type ClearHook = () => Promise<void> | void;
+const clearHooks = new Set<ClearHook>();
+export function onClearSession(h: ClearHook): () => void {
+  clearHooks.add(h);
+  return () => clearHooks.delete(h);
+}
+
 export async function clearSession(): Promise<void> {
   setAccessToken(null);
   if (nativeMode()) await refreshStore()?.clear();
+  for (const h of clearHooks) {
+    try {
+      await h();
+    } catch {
+      /* never block sign-out */
+    }
+  }
   emit({ type: 'logged_out' });
 }
 

@@ -1,16 +1,44 @@
 // In-memory fakes of the native capture plugins, for tests. Not imported by app code.
+// FakeCapture mirrors the native rules: owner-checked drain, native consent for enable/link,
+// E.164 SMS links, clearAll/bindOwner wipes.
 import type { CaptureEnv, CaptureStatus, LvsCapturePlugin, LvsOcrPlugin, OcrPluginResult, QueuedCapture } from '../../native/capture';
+import { contactKey } from './links';
 import type { CaptureLink, ReaderMethod } from './types';
 
+const NATIVE_CONSENT_VERSION = 1;
+
+/** Fake E.164 normaliser (US numbering for national numbers). */
+export function fakeE164(raw: string): string | null {
+  const t = raw.trim();
+  if (/[A-Za-z]/.test(t)) return /^(?=.*[A-Za-z])[A-Za-z0-9 ._&-]{2,11}$/.test(t) ? t : null;
+  const d = t.replace(/\D/g, '');
+  let e: string;
+  if (t.startsWith('+')) e = '+' + d;
+  else if (d.length === 10) e = '+1' + d;
+  else if (d.length === 11 && d.startsWith('1')) e = '+' + d;
+  else return null;
+  return /^\+[1-9]\d{6,14}$/.test(e) ? e : null;
+}
+
 export class FakeCapture implements LvsCapturePlugin {
+  owner: string | null = 'user-1';
+  consent: Record<ReaderMethod, number> = { notify: 0, sms: 0, a11y: 0 };
   links: CaptureLink[] = [];
   queue: QueuedCapture[] = [];
   enabled: Record<ReaderMethod, boolean> = { notify: false, sms: false, a11y: false };
   granted: Record<ReaderMethod, boolean> = { notify: false, sms: false, a11y: false };
   supported: Record<ReaderMethod, boolean> = { notify: true, sms: true, a11y: true };
+  notificationsGranted = true;
+  droppedForCap = 0;
   paused = false;
   calls: string[] = [];
   smsToQueue: QueuedCapture[] = [];
+
+  /** Test helper: agree to a reader natively. */
+  agree(...ms: ReaderMethod[]) {
+    ms.forEach((m) => (this.consent[m] = NATIVE_CONSENT_VERSION));
+    return this;
+  }
 
   private snapshot(): CaptureStatus {
     const m = (k: ReaderMethod) => ({ supported: this.supported[k], enabled: this.enabled[k], granted: this.granted[k] });
@@ -19,7 +47,11 @@ export class FakeCapture implements LvsCapturePlugin {
       paused: this.paused,
       pausedReason: this.paused ? 'user' : null,
       queued: this.queue.length,
-      notificationsGranted: true,
+      notificationsGranted: this.notificationsGranted,
+      signedIn: this.owner != null,
+      consent: { ...this.consent },
+      consentVersion: NATIVE_CONSENT_VERSION,
+      droppedForCap: this.droppedForCap,
     };
   }
   async status() {
@@ -30,10 +62,61 @@ export class FakeCapture implements LvsCapturePlugin {
   }
   async setLinks(o: { links: CaptureLink[] }) {
     this.calls.push('setLinks');
-    this.links = [...o.links];
+    const accepted: CaptureLink[] = [];
+    const rejected: CaptureLink[] = [];
+    for (const l of o.links) {
+      if (!this.owner || this.consent[l.method] < NATIVE_CONSENT_VERSION) {
+        rejected.push(l);
+        continue;
+      }
+      if (l.method === 'sms') {
+        const c = fakeE164(l.contact);
+        if (!c) rejected.push(l);
+        else accepted.push({ ...l, contact: c });
+      } else accepted.push(l);
+    }
+    const gone = this.links.filter((x) => !accepted.some((a) => contactKey(a) === contactKey(x)));
+    this.queue = this.queue.filter((q) => !gone.some((g) => contactKey(g) === q.ck));
+    this.links = accepted;
+    return { links: [...accepted], rejected };
+  }
+  async setConsent(o: { method: ReaderMethod; version: number }) {
+    this.calls.push(`setConsent:${o.method}:${o.version}`);
+    if (!this.owner && o.version > 0) throw new Error('Sign in first');
+    this.consent[o.method] = o.version;
+    if (o.version <= 0) {
+      this.enabled[o.method] = false;
+      this.links = this.links.filter((l) => l.method !== o.method);
+    }
+    return this.snapshot();
+  }
+  async bindOwner(o: { userId: string }) {
+    this.calls.push(`bindOwner:${o.userId}`);
+    if (this.owner === o.userId) return { result: 'same' as const };
+    const had = this.owner != null;
+    this.wipe();
+    this.owner = o.userId;
+    return { result: had ? ('reset' as const) : ('bound' as const) };
+  }
+  private wipe() {
+    this.owner = null;
+    this.consent = { notify: 0, sms: 0, a11y: 0 };
+    this.links = [];
+    this.queue = [];
+    this.enabled = { notify: false, sms: false, a11y: false };
+    this.paused = false;
+  }
+  async clearAll() {
+    this.calls.push('clearAll');
+    this.wipe();
+  }
+  async normalizePhone(o: { number: string }) {
+    const c = fakeE164(o.number);
+    return { canonical: c, alphanumeric: !!c && /[A-Za-z]/.test(c) };
   }
   async setEnabled(o: { method: ReaderMethod; enabled: boolean }) {
     this.calls.push(`setEnabled:${o.method}:${o.enabled}`);
+    if (o.enabled && (!this.owner || this.consent[o.method] < NATIVE_CONSENT_VERSION)) throw new Error('Consent is required');
     this.enabled[o.method] = o.enabled;
     return this.snapshot();
   }
@@ -48,7 +131,8 @@ export class FakeCapture implements LvsCapturePlugin {
   async requestPermissions(o?: { permissions: ('sms' | 'notifications')[] }) {
     this.calls.push(`requestPermissions:${(o?.permissions || []).join(',')}`);
     if (o?.permissions.includes('sms')) this.granted.sms = true;
-    return { sms: 'granted' as const };
+    if (o?.permissions.includes('notifications')) this.notificationsGranted = true;
+    return { sms: 'granted' as const, notifications: 'granted' as const };
   }
   async syncSms() {
     this.calls.push('syncSms');
@@ -57,7 +141,8 @@ export class FakeCapture implements LvsCapturePlugin {
     this.smsToQueue = [];
     return { queued: n };
   }
-  async drain(o: { max: number }) {
+  async drain(o: { max: number; userId: string }) {
+    if (!this.owner || this.owner !== o.userId) throw new Error('The capture queue belongs to a different or signed-out account');
     return { items: this.queue.slice(0, o.max).map((x) => ({ ...x })) };
   }
   async ack(o: { ids: string[] }) {
@@ -67,7 +152,10 @@ export class FakeCapture implements LvsCapturePlugin {
   }
   async deleteContact(o: { method: ReaderMethod; app: string; contact: string }) {
     this.calls.push(`deleteContact:${o.method}:${o.app}:${o.contact}`);
-    return { removed: 0 };
+    const ck = contactKey({ method: o.method, app: o.app as CaptureLink['app'], contact: o.contact });
+    const before = this.queue.length;
+    this.queue = this.queue.filter((q) => q.ck !== ck);
+    return { removed: before - this.queue.length };
   }
 }
 
@@ -109,6 +197,7 @@ export function queued(p: Partial<QueuedCapture> = {}): QueuedCapture {
     text: `message ${seq}`,
     ts_utc: `2026-11-18T10:${String(seq % 60).padStart(2, '0')}:00Z`,
     ts_precision: 'second',
+    ck: 'notify|whatsapp|sam',
     ...p,
   };
 }

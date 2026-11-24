@@ -42,7 +42,16 @@ export interface CaptureStatus {
   paused: boolean;
   pausedReason: 'user' | 'idle' | null;
   queued: number;
+  /** The "capturing" notification can be shown. Readers are inactive natively without it. */
   notificationsGranted: boolean;
+  /** A signed-in account owns the capture state (bindOwner). Nothing runs while false. */
+  signedIn: boolean;
+  /** Native consent version agreed per reader (0 = none). Enforced natively. */
+  consent: Record<ReaderMethod, number>;
+  /** Consent version the native side requires. */
+  consentVersion: number;
+  /** Messages dropped because the encrypted queue was full. */
+  droppedForCap: number;
 }
 
 /** One message waiting in the native encrypted queue. */
@@ -56,12 +65,23 @@ export interface QueuedCapture {
   ts_utc?: string;
   ts_local?: string;
   ts_precision: TsPrecision;
+  /** Opaque contact key (method|app|normalised contact), for cancelling a contact's in-flight batch. */
+  ck: string;
 }
 
 export interface LvsCapturePlugin {
   status(): Promise<CaptureStatus>;
   getLinks(): Promise<{ links: CaptureLink[] }>;
-  setLinks(o: { links: CaptureLink[] }): Promise<void>;
+  /** Native validates: links need native consent; SMS numbers are stored as E.164. Returns what it refused. */
+  setLinks(o: { links: CaptureLink[] }): Promise<{ links: CaptureLink[]; rejected: CaptureLink[] }>;
+  /** Record consent (version) or withdraw it (0: reader off, its links removed). */
+  setConsent(o: { method: ReaderMethod; version: number }): Promise<CaptureStatus>;
+  /** Bind capture to the signed-in account; a different account's state is wiped first. */
+  bindOwner(o: { userId: string }): Promise<{ result: 'bound' | 'same' | 'reset' }>;
+  /** Sign-out / account deletion: forget everything, including the owner. */
+  clearAll(): Promise<void>;
+  /** Canonical form the SMS reader would store (E.164 or exact alphanumeric sender), or none. */
+  normalizePhone(o: { number: string }): Promise<{ canonical?: string | null; alphanumeric: boolean }>;
   setEnabled(o: { method: ReaderMethod; enabled: boolean }): Promise<CaptureStatus>;
   setPaused(o: { paused: boolean }): Promise<CaptureStatus>;
   /** Open the system screen where the user grants access (notification access, accessibility, app info). */
@@ -69,8 +89,8 @@ export interface LvsCapturePlugin {
   requestPermissions(o?: { permissions: ('sms' | 'notifications')[] }): Promise<Partial<Record<'sms' | 'notifications', PermissionState>>>;
   /** Read new SMS/MMS text for linked numbers into the queue. */
   syncSms(): Promise<{ queued: number }>;
-  /** Oldest queued messages, decrypted, without removing them. */
-  drain(o: { max: number }): Promise<{ items: QueuedCapture[] }>;
+  /** Oldest queued messages, decrypted, without removing them. Rejects unless userId owns the queue. */
+  drain(o: { max: number; userId: string }): Promise<{ items: QueuedCapture[] }>;
   /** Remove uploaded (or permanently rejected) messages. */
   ack(o: { ids: string[] }): Promise<{ removed: number }>;
   /** Purge everything queued or remembered for one linked contact. */

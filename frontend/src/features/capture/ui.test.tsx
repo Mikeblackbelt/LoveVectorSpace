@@ -1,11 +1,12 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { setTransport } from '../../api/client';
+import { clearSession, setTransport } from '../../api/client';
 import { mockFetch } from '../../mock/server';
 import { setCaptureEnv } from '../../native/capture';
 import { json, renderAt, useMockApi } from '../../test/utils';
 import { ensureCaptureOwner, syncAndFlush } from './CaptureFlusher';
+import './session';
 import { W, H, layout } from './fixtures';
 import { PhoneCapturePane } from './PhoneCapture';
 import { ScreenshotImportKey } from './ScreenshotImport';
@@ -59,16 +60,16 @@ describe('PhoneCapturePane', () => {
     fireEvent.click(within(dlg).getByRole('checkbox'));
     fireEvent.click(agree);
     await waitFor(() => expect(cap.calls).toContain('setEnabled:a11y:true'));
-    expect(localStorage.getItem('lvs_capture_consent_a11y')).toBe('1');
+    expect(cap.calls).toContain('setConsent:a11y:1'); // consent recorded natively first
+    expect(cap.consent.a11y).toBe(1);
     await waitFor(() => expect(screen.getByTestId('cap-state-a11y')).toHaveTextContent(/NEEDS ACCESS/));
     fireEvent.click(document.getElementById('btn-cap-grant-a11y')!);
     expect(cap.calls).toContain('openSystemSettings:a11y');
   });
 
   it('refreshes when the app returns from system settings with access granted', async () => {
-    const cap = new FakeCapture();
+    const cap = new FakeCapture().agree('a11y');
     cap.enabled.a11y = true;
-    localStorage.setItem('lvs_capture_consent_a11y', '1');
     setCaptureEnv(fakeEnv({ capture: cap }));
     renderAt(<PhoneCapturePane />);
     await waitFor(() => expect(screen.getByTestId('cap-state-a11y')).toHaveTextContent(/NEEDS ACCESS/));
@@ -79,10 +80,9 @@ describe('PhoneCapturePane', () => {
   });
 
   it('links a contact, unlinks it (purging its queue), and pauses', async () => {
-    const cap = new FakeCapture();
+    const cap = new FakeCapture().agree('notify');
     cap.enabled.notify = true;
     cap.granted.notify = true;
-    localStorage.setItem('lvs_capture_consent_notify', '1');
     setCaptureEnv(fakeEnv({ capture: cap }));
     renderAt(<PhoneCapturePane />);
     await waitFor(() => expect(screen.getByTestId('cap-state-notify')).toHaveTextContent(/CAPTURING/));
@@ -103,6 +103,62 @@ describe('PhoneCapturePane', () => {
     fireEvent.click(document.getElementById('btn-cap-pause')!);
     await waitFor(() => expect(cap.calls).toContain('setPaused:true'));
     await waitFor(() => expect(screen.getByTestId('cap-state-notify')).toHaveTextContent(/PAUSED/));
+  });
+
+  it('TURN OFF is available whenever the native switch is on, even without consent', async () => {
+    const cap = new FakeCapture();
+    cap.enabled.sms = true; // e.g. left on by an older version; consent missing natively
+    setCaptureEnv(fakeEnv({ capture: cap }));
+    renderAt(<PhoneCapturePane />);
+    await waitFor(() => expect(screen.getByTestId('cap-state-sms')).toHaveTextContent(/NOT SET UP/));
+    fireEvent.click(document.getElementById('btn-cap-off-sms')!);
+    await waitFor(() => expect(cap.calls).toContain('setEnabled:sms:false'));
+    expect(cap.enabled.sms).toBe(false);
+  });
+
+  it('warns and shows readers as stopped when the capturing notification is not allowed', async () => {
+    const cap = new FakeCapture().agree('notify');
+    cap.enabled.notify = true;
+    cap.granted.notify = true;
+    cap.notificationsGranted = false;
+    cap.droppedForCap = 3;
+    setCaptureEnv(fakeEnv({ capture: cap }));
+    renderAt(<PhoneCapturePane />);
+    await waitFor(() => expect(screen.getByTestId('cap-state-notify')).toHaveTextContent(/STOPPED/));
+    expect(screen.getByText(/never run without it/)).toBeInTheDocument();
+    expect(screen.getByText(/3 captured message\(s\) were dropped/)).toBeInTheDocument();
+    fireEvent.click(document.getElementById('btn-cap-allow-notif')!);
+    await waitFor(() => expect(screen.getByTestId('cap-state-notify')).toHaveTextContent(/CAPTURING/));
+  });
+
+  it('SMS links are normalised to E.164 natively; unrecognisable numbers are refused', async () => {
+    const cap = new FakeCapture().agree('sms');
+    setCaptureEnv(fakeEnv({ capture: cap }));
+    renderAt(<PhoneCapturePane />);
+    await waitFor(() => expect(screen.getByTestId('cap-state-sms')).toHaveTextContent(/OFF/));
+    await screen.findAllByRole('option', { name: 'Sam' });
+    const input = document.getElementById('cap-sms-contact')!;
+    fireEvent.change(input, { target: { value: '12345' } });
+    fireEvent.change(document.getElementById('cap-sms-person')!, { target: { value: '2' } });
+    fireEvent.click(document.getElementById('btn-cap-link-sms')!);
+    expect(await screen.findByText(/Include the country code/)).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: '(555) 010-2030' } });
+    fireEvent.blur(input);
+    expect(await screen.findByTestId('cap-sms-preview')).toHaveTextContent('+15550102030');
+    fireEvent.click(document.getElementById('btn-cap-link-sms')!);
+    await waitFor(() => expect(cap.links).toEqual([{ method: 'sms', app: 'sms', contact: '+15550102030', pid: 2 }]));
+  });
+
+  it('withdrawing consent turns the reader off and removes its links natively', async () => {
+    const cap = new FakeCapture().agree('notify');
+    cap.enabled.notify = true;
+    cap.links = [{ method: 'notify', app: 'tinder', contact: 'Sam', pid: 2 }];
+    setCaptureEnv(fakeEnv({ capture: cap }));
+    renderAt(<PhoneCapturePane />);
+    fireEvent.click(await screen.findByText(/Withdraw consent/, { selector: '#btn-cap-withdraw-notify' }));
+    await waitFor(() => expect(cap.calls).toContain('setConsent:notify:0'));
+    expect(cap.enabled.notify).toBe(false);
+    expect(cap.links).toEqual([]);
   });
 });
 
@@ -149,26 +205,49 @@ describe('ScreenshotImportKey', () => {
   });
 });
 
-describe('ensureCaptureOwner', () => {
-  it('a different account signing in clears links, readers and consents; same account keeps them', async () => {
-    const cap = new FakeCapture();
+describe('account binding and sign-out', () => {
+  it('a different account signing in wipes the previous state natively; the same account keeps it', async () => {
+    const cap = new FakeCapture().agree('notify');
+    cap.owner = 'user-a';
     cap.links = [{ method: 'notify', app: 'tinder', contact: 'Sam', pid: 2 }];
     cap.enabled.notify = true;
     cap.queue = [queued()];
     const env = fakeEnv({ capture: cap });
     localStorage.setItem('lvs_capture_consent_notify', '1');
-    expect(await ensureCaptureOwner(env, 'user-a')).toBe(false); // first account
     expect(await ensureCaptureOwner(env, 'user-a')).toBe(false);
     expect(cap.links).toHaveLength(1);
     expect(await ensureCaptureOwner(env, 'user-b')).toBe(true);
+    expect(cap.owner).toBe('user-b');
     expect(cap.links).toEqual([]);
+    expect(cap.queue).toEqual([]);
+    expect(cap.consent.notify).toBe(0);
     expect(cap.enabled).toEqual({ notify: false, sms: false, a11y: false });
     expect(localStorage.getItem('lvs_capture_consent_notify')).toBeNull();
-    // syncAndFlush with the new owner does not upload the old account's queue.
-    localStorage.setItem('lvs_capture_owner', 'user-a');
+  });
+
+  it('syncAndFlush never uploads in the pass that switched accounts', async () => {
+    const cap = new FakeCapture();
+    cap.owner = 'user-a';
     cap.queue = [queued()];
-    expect(await syncAndFlush(env, 'user-b')).toBe(0);
+    const r = await syncAndFlush(fakeEnv({ capture: cap }), 'user-b');
+    expect(r.uploaded).toBe(0);
     expect(posted).toHaveLength(0);
+  });
+
+  it('ending the session (logout, deletion, refresh denied) clears native capture state and JS consents', async () => {
+    const cap = new FakeCapture().agree('sms');
+    cap.links = [{ method: 'sms', app: 'sms', contact: '+15550102030', pid: 2 }];
+    cap.queue = [queued()];
+    setCaptureEnv(fakeEnv({ capture: cap }));
+    localStorage.setItem('lvs_capture_consent_sms', '1');
+    await clearSession();
+    expect(cap.calls).toContain('clearAll');
+    expect(cap.owner).toBeNull();
+    expect(cap.links).toEqual([]);
+    expect(cap.queue).toEqual([]);
+    expect(localStorage.getItem('lvs_capture_consent_sms')).toBeNull();
+    // Nothing can be drained while signed out.
+    await expect(cap.drain({ max: 10, userId: 'user-1' })).rejects.toThrow();
   });
 });
 
@@ -177,11 +256,12 @@ describe('syncAndFlush', () => {
     const cap = new FakeCapture();
     cap.enabled.sms = true;
     cap.granted.sms = true;
-    cap.smsToQueue = [queued({ source: 'android_sms', role: 'me', pid: 1 })];
-    expect(await syncAndFlush(fakeEnv({ capture: cap }))).toBe(1);
+    cap.smsToQueue = [queued({ source: 'android_sms', role: 'me', pid: 1, ck: 'sms|sms|+15550102030' })];
+    expect((await syncAndFlush(fakeEnv({ capture: cap }), 'user-1')).uploaded).toBe(1);
+    expect(cap.calls).toContain('bindOwner:user-1');
     expect(cap.calls).toContain('syncSms');
     expect(posted[0].body.source).toBe('android_sms');
-    expect(await syncAndFlush(fakeEnv({ plugins: ['LvsOcr'] }))).toBe(0);
-    expect(await syncAndFlush(fakeEnv({ platform: 'web' }))).toBe(0);
+    expect((await syncAndFlush(fakeEnv({ plugins: ['LvsOcr'] }), 'user-1')).uploaded).toBe(0);
+    expect((await syncAndFlush(fakeEnv({ platform: 'web' }), 'user-1')).uploaded).toBe(0);
   });
 });

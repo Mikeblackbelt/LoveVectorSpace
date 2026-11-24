@@ -5,61 +5,30 @@ import { useEffect } from 'react';
 import { useSession } from '../../api/session';
 import { captureEnv, type CaptureEnv } from '../../native/capture';
 import { detectCapabilities } from './capabilities';
-import { localConsent, type ConsentStore } from './consent';
-import { flushQueue } from './queue';
-import type { ReaderMethod } from './types';
+import { flushQueue, type FlushResult } from './queue';
+import { ensureCaptureOwner } from './session';
 
 const EVERY_MS = 10 * 60_000;
-const OWNER_KEY = 'lvs_capture_owner';
-const READERS: ReaderMethod[] = ['notify', 'sms', 'a11y'];
 
-function readOwner(): string | null {
-  try {
-    return localStorage.getItem(OWNER_KEY);
-  } catch {
-    return null;
-  }
-}
-function writeOwner(id: string): void {
-  try {
-    localStorage.setItem(OWNER_KEY, id);
-  } catch {
-    /* ignore */
-  }
-}
+export { ensureCaptureOwner };
 
 /**
- * Person ids belong to an account. If a different account signs in on this phone, the previous
- * account's links, queue and consents are cleared so its captures can never reach the new one.
- * Returns true if it reset.
+ * One owner-check + SMS sync + flush pass for `userId` ("Upload now" uses this too). Never throws.
+ * Uploads nothing if the owner check wiped a previous account's state.
  */
-export async function ensureCaptureOwner(env: CaptureEnv, userId: string, consent: ConsentStore = localConsent): Promise<boolean> {
-  const owner = readOwner();
-  if (owner === userId) return false;
-  writeOwner(userId);
-  if (owner == null) return false; // first account on this phone
-  const plugin = env.capture();
-  await plugin.setLinks({ links: [] }); // native side drops everything queued for removed links
-  for (const m of READERS) {
-    await plugin.setEnabled({ method: m, enabled: false });
-    consent.set(m, false);
-  }
-  return true;
-}
-
-/** One owner-check + SMS sync + flush pass. Never throws; returns uploaded count. */
-export async function syncAndFlush(env: CaptureEnv = captureEnv(), userId?: string): Promise<number> {
+export async function syncAndFlush(env: CaptureEnv, userId: string): Promise<FlushResult> {
+  const none: FlushResult = { uploaded: 0, dropped: 0, imports: 0, kept: 0 };
   try {
     const caps = await detectCapabilities(env);
-    if (caps.flavour !== 'sideload' || !caps.status) return 0;
-    if (userId && (await ensureCaptureOwner(env, userId))) return 0;
+    if (caps.flavour !== 'sideload' || !caps.status) return none;
+    if (await ensureCaptureOwner(env, userId)) return none;
     const plugin = env.capture();
     const sms = caps.status.methods.sms;
     if (sms.enabled && sms.granted && !caps.status.paused) await plugin.syncSms();
-    const r = await flushQueue(plugin);
-    return r.uploaded;
-  } catch {
-    return 0; // offline or plugin trouble: the queue keeps everything for next time
+    return await flushQueue(plugin, userId);
+  } catch (e) {
+    // Offline or plugin trouble: the queue keeps everything for next time.
+    return { ...none, error: e instanceof Error ? e.message : 'Capture unavailable' };
   }
 }
 
@@ -71,8 +40,8 @@ export function CaptureFlusher() {
     if (captureEnv().platform() !== 'android' || !userId) return;
     let alive = true;
     const run = async () => {
-      const n = await syncAndFlush(captureEnv(), userId);
-      if (alive && n > 0) {
+      const r = await syncAndFlush(captureEnv(), userId);
+      if (alive && r.uploaded > 0) {
         void qc.invalidateQueries({ queryKey: ['units'] });
         void qc.invalidateQueries({ queryKey: ['coverage'] });
         void qc.invalidateQueries({ queryKey: ['people'] });

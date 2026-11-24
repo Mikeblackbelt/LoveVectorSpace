@@ -7,8 +7,10 @@ const config: CapacitorConfig = {
   appName: 'LoveVectorSpace',
   webDir: 'dist',
   backgroundColor: '#101114',
-  android: { allowMixedContent: false },
-  ios: { contentInset: 'never', scheme: 'LoveVectorSpace' },
+  // Privacy: the bridge must never log plugin calls/results (OCR text, captured messages, contacts).
+  loggingBehavior: 'none',
+  android: { allowMixedContent: false, loggingBehavior: 'none' },
+  ios: { contentInset: 'never', scheme: 'LoveVectorSpace', loggingBehavior: 'none' },
   plugins: {
     SplashScreen: {
       launchShowDuration: 1200,

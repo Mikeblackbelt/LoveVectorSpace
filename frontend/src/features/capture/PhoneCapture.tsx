@@ -1,8 +1,10 @@
 // "Phone capture" settings: available methods, explanations, consent, toggles, linked contacts,
 // pause, upload, and per-contact delete. Readers only appear in the Android sideload build.
+// Consent, owner and link validation are enforced natively; this UI reflects native state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { peopleApi } from '../../api/endpoints';
+import { useSession } from '../../api/session';
 import type { PersonSummary } from '../../api/types';
 import { ErrorLine, Key, Loading, Pane } from '../../components/Pane';
 import { say } from '../../components/prompt';
@@ -11,11 +13,12 @@ import { L } from '../../theme/Plain';
 import { sourceFor } from './api';
 import { APP_LABELS, METHOD_APPS } from './apps';
 import type { Capabilities } from './capabilities';
-import { gateState, localConsent, type ConsentStore, type GateState } from './consent';
-import { METHOD_COPY, PRIVACY_NOTE, RESTRICTED_SETTINGS_HINT } from './copy';
+import { syncAndFlush } from './CaptureFlusher';
+import { CONSENT_VERSION, gateState, localConsent, nativeConsented, type GateState } from './consent';
+import { METHOD_COPY, NOTIFICATIONS_REQUIRED, PRIVACY_NOTE, RESTRICTED_SETTINGS_HINT } from './copy';
 import { useCaptureCaps } from './hooks';
-import { removeLink, upsertLink, validateLink } from './links';
-import { flushQueue } from './queue';
+import { contactKey, removeLink, upsertLink, validateLink } from './links';
+import { cancelContactUploads } from './queue';
 import type { AppSlug, CaptureLink, ReaderMethod } from './types';
 import './capture.css';
 
@@ -27,12 +30,13 @@ const STATE_TEXT: Record<GateState, [string, string]> = {
   needs_consent: ['OFF · NOT SET UP', 'Off'],
   off: ['OFF', 'Off'],
   needs_access: ['NEEDS ACCESS', 'Needs Android access'],
+  needs_notifications: ['STOPPED · NOTIFICATIONS OFF', 'Stopped: notifications are off'],
   paused: ['PAUSED', 'Paused'],
   active: ['CAPTURING', 'Capturing linked chats'],
 };
 
 /** Settings pane. Mount in SettingsScreen. */
-export function PhoneCapturePane({ consent = localConsent }: { consent?: ConsentStore }) {
+export function PhoneCapturePane() {
   const { caps, loading, refresh } = useCaptureCaps();
   const anyReader = caps.notify || caps.sms || caps.a11y;
   return (
@@ -52,36 +56,36 @@ export function PhoneCapturePane({ consent = localConsent }: { consent?: Consent
           This is the Play Store build. The notification, SMS and accessibility readers are only in the sideload build (see the project docs).
         </p>
       )}
-      {anyReader && <ReaderControls caps={caps} consent={consent} refresh={refresh} />}
+      {anyReader && <ReaderControls caps={caps} refresh={refresh} />}
     </Pane>
   );
 }
 
-function ReaderControls({ caps, consent, refresh }: { caps: Capabilities; consent: ConsentStore; refresh: () => Promise<void> }) {
+function ReaderControls({ caps, refresh }: { caps: Capabilities; refresh: () => Promise<void> }) {
   const qc = useQueryClient();
   const plugin = captureEnv().capture();
+  const session = useSession();
   const people = useQuery({ queryKey: ['people'], queryFn: peopleApi.list });
   const links = useQuery({ queryKey: LINKS_KEY, queryFn: async () => (await plugin.getLinks()).links });
   const [consentFor, setConsentFor] = useState<ReaderMethod | null>(null);
-  const [, force] = useState(0);
+  const [linkNote, setLinkNote] = useState<string | null>(null);
   const status = caps.status!;
+  const anyEnabled = READERS.some((m) => status.methods[m].enabled);
 
   const saveLinks = useMutation({
-    mutationFn: async (next: CaptureLink[]) => {
-      await plugin.setLinks({ links: next });
-      return next;
+    mutationFn: (next: CaptureLink[]) => plugin.setLinks({ links: next }),
+    onSuccess: (r) => {
+      qc.setQueryData(LINKS_KEY, r.links);
+      setLinkNote(r.rejected.length ? `${r.rejected.length} link(s) were refused: agree to that reader first, or use a full number with country code.` : null);
     },
-    onSuccess: (next) => qc.setQueryData(LINKS_KEY, next),
   });
   const pause = useMutation({
     mutationFn: (paused: boolean) => plugin.setPaused({ paused }),
     onSuccess: () => void refresh(),
   });
   const upload = useMutation({
-    mutationFn: async () => {
-      if (status.methods.sms.enabled && status.methods.sms.granted) await plugin.syncSms();
-      return flushQueue(plugin);
-    },
+    // Same owner check + flush as the background flusher.
+    mutationFn: () => syncAndFlush(captureEnv(), session.user?.id ?? ''),
     onSuccess: (r) => {
       say('lvs capture flush', `↳ ${r.uploaded} uploaded${r.kept ? ` · ${r.kept} waiting` : ''}${r.dropped ? ` · ${r.dropped} rejected` : ''}`);
       void refresh();
@@ -89,18 +93,60 @@ function ReaderControls({ caps, consent, refresh }: { caps: Capabilities; consen
       void qc.invalidateQueries({ queryKey: ['coverage'] });
     },
   });
+  const allowNotifications = useMutation({
+    mutationFn: async () => {
+      const r = await plugin.requestPermissions({ permissions: ['notifications'] }).catch(() => ({}));
+      if ((r as { notifications?: string }).notifications !== 'granted') await plugin.openSystemSettings({ method: 'app' });
+    },
+    onSettled: () => void refresh(),
+  });
 
-  const enable = async (m: ReaderMethod, on: boolean) => {
-    await plugin.setEnabled({ method: m, enabled: on });
-    if (on) {
-      // The persistent "capturing" notification needs POST_NOTIFICATIONS on Android 13+.
+  const enable = useMutation({
+    mutationFn: async ({ m, on }: { m: ReaderMethod; on: boolean }) => {
+      await plugin.setEnabled({ method: m, enabled: on }); // native refuses ON without consent
+      if (on) {
+        await plugin.requestPermissions({ permissions: m === 'sms' ? ['sms', 'notifications'] : ['notifications'] }).catch(() => undefined);
+      }
+    },
+    onSettled: () => void refresh(),
+  });
+  const agree = useMutation({
+    mutationFn: async (m: ReaderMethod) => {
+      await plugin.setConsent({ method: m, version: CONSENT_VERSION });
+      localConsent.set(m, true);
+      await plugin.setEnabled({ method: m, enabled: true });
       await plugin.requestPermissions({ permissions: m === 'sms' ? ['sms', 'notifications'] : ['notifications'] }).catch(() => undefined);
-    }
-    await refresh();
-  };
+    },
+    onSettled: () => {
+      setConsentFor(null);
+      void refresh();
+    },
+  });
+  const withdraw = useMutation({
+    mutationFn: async (m: ReaderMethod) => {
+      (links.data ?? []).filter((l) => l.method === m).forEach((l) => cancelContactUploads(contactKey(l)));
+      await plugin.setConsent({ method: m, version: 0 }); // native: reader off, its links removed
+      localConsent.set(m, false);
+    },
+    onSettled: () => {
+      void refresh();
+      void qc.invalidateQueries({ queryKey: LINKS_KEY });
+    },
+  });
 
   return (
     <>
+      {anyEnabled && !status.notificationsGranted && (
+        <div className="paper note urgent" role="alert">
+          <span className="glyph">[ STOPPED ] </span>{NOTIFICATIONS_REQUIRED}{' '}
+          <Key tech="ALLOW NOTIFICATIONS" plain="Allow notifications" onClick={() => allowNotifications.mutate()} id="btn-cap-allow-notif" />
+        </div>
+      )}
+      {status.droppedForCap > 0 && (
+        <p className="paper note" role="status">
+          {status.droppedForCap} captured message(s) were dropped because the queue on this phone was full. Upload more often to avoid this.
+        </p>
+      )}
       <div className="cap-method">
         <span className="cap-state">
           {status.paused
@@ -123,21 +169,25 @@ function ReaderControls({ caps, consent, refresh }: { caps: Capabilities; consen
           {!status.paused && status.methods.a11y.idle && (
             <Key variant="pri" tech="RESUME CHAT READER" plain="Resume the chat reader" onClick={() => pause.mutate(false)} disabled={pause.isPending} id="btn-cap-resume-a11y" />
           )}
-          <Key tech="UPLOAD NOW" plain="Upload now" onClick={() => upload.mutate()} disabled={upload.isPending} id="btn-cap-upload" />
+          <Key tech="UPLOAD NOW" plain="Upload now" onClick={() => upload.mutate()} disabled={upload.isPending || !session.user} id="btn-cap-upload" />
         </div>
         {upload.data?.error && <p className="err" role="alert">Upload paused: {upload.data.error}. Captured messages stay queued.</p>}
-        <ErrorLine error={pause.error || upload.error || saveLinks.error} />
+        {linkNote && <p className="err" role="alert">{linkNote}</p>}
+        <ErrorLine error={pause.error || upload.error || saveLinks.error || enable.error || agree.error || withdraw.error} />
       </div>
       {READERS.filter((m) => caps[m]).map((m) => (
         <ReaderSection
           key={m}
           method={m}
-          state={gateState(m, caps, consent.get(m))}
+          state={gateState(m, caps)}
+          enabled={status.methods[m].enabled}
+          consented={nativeConsented(m, caps)}
           links={(links.data ?? []).filter((l) => l.method === m)}
           allLinks={links.data ?? []}
           people={people.data ?? []}
           onSetup={() => setConsentFor(m)}
-          onEnable={(on) => void enable(m, on)}
+          onEnable={(on) => enable.mutate({ m, on })}
+          onWithdraw={() => withdraw.mutate(m)}
           onGrant={() => void (m === 'sms'
             ? plugin.requestPermissions({ permissions: ['sms'] }).then(refresh)
             : plugin.openSystemSettings({ method: m }))}
@@ -146,38 +196,30 @@ function ReaderControls({ caps, consent, refresh }: { caps: Capabilities; consen
         />
       ))}
       {consentFor && (
-        <ConsentDialog
-          method={consentFor}
-          onCancel={() => setConsentFor(null)}
-          onAgree={() => {
-            consent.set(consentFor, true);
-            const m = consentFor;
-            setConsentFor(null);
-            force((n) => n + 1);
-            void enable(m, true);
-          }}
-        />
+        <ConsentDialog method={consentFor} onCancel={() => setConsentFor(null)} onAgree={() => agree.mutate(consentFor)} />
       )}
     </>
   );
 }
 
 function ReaderSection({
-  method, state, links, allLinks, people, onSetup, onEnable, onGrant, onAppInfo, onSaveLinks,
+  method, state, enabled, consented, links, allLinks, people, onSetup, onEnable, onWithdraw, onGrant, onAppInfo, onSaveLinks,
 }: {
   method: ReaderMethod;
   state: GateState;
+  enabled: boolean;
+  consented: boolean;
   links: CaptureLink[];
   allLinks: CaptureLink[];
   people: PersonSummary[];
   onSetup: () => void;
   onEnable: (on: boolean) => void;
+  onWithdraw: () => void;
   onGrant: () => void;
   onAppInfo: () => void;
   onSaveLinks: (next: CaptureLink[]) => void;
 }) {
   const c = METHOD_COPY[method];
-  const on = state === 'needs_access' || state === 'paused' || state === 'active';
   const name = (pid: number) => people.find((p) => p.id === pid)?.pseudonym ?? `#${pid}`;
   return (
     <section className="cap-method" aria-labelledby={`cap-h-${method}`}>
@@ -191,8 +233,14 @@ function ReaderSection({
       <div className="keys">
         {state === 'needs_consent' && <Key variant="pri" tech="SET UP" plain="Read how it works and turn on" onClick={onSetup} id={`btn-cap-setup-${method}`} />}
         {state === 'off' && <Key variant="pri" tech="TURN ON" plain="Turn on" onClick={() => onEnable(true)} id={`btn-cap-on-${method}`} />}
-        {on && <Key tech="TURN OFF" plain="Turn off" onClick={() => onEnable(false)} id={`btn-cap-off-${method}`} />}
+        {/* Stopping is always possible while the native switch is on, whatever the consent state. */}
+        {enabled && <Key tech="TURN OFF" plain="Turn off" onClick={() => onEnable(false)} id={`btn-cap-off-${method}`} />}
         {state === 'needs_access' && <Key variant="pri" tech="GRANT ACCESS" plain="Give Android access" onClick={onGrant} id={`btn-cap-grant-${method}`} />}
+        {consented && (
+          <button type="button" className="linkish" onClick={onWithdraw} id={`btn-cap-withdraw-${method}`}>
+            Withdraw consent (turns it off and removes its links)
+          </button>
+        )}
       </div>
       {state === 'needs_access' && method !== 'sms' && (
         <p className="dimt small">
@@ -200,7 +248,7 @@ function ReaderSection({
           <button type="button" className="linkish" onClick={onAppInfo}>Open app info</button>
         </p>
       )}
-      {state !== 'needs_consent' && (
+      {(consented || links.length > 0) && (
         <>
           <h4 className="lbl sub-h"><L t="LINKED CONTACTS" p="Linked contacts (only these are captured)" /></h4>
           {links.length === 0 && <p className="dimt small">No linked contacts yet, so nothing is captured.</p>}
@@ -209,7 +257,7 @@ function ReaderSection({
               <LinkRow key={`${l.app}|${l.contact}`} link={l} person={name(l.pid)} onUnlink={() => onSaveLinks(removeLink(allLinks, l))} />
             ))}
           </ul>
-          <AddLink method={method} people={people} onAdd={(l) => onSaveLinks(upsertLink(allLinks, l))} />
+          {consented && <AddLink method={method} people={people} onAdd={(l) => onSaveLinks(upsertLink(allLinks, l))} />}
         </>
       )}
     </section>
@@ -223,6 +271,7 @@ function LinkRow({ link, person, onUnlink }: { link: CaptureLink; person: string
   const appLabel = link.app === 'sms' ? 'SMS' : APP_LABELS[link.app];
   const purge = useMutation({
     mutationFn: async (alsoUploaded: boolean) => {
+      cancelContactUploads(contactKey(link)); // stop an in-flight batch for this contact
       const { removed } = await plugin.deleteContact({ method: link.method, app: link.app, contact: link.contact });
       let server = 0;
       if (alsoUploaded) {
@@ -243,7 +292,8 @@ function LinkRow({ link, person, onUnlink }: { link: CaptureLink; person: string
     },
   });
   const unlink = async () => {
-    // Unlinking also forgets anything still queued for this contact.
+    // Unlinking also forgets anything queued or in flight for this contact (and its SMS cursor).
+    cancelContactUploads(contactKey(link));
     await plugin.deleteContact({ method: link.method, app: link.app, contact: link.contact }).catch(() => undefined);
     onUnlink();
   };
@@ -273,14 +323,33 @@ function AddLink({ method, people, onAdd }: { method: ReaderMethod; people: Pers
   const [contact, setContact] = useState('');
   const [pid, setPid] = useState(0);
   const [err, setErr] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
   const id = (s: string) => `cap-${method}-${s}`;
-  const submit = () => {
-    const l: CaptureLink = { method, app, contact, pid };
+
+  /** SMS numbers are stored in the native E.164 form; show it before linking. */
+  const canonical = async (raw: string): Promise<string | null> => {
+    if (method !== 'sms') return raw;
+    try {
+      const r = await captureEnv().capture().normalizePhone({ number: raw });
+      return r.canonical ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const submit = async () => {
+    const c = await canonical(contact);
+    if (method === 'sms' && !c) {
+      setErr("Can't recognise that number. Include the country code, e.g. +44 7700 900123.");
+      return;
+    }
+    const l: CaptureLink = { method, app, contact: c ?? contact, pid };
     const e = validateLink(l);
     setErr(e);
     if (e) return;
     onAdd(l);
     setContact('');
+    setPreview(null);
   };
   return (
     <div className="cap-addlink sub-form">
@@ -294,8 +363,16 @@ function AddLink({ method, people, onAdd }: { method: ReaderMethod; people: Pers
       )}
       <div className="field">
         <label className="lbl" htmlFor={id('contact')}>{method === 'sms' ? <L t="NUMBER" p="Phone number" /> : <L t="CHAT NAME" p="Chat name as shown in the app" />}</label>
-        <input id={id('contact')} value={contact} inputMode={method === 'sms' ? 'tel' : 'text'} autoComplete="off" onChange={(e) => setContact(e.target.value)} />
+        <input
+          id={id('contact')}
+          value={contact}
+          inputMode={method === 'sms' ? 'tel' : 'text'}
+          autoComplete="off"
+          onChange={(e) => setContact(e.target.value)}
+          onBlur={() => void (method === 'sms' && contact.trim() ? canonical(contact).then((c) => setPreview(c)) : undefined)}
+        />
       </div>
+      {method === 'sms' && preview && <p className="dimt small" data-testid="cap-sms-preview">Will be saved as {preview}</p>}
       <div className="field">
         <label className="lbl" htmlFor={id('person')}><L t="PERSON" p="Person" /></label>
         <select id={id('person')} value={pid} onChange={(e) => setPid(Number(e.target.value))}>
@@ -304,7 +381,7 @@ function AddLink({ method, people, onAdd }: { method: ReaderMethod; people: Pers
         </select>
       </div>
       <div className="keys">
-        <Key tech="+ LINK" plain="Link contact" onClick={submit} id={`btn-cap-link-${method}`} />
+        <Key tech="+ LINK" plain="Link contact" onClick={() => void submit()} id={`btn-cap-link-${method}`} />
       </div>
       {err && <p className="err" role="alert">{err}</p>}
     </div>
@@ -332,7 +409,7 @@ export function ConsentDialog({ method, onAgree, onCancel }: { method: ReaderMet
         {method !== 'sms' && <p className="dimt small">{RESTRICTED_SETTINGS_HINT}</p>}
         <label className="toggle">
           <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
-          I understand what this reads and that only linked contacts are captured.
+          I understand what this reads and that only linked one-to-one chats are captured.
         </label>
         <div className="keys">
           <Key variant="pri" tech="AGREE & TURN ON" plain="Agree and turn on" onClick={onAgree} disabled={!ack} id="btn-cap-agree" />
