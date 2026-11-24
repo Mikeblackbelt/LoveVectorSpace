@@ -32,24 +32,28 @@ final class SmsReader {
         if (!st.isActive(CaptureApps.SMS)) return 0;
         ContentResolver cr = ctx.getContentResolver();
         String tz = TimeZone.getDefault().getID();
+        PhoneMatcher pm = st.phoneMatcher();
         int total = 0;
         for (ContactGate.Link link : st.gate().linksFor(CaptureApps.SMS)) {
-            String digits = ContactGate.digits(link.contact);
-            if (digits.length() < 7) continue;
+            // link.contact is canonical: E.164, or an exact alphanumeric sender id.
+            boolean alpha = PhoneMatcher.isAlphanumericSender(link.contact);
+            String tail = alpha ? null : PhoneMatcher.prefilterTail(link.contact);
+            if (!alpha && tail == null) continue;
             long since = st.smsCursor(link.contact);
             if (since == 0) since = System.currentTimeMillis() - FIRST_SYNC_WINDOW_MS;
             long max = since;
             List<CaptureQueue.Item> items = new ArrayList<>();
             List<String> keys = new ArrayList<>();
             Set<Long> threads = new LinkedHashSet<>();
-            String tail = digits.substring(digits.length() - 7);
 
             String[] cols = { Telephony.Sms._ID, Telephony.Sms.THREAD_ID, Telephony.Sms.ADDRESS, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.BODY };
-            try (Cursor c = cr.query(Telephony.Sms.CONTENT_URI, cols, Telephony.Sms.DATE + " > ? AND " + Telephony.Sms.ADDRESS + " LIKE ?",
-                new String[] { String.valueOf(since), "%" + tail }, Telephony.Sms.DATE + " ASC")) {
+            // SQL prefilter only (last 7 digits / exact sender id); the final check is full E.164 equality.
+            String where = Telephony.Sms.DATE + " > ? AND " + Telephony.Sms.ADDRESS + (alpha ? " = ? COLLATE NOCASE" : " LIKE ?");
+            String arg = alpha ? link.contact : "%" + tail;
+            try (Cursor c = cr.query(Telephony.Sms.CONTENT_URI, cols, where, new String[] { String.valueOf(since), arg }, Telephony.Sms.DATE + " ASC")) {
                 while (c != null && c.moveToNext()) {
                     String addr = c.getString(2);
-                    if (!ContactGate.phoneMatches(addr, link.contact)) continue;
+                    if (!pm.matches(link.contact, addr)) continue;
                     threads.add(c.getLong(1));
                     int type = c.getInt(4);
                     String role = type == Telephony.Sms.MESSAGE_TYPE_INBOX ? "them" : type == Telephony.Sms.MESSAGE_TYPE_SENT ? "me" : null;
@@ -62,7 +66,7 @@ final class SmsReader {
             } catch (SecurityException e) {
                 return total;
             }
-            max = Math.max(max, readMms(cr, link, threads, since, tz, items, keys));
+            max = Math.max(max, readMms(cr, pm, link, threads, since, tz, items, keys));
             total += st.addAll(items, keys);
             if (max > since) st.setSmsCursor(link.contact, max);
         }
@@ -70,7 +74,7 @@ final class SmsReader {
     }
 
     /** MMS text parts in the same (one-to-one) threads. Returns the newest date seen, in ms. */
-    private static long readMms(ContentResolver cr, ContactGate.Link link, Set<Long> threads, long since, String tz,
+    private static long readMms(ContentResolver cr, PhoneMatcher pm, ContactGate.Link link, Set<Long> threads, long since, String tz,
         List<CaptureQueue.Item> items, List<String> keys) {
         long max = since;
         if (threads.isEmpty()) return max;
@@ -84,7 +88,7 @@ final class SmsReader {
                 long date = c.getLong(1) * 1000L; // MMS dates are seconds
                 int box = c.getInt(2);
                 String role = box == 1 ? "them" : box == 2 ? "me" : null;
-                if (role == null || !oneToOneWith(cr, id, link)) continue;
+                if (role == null || !oneToOneWith(cr, pm, id, link)) continue;
                 String text = mmsText(cr, id);
                 if (text == null || text.trim().isEmpty()) continue;
                 add(items, keys, link, tz, role, text, date, "mms" + id);
@@ -96,7 +100,7 @@ final class SmsReader {
         return max;
     }
 
-    private static boolean oneToOneWith(ContentResolver cr, long mmsId, ContactGate.Link link) {
+    private static boolean oneToOneWith(ContentResolver cr, PhoneMatcher pm, long mmsId, ContactGate.Link link) {
         int others = 0;
         boolean match = false;
         try (Cursor c = cr.query(Uri.parse("content://mms/" + mmsId + "/addr"), new String[] { "address", "type" }, null, null, null)) {
@@ -105,7 +109,7 @@ final class SmsReader {
                 if (type != MMS_ADDR_FROM && type != MMS_ADDR_TO) continue;
                 String a = c.getString(0);
                 if (a == null || a.equals("insert-address-token")) continue;
-                if (ContactGate.phoneMatches(a, link.contact)) match = true;
+                if (pm.matches(link.contact, a)) match = true;
                 else others++;
             }
         }

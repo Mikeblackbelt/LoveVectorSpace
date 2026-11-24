@@ -1,29 +1,40 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
 import type { ImportResult } from '../../api/types';
+import config from '../../../capacitor.config';
 import { importMessages, SOURCE_RE, sourceFor } from './api';
+import { bytesOf, MAX_TEXT, splitBatches, truncateText } from './batches';
 import { detectCapabilities, NO_CAPS } from './capabilities';
-import { canEnable, gateState, localConsent } from './consent';
-import { normContact, removeLink, upsertLink, validateLink } from './links';
+import { canEnable, gateState, localConsent, nativeConsented } from './consent';
+import { contactKey, normContact, normName, removeLink, upsertLink, validateLink } from './links';
 import { toOcrImage } from './ocr';
-import { flushQueue } from './queue';
+import { cancelContactUploads, flushQueue } from './queue';
 import { fakeEnv, FakeCapture, queued } from './testing';
 import type { ImportMessagesBody } from './types';
 
 const OK: ImportResult = { unit_id: 'u', added: 1, merged: 0, skipped_non_english: 0, one_sided: true, job_id: 1 };
+const U = 'user-1';
+
+describe('capacitor config', () => {
+  it('turns bridge logging off on both platforms (no plugin data in logs)', () => {
+    expect(config.loggingBehavior).toBe('none');
+    expect(config.android?.loggingBehavior).toBe('none');
+    expect(config.ios?.loggingBehavior).toBe('none');
+  });
+});
 
 describe('flushQueue', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('groups by person+source+tz, posts, and acks only after success', async () => {
+  it('groups by person+source+tz+contact, posts, and acks only after success', async () => {
     const cap = new FakeCapture();
     cap.queue = [
       queued({ pid: 1, source: 'android_notify_whatsapp' }),
       queued({ pid: 1, source: 'android_notify_whatsapp' }),
-      queued({ pid: 2, source: 'android_sms', role: 'me', ts_utc: undefined, ts_local: '2026-11-18T09:00:00', ts_precision: 'approx' }),
+      queued({ pid: 2, source: 'android_sms', role: 'me', ts_utc: undefined, ts_local: '2026-11-18T09:00:00', ts_precision: 'approx', ck: 'sms|sms|+15550102030' }),
     ];
     const calls: [number, ImportMessagesBody][] = [];
-    const r = await flushQueue(cap, async (pid, body) => {
+    const r = await flushQueue(cap, U, async (pid, body) => {
       calls.push([pid, body]);
       return OK;
     });
@@ -34,25 +45,37 @@ describe('flushQueue', () => {
     expect(calls[0][1].messages[0]).not.toHaveProperty('ts_local');
   });
 
+  it('refuses to drain for a different or signed-out account', async () => {
+    const cap = new FakeCapture();
+    cap.queue = [queued()];
+    const up = vi.fn(async () => OK);
+    const r = await flushQueue(cap, 'someone-else', up);
+    expect(r.error).toMatch(/different or signed-out/);
+    expect(up).not.toHaveBeenCalled();
+    expect(cap.queue).toHaveLength(1);
+    cap.owner = null;
+    expect((await flushQueue(cap, U, up)).uploaded).toBe(0);
+  });
+
   it('keeps everything queued on a transient failure (offline / 401 / 5xx)', async () => {
     const cap = new FakeCapture();
     cap.queue = [queued(), queued()];
-    const r = await flushQueue(cap, async () => {
+    const r = await flushQueue(cap, U, async () => {
       throw new ApiError(503, 'unavailable', 'down');
     });
     expect(r).toMatchObject({ uploaded: 0, kept: 2, error: 'down' });
     expect(cap.queue).toHaveLength(2);
-    const r2 = await flushQueue(cap, async () => {
+    const r2 = await flushQueue(cap, U, async () => {
       throw new TypeError('Failed to fetch');
     });
     expect(r2.kept).toBe(2);
     expect(cap.queue).toHaveLength(2);
   });
 
-  it('drops permanently rejected batches (400/404) and blank text so the queue never jams', async () => {
+  it('drops a batch for a deleted person (404) and blank text', async () => {
     const cap = new FakeCapture();
     cap.queue = [queued({ pid: 9 }), queued({ pid: 1, text: '   ' }), queued({ pid: 1 })];
-    const r = await flushQueue(cap, async (pid) => {
+    const r = await flushQueue(cap, U, async (pid) => {
       if (pid === 9) throw new ApiError(404, 'not_found', 'person');
       return OK;
     });
@@ -60,14 +83,86 @@ describe('flushQueue', () => {
     expect(cap.queue).toEqual([]);
   });
 
+  it('422 isolates only the bad message instead of dropping the batch', async () => {
+    const cap = new FakeCapture();
+    cap.queue = [queued({ text: 'a' }), queued({ text: 'BAD' }), queued({ text: 'c' }), queued({ text: 'd' })];
+    const sent: string[] = [];
+    const r = await flushQueue(cap, U, async (_pid, body) => {
+      if (body.messages.some((m) => m.text === 'BAD')) throw new ApiError(422, 'invalid_input', 'bad', 'messages');
+      sent.push(...body.messages.map((m) => m.text));
+      return OK;
+    });
+    expect(r).toMatchObject({ uploaded: 3, dropped: 1 });
+    expect(sent.sort()).toEqual(['a', 'c', 'd']);
+    expect(cap.queue).toEqual([]);
+  });
+
+  it('413 splits the batch and retries', async () => {
+    const cap = new FakeCapture();
+    cap.queue = Array.from({ length: 8 }, () => queued());
+    const sizes: number[] = [];
+    const r = await flushQueue(cap, U, async (_pid, body) => {
+      if (body.messages.length > 2) throw new ApiError(413, 'too_large', 'too large');
+      sizes.push(body.messages.length);
+      return OK;
+    });
+    expect(r.uploaded).toBe(8);
+    expect(sizes).toEqual([2, 2, 2, 2]);
+  });
+
+  it('truncates long text to 4000 characters before upload', async () => {
+    const cap = new FakeCapture();
+    cap.queue = [queued({ text: 'x'.repeat(5000) })];
+    let len = 0;
+    await flushQueue(cap, U, async (_p, body) => {
+      len = body.messages[0].text.length;
+      return OK;
+    });
+    expect(len).toBe(MAX_TEXT);
+  });
+
+  it('a per-contact delete aborts that contact’s in-flight batch', async () => {
+    const cap = new FakeCapture();
+    cap.queue = [queued({ ck: 'notify|whatsapp|sam' }), queued({ ck: 'notify|whatsapp|alex', pid: 2 })];
+    const aborted: number[] = [];
+    const r = await flushQueue(cap, U, (pid, _b, signal) => new Promise<ImportResult>((resolve, reject) => {
+      if (pid === 1) {
+        signal?.addEventListener('abort', () => {
+          aborted.push(pid);
+          reject(new DOMException('aborted', 'AbortError'));
+        });
+        // The user deletes Sam's captured data while this upload is in flight.
+        setTimeout(() => {
+          void cap.deleteContact({ method: 'notify', app: 'whatsapp', contact: 'Sam' });
+          cancelContactUploads('notify|whatsapp|sam');
+        }, 5);
+      } else resolve(OK);
+    }));
+    expect(aborted).toEqual([1]);
+    expect(r.uploaded).toBe(1); // Alex's batch still went up
+    expect(cap.queue).toEqual([]);
+  });
+
   it('drains in batches until empty, and concurrent calls share one run', async () => {
     const cap = new FakeCapture();
     cap.queue = Array.from({ length: 7 }, () => queued());
     const up = vi.fn(async () => OK);
-    const [a, b] = await Promise.all([flushQueue(cap, up, { batch: 3 }), flushQueue(cap, up, { batch: 3 })]);
+    const [a, b] = await Promise.all([flushQueue(cap, U, up, { batch: 3 }), flushQueue(cap, U, up, { batch: 3 })]);
     expect(a).toBe(b);
     expect(a.uploaded).toBe(7);
     expect(up).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('batches', () => {
+  it('splits by count and by encoded bytes; keeps surrogate pairs whole', () => {
+    const items = Array.from({ length: 25 }, (_, i) => ({ msg: { ts_utc: 'x', ts_precision: 'second' as const, role: 'me' as const, text: `m${String(i).padStart(2, '0')}` } }));
+    expect(splitBatches(items, 0, 10).map((b) => b.length)).toEqual([10, 10, 5]);
+    const one = bytesOf(items[0].msg) + 1;
+    expect(splitBatches(items, 0, 1000, one * 4).map((b) => b.length)).toEqual([4, 4, 4, 4, 4, 4, 1]);
+    const emoji = 'a'.repeat(MAX_TEXT - 1) + '😀';
+    expect(truncateText(emoji).length).toBe(MAX_TEXT - 1);
+    expect(truncateText('short')).toBe('short');
   });
 });
 
@@ -109,41 +204,38 @@ describe('detectCapabilities (flavour detection)', () => {
   });
 });
 
-describe('consent gating', () => {
-  it('walks unsupported -> needs_consent -> off -> needs_access -> active/paused', async () => {
+describe('consent gating (native source of truth)', () => {
+  it('walks unsupported -> needs_consent -> off -> needs_access -> needs_notifications -> active/paused', async () => {
     const cap = new FakeCapture();
     const caps = async () => detectCapabilities(fakeEnv({ capture: cap }));
-    expect(gateState('a11y', NO_CAPS, true)).toBe('unsupported');
-    expect(gateState('a11y', await caps(), false)).toBe('needs_consent');
-    expect(canEnable('a11y', await caps(), false)).toBe(false);
-    expect(gateState('a11y', await caps(), true)).toBe('off');
-    expect(canEnable('a11y', await caps(), true)).toBe(true);
+    expect(gateState('a11y', NO_CAPS)).toBe('unsupported');
+    expect(gateState('a11y', await caps())).toBe('needs_consent');
+    expect(canEnable('a11y', await caps())).toBe(false);
+    localConsent.set('a11y', true); // a JS-only flag is NOT consent
+    expect(gateState('a11y', await caps())).toBe('needs_consent');
+    cap.agree('a11y');
+    expect(nativeConsented('a11y', await caps())).toBe(true);
+    expect(gateState('a11y', await caps())).toBe('off');
+    expect(canEnable('a11y', await caps())).toBe(true);
     cap.enabled.a11y = true;
-    expect(gateState('a11y', await caps(), true)).toBe('needs_access');
+    expect(gateState('a11y', await caps())).toBe('needs_access');
     cap.granted.a11y = true;
-    expect(gateState('a11y', await caps(), true)).toBe('active');
+    cap.notificationsGranted = false;
+    expect(gateState('a11y', await caps())).toBe('needs_notifications');
+    cap.notificationsGranted = true;
+    expect(gateState('a11y', await caps())).toBe('active');
     cap.paused = true;
-    expect(gateState('a11y', await caps(), true)).toBe('paused');
+    expect(gateState('a11y', await caps())).toBe('paused');
   });
   it('the accessibility idle auto-pause shows as paused for that reader only', async () => {
-    const cap = new FakeCapture();
+    const cap = new FakeCapture().agree('notify', 'a11y');
     cap.enabled = { notify: true, sms: false, a11y: true };
     cap.granted = { notify: true, sms: false, a11y: true };
     const base = await cap.status();
     cap.status = async () => ({ ...base, methods: { ...base.methods, a11y: { ...base.methods.a11y, idle: true } } });
     const c = await detectCapabilities(fakeEnv({ capture: cap }));
-    expect(gateState('a11y', c, true)).toBe('paused');
-    expect(gateState('notify', c, true)).toBe('active');
-  });
-  it('consent is stored per method and versioned', () => {
-    expect(localConsent.get('a11y')).toBe(false);
-    localConsent.set('a11y', true);
-    expect(localConsent.get('a11y')).toBe(true);
-    expect(localConsent.get('notify')).toBe(false);
-    localStorage.setItem('lvs_capture_consent_sms', '0');
-    expect(localConsent.get('sms')).toBe(false);
-    localConsent.set('a11y', false);
-    expect(localConsent.get('a11y')).toBe(false);
+    expect(gateState('a11y', c)).toBe('paused');
+    expect(gateState('notify', c)).toBe('active');
   });
 });
 
@@ -151,7 +243,9 @@ describe('links', () => {
   it('normalises, validates and upserts', () => {
     expect(normContact('sms', ' +1 (555) 010-2030 ')).toBe('+15550102030');
     expect(normContact('notify', '  Sam   R ')).toBe('Sam R');
-    expect(validateLink({ method: 'sms', app: 'sms', contact: '123', pid: 1 })).toMatch(/phone/);
+    expect(validateLink({ method: 'sms', app: 'sms', contact: '5550102030', pid: 1 })).toMatch(/country code/);
+    expect(validateLink({ method: 'sms', app: 'sms', contact: '+15550102030', pid: 1 })).toBeNull();
+    expect(validateLink({ method: 'sms', app: 'sms', contact: 'Uber', pid: 1 })).toBeNull();
     expect(validateLink({ method: 'a11y', app: 'hinge', contact: ' ', pid: 1 })).toMatch(/chat name/);
     expect(validateLink({ method: 'a11y', app: 'hinge', contact: 'Sam', pid: 0 })).toMatch(/person/);
     expect(validateLink({ method: 'notify', app: 'tinder', contact: 'Sam', pid: 3 })).toBeNull();
@@ -163,6 +257,11 @@ describe('links', () => {
       { method: 'notify', app: 'whatsapp', contact: 'Sam', pid: 1 },
     ]);
     expect(removeLink(ls, { method: 'notify', app: 'tinder', contact: 'SAM', pid: 0 })).toHaveLength(1);
+  });
+  it('contact keys match the native normalisation', () => {
+    const wrapped = String.fromCharCode(0x2068) + 'Sam' + String.fromCharCode(0xa0) + ' R' + String.fromCharCode(0x2069);
+    expect(normName(wrapped)).toBe('sam r');
+    expect(contactKey({ method: 'notify', app: 'whatsapp', contact: wrapped })).toBe('notify|whatsapp|sam r');
   });
 });
 

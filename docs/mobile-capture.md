@@ -35,46 +35,64 @@ The web build offers none of these. iOS cannot read other apps at all, so it has
 
 ### SMS reader (sideload)
 - Needs `READ_SMS`. It reads only when the app is open (on start, resume, every 10 minutes, or **Upload now**).
-- For each linked number, it queries SMS rows `WHERE address LIKE '%<last 7 digits>'` since the last sync and re-checks each row with `phoneMatches` (last 10 digits).
+- Linked numbers are stored in **E.164** form. They are normalised natively with `PhoneNumberUtils.formatNumberToE164`, using the SIM country, then the network country, then the device locale. A number that can't be normalised is refused, and the UI shows the stored form ("Will be saved as +1…").
+- Alphanumeric senders ("Uber", "BANK") only match an identical link string.
+- For each link, a SQL prefilter (`address LIKE '%<last 7 digits>'`, or `address = <sender id>`) narrows the rows. The final check normalises each row's address and requires **full E.164 equality** (`PhoneMatcher.java`).
 - Inbox rows become *them* and sent rows become *me*. Drafts, outbox and failed rows are skipped.
 - MMS text parts are read from the same threads only. Group MMS (more than one other party) and attachments are skipped.
-- The first sync of a new number looks back 180 days. After that a per-number cursor is kept.
+- The first sync of a new number reads up to 180 days of that thread, and the consent screen says so. After that a per-number cursor is kept. Unlinking a number, deleting its data, signing out or switching accounts clears its cursor.
 
 ### Accessibility chat reader (sideload, off by default)
 - `LvsAccessibilityService`'s config sets `packageNames` to the allowlist: WhatsApp (+ Business), Instagram, Tinder, Hinge, Grindr, Bumble, Discord and Google Messages. **Android never delivers other apps' events to it.**
-- It reads the window only when both of these hold:
-  - a text node in the top 20% of the screen exactly matches a contact linked for that app (the chat title);
-  - there is a message input box in the lower part of the screen (it is a chat, not a list).
+- Each window is copied into a plain node tree. The copy never reads password or editable text. `ChatScreen.java` (pure Java, unit-tested) then decides, and **any doubt means no capture**:
+  1. There must be a message input box in the lower 40% of the screen.
+  2. There must be a message-list container: a tall scrollable node. The chat title is anchored **above** it.
+  3. **Title:** if the app's known title view id is present (WhatsApp, Instagram, Google Messages), that is the title. Otherwise the candidates are the text nodes above the list, minus status lines such as "online" and "typing…". There must be **exactly one** candidate, and it must exactly match a contact linked for that app.
+  4. **Group chats are refused** when any of these is true:
+     - a sender-label view id is present (WhatsApp `name_in_group`);
+     - the title text is repeated inside the list;
+     - per-bubble sender labels are present: short left-side lines stacked on another left-side node that repeat, number two or more, or name a linked contact.
+- Comment sheets such as Instagram's ("Comments" header, or a post author plus caption above the list) fail rule 3, so they are never captured.
 - **Password nodes (`isPassword`) and editable fields are skipped without reading their text**, and so are their children. The input box is used only for its position.
 - `BubbleParser.java` assigns sides from node bounds (nearer the right edge = me), reads centred separators and bubble times, and drops centred system notices. `TimeAssigner.java` builds `ts_local`: `minute` precision when both date and time were on screen, `approx` otherwise.
 - Repeats from scrolling are skipped with a hashed seen-set, and the server merges anything that slips through.
 - **Auto-pause:** after 30 minutes without a linked chat, the chat reader pauses itself. The notification offers "Resume chat reader".
 
 ### Controls shared by the readers
-- A persistent "Capturing linked chats" notification lists the active readers and the queued count, with a one-tap **Pause/Resume**.
+- A persistent "Capturing linked chats" notification lists the active readers and the queued count, with a one-tap **Pause/Resume**. If it is swiped away while capture is on, it is posted again (foreground-service style); pausing is how you stop. **Readers are inactive natively whenever this notification can't be shown** (POST_NOTIFICATIONS denied or notifications off), and the app shows a "Capture is stopped" warning with an *Allow notifications* button.
 - Settings → **Phone capture** shows:
-  - each method with its explanation and a consent screen, which must be agreed before a reader can be turned on;
-  - on/off switches, and a button to grant Android access;
+  - each method with its explanation and a consent screen. The agreed consent version is stored **natively**, and the plugin refuses `setEnabled(true)` and `setLinks` without it. The services check it too. *Withdraw consent* turns the reader off and removes its links;
+  - on/off switches. **TURN OFF is always shown while the native switch is on**, whatever the consent state. There is also a button to grant Android access;
   - linked contacts per method, with *Unlink* (also purges that contact's queue) and *Delete captured data*: queued only, or queued plus the uploaded units of that source for that person;
   - pause all, and upload now.
-- Upload: `CaptureFlusher` (mounted in the signed-in shell) runs SMS sync and then drains the queue → `POST /imports/messages` grouped by (person, source, tz) → acks only after a 2xx.
+- Upload: `CaptureFlusher`, mounted in the signed-in shell, uses the same path as *Upload now*:
+  - `bindOwner(userId)`, then SMS sync, then `drain({ userId })`. Native code refuses to drain unless that user owns the queue.
+  - Items are grouped by (person, source, tz, contact). Text over 4,000 characters is truncated. Batches are split to at most 10,000 messages and under 2 MiB.
+  - Each batch goes to `POST /imports/messages`, and items are acked only after a 2xx.
+- Upload errors:
   - Offline, 401, 429 or 5xx: the items stay queued.
-  - 400, 404 or 422 (a bad batch, or a deleted person): the items are dropped, so one bad batch can't jam the queue.
+  - 413: the batch is split in half and retried.
+  - 422, or 400 on `messages`: the batch is bisected to isolate the bad message(s), and only those are dropped.
+  - 404 (the person was deleted) or another 400: that batch is dropped.
+- Deleting a contact's data, unlinking it or withdrawing consent aborts that contact's in-flight upload. This is best effort: a request the server already received stays imported.
 
 ## Permissions
 
 | Flavour | Manifest additions |
 |---|---|
-| `store` | none beyond `INTERNET`. Its manifest also strips `READ_SMS`/`RECEIVE_SMS` in case a library adds them. |
+| `store` | `INTERNET` (app), `VIBRATE` (`@capacitor/haptics`), `USE_CREDENTIALS` (`@capgo/capacitor-social-login`). No reader permissions or services. Its manifest also strips `READ_SMS`/`RECEIVE_SMS` in case a library adds them. |
 | `sideload` | `READ_SMS`, `POST_NOTIFICATIONS`. `LvsNotificationListener` (protected by `BIND_NOTIFICATION_LISTENER_SERVICE`). `LvsAccessibilityService` (protected by `BIND_ACCESSIBILITY_SERVICE`, `res/xml/lvs_accessibility_config.xml`). `CaptureControlReceiver` (not exported). |
 
 Notification access and the accessibility service are granted in system settings; the app opens the right screen. **Android 13+ blocks both for apps installed from an APK** until the user opens App info → ⋮ → **Allow restricted settings**. The app shows this hint and an "Open app info" link.
 
 ## Privacy guarantees
-- Only linked chats are captured. Gating happens natively before anything is written. Unlinked contacts are never stored.
+- Only **linked one-to-one chats** are captured. Group chats, and anything the reader can't identify for sure, are skipped. Gating happens natively before anything is written, and unlinked contacts are never stored.
+- **Bound to the account.** Capture state belongs to the signed-in account (`bindOwner`). Nothing captures or drains while signed out.
+  - Signing in with a different account wipes the previous state before the new owner is written.
+  - Logout, account deletion or a rejected token refresh call the native `clearAll()`. It wipes links, queue, seen-set, SMS cursors, switches, consent and owner, and the JS consent mirror is cleared too. The hook lives in `clearSession`.
 - Screenshot images never leave the device, and only reviewed text is uploaded.
 - The queue, linked contacts, cursors and seen-hashes live in one file in `noBackupFilesDir`, encrypted with AES-256-GCM under a non-exportable Android Keystore key (`CryptoBox.java`). `allowBackup` is false. The seen-set stores truncated SHA-256 hashes, not text.
-- **No message text is logged**, in Java or JS. Errors carry only class names or generic messages.
+- **No message text is logged.** Our Java and JS code never logs it, errors carry only class names or generic messages, and Capacitor's bridge logging is off (`loggingBehavior: 'none'` globally and for Android and iOS in `capacitor.config.ts`), so plugin call data is not written to logcat or the Xcode console either.
 - Pause, unlink and per-contact delete are always one tap away.
 
 ## Builds
@@ -129,9 +147,10 @@ Automated tests:
   - Sender names in group chats are not handled; link one-to-one chats only.
   - Bubbles with no time on screen get approximate times near "now" (today) or noon (other days).
   - **Date assumption:** bubbles with no date separator visible above them are assumed to be from today. Opening an old chat stamps the visible old messages with today's date. Scrolling up until a separator shows re-captures them under the right date, but the wrongly dated copies stay. Scroll to a separator before relying on dates, or delete the unit and re-capture.
-- **Switching accounts:** the first account to sign in on a phone owns its capture state. If a different account signs in, linked contacts, the queue, reader switches and consents are cleared, so one account's captures never reach another account's person ids. Anything not yet uploaded is lost.
-- **SMS:** MMS-only threads (no SMS row in the window) are not found, group MMS is skipped, and the first sync is limited to 180 days.
-- **"Persistent" notification:** it is an ongoing notification, not a foreground service. On Android 14+ users can swipe it away, and it reappears on the next capture or state change.
+- **Signing out or switching accounts** wipes capture state on the phone, so anything not yet uploaded is lost. Upload first if it matters.
+- **Group detection is heuristic.** Some one-to-one chats may be refused, for example when the contact's name appears as a message or the header shows extra text. That errs on the side of not capturing.
+- **SMS:** MMS-only threads (no SMS row in the window) are not found, group MMS is skipped, and the first sync is limited to 180 days. A number saved without a country code is normalised with the SIM or network country. Abroad without a SIM, the device locale is used.
+- **"Persistent" notification:** it is an ongoing notification that re-posts itself when dismissed, not a real foreground service (starting one from these services is restricted on recent Android).
 - **Not compiled here:** the Java code and the JUnit tests were written without a JDK, and the Swift without a Mac. The first Gradle and Xcode builds may surface small fixes.
 
 ## Files

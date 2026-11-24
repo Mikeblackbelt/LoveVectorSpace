@@ -99,6 +99,10 @@ public final class CaptureIndicator {
             b.addAction(0, "Resume chat reader", PendingIntent.getBroadcast(ctx, 3, resume, flags));
         }
         if (openPi != null) b.setContentIntent(openPi);
+        // Foreground-service style: if the user swipes it away while capture is on, it comes back
+        // (pause is the way to stop). Readers are inactive whenever it can't be shown at all.
+        Intent repost = new Intent(ctx, CaptureControlReceiver.class).setAction(CaptureControlReceiver.ACTION_REPOST);
+        b.setDeleteIntent(PendingIntent.getBroadcast(ctx, 4, repost, flags));
         try {
             nm.notify(ID, b.build());
         } catch (SecurityException e) {

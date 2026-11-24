@@ -8,7 +8,9 @@ import { say } from '../../components/prompt';
 import { timezoneGuess } from '../../lib/format';
 import { haptic } from '../../native/native';
 import { L } from '../../theme/Plain';
+import type { ImportResult } from '../../api/types';
 import { importMessages } from './api';
+import { splitBatches } from './batches';
 import { useCaptureCaps } from './hooks';
 import { recognizeScreenshot } from './ocr';
 import { buildScreenshotBody, parseScreens, reviewReducer } from './review';
@@ -107,7 +109,18 @@ export function ScreenshotImportDialog({ pid: initialPid, onClose }: { pid: numb
 
   const body = useMemo(() => buildScreenshotBody(bubbles, tz), [bubbles, tz]);
   const imp = useMutation({
-    mutationFn: () => importMessages(pid, body),
+    mutationFn: async () => {
+      // Large reviews go up in several requests (count/byte limits); results are summed.
+      const parts = splitBatches(body.messages.map((msg) => ({ msg })));
+      let total: ImportResult | null = null;
+      for (const p of parts) {
+        const r = await importMessages(pid, { ...body, messages: p.map((x) => x.msg) });
+        total = total
+          ? { ...r, added: total.added + r.added, merged: total.merged + r.merged, skipped_non_english: total.skipped_non_english + r.skipped_non_english }
+          : r;
+      }
+      return total!;
+    },
     onSuccess: (r) => {
       haptic();
       say('lvs import screenshots', `↳ +${r.added} new · ${r.merged} merged${r.one_sided ? ' · one-sided' : ''}`);

@@ -12,9 +12,9 @@ export function sourceFor(method: ReaderMethod, app: AppSlug | 'sms'): string {
   return `android_${method}_${app}`;
 }
 
-export type Uploader = (pid: number, body: ImportMessagesBody) => Promise<ImportResult>;
+export type Uploader = (pid: number, body: ImportMessagesBody, signal?: AbortSignal) => Promise<ImportResult>;
 
-export const importMessages: Uploader = (pid, body) => {
+export const importMessages: Uploader = (pid, body, signal) => {
   if (!SOURCE_RE.test(body.source)) return Promise.reject(new Error(`Unknown capture source ${body.source}`));
-  return api.post<ImportResult>(`/api/people/${pid}/imports/messages`, body);
+  return api.post<ImportResult>(`/api/people/${pid}/imports/messages`, body, signal ? { signal } : undefined);
 };
