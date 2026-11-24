@@ -8,7 +8,38 @@ export const MIN_FLUSH_MS = 30_000;
 export const MAX_TEXT = 4000;
 const TRUNC_MARK = "…[truncated]";
 
-export const clampText = (t: string): string => (t.length <= MAX_TEXT ? t : t.slice(0, MAX_TEXT - TRUNC_MARK.length) + TRUNC_MARK);
+export function clampText(t: string): string {
+  if (t.length <= MAX_TEXT) return t;
+  let cut = MAX_TEXT - TRUNC_MARK.length;
+  const last = t.charCodeAt(cut - 1);
+  if (last >= 0xd800 && last <= 0xdbff) cut -= 1; // never split a surrogate pair
+  return t.slice(0, cut) + TRUNC_MARK;
+}
+
+/**
+ * Send items in chunks of <= size. A chunk the server refuses with 413/422 is halved until it is accepted;
+ * a single item that still fails is dropped and counted. Other errors propagate (the caller keeps its data).
+ */
+export async function postSplit<T>(items: T[], size: number, send: (chunk: T[]) => Promise<unknown>): Promise<{ sent: number; rejected: number }> {
+  let sent = 0;
+  let rejected = 0;
+  const go = async (chunk: T[]): Promise<void> => {
+    try {
+      await send(chunk);
+      sent += chunk.length;
+    } catch (e) {
+      if (!(e instanceof ApiError && (e.status === 413 || e.status === 422))) throw e;
+      if (chunk.length === 1) rejected += 1;
+      else {
+        const mid = Math.ceil(chunk.length / 2);
+        await go(chunk.slice(0, mid));
+        await go(chunk.slice(mid));
+      }
+    }
+  };
+  for (let i = 0; i < items.length; i += size) await go(items.slice(i, i + size));
+  return { sent, rejected };
+}
 
 type IngestFn = (b: CaptureBatch) => Promise<unknown>;
 

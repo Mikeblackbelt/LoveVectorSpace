@@ -536,9 +536,36 @@ describe("whole-batch accept and persistent seen-set", () => {
     const s = await SeenSet.forChat("whatsapp", "X", store);
     s.stage(Array.from({ length: SEEN_CAP + 50 }, (_, i) => String(i)));
     await s.commit();
-    expect((mem["seen:whatsapp:X"] as string[]).length).toBe(SEEN_CAP);
+    expect((mem["seen:whatsapp:X"] as string).length).toBe(SEEN_CAP * 11);
     const again = await SeenSet.forChat("whatsapp", "X", store);
     expect(again.has(String(SEEN_CAP + 49))).toBe(true);
     expect(again.has("0")).toBe(false);
+  });
+});
+
+describe("import bypasses the seen filter but records keys", () => {
+  it("re-reads messages already captured, then marks them seen for live capture", async () => {
+    loadFixture("whatsapp");
+    const shared = new SeenSet(null);
+    const sink = new CollectSink();
+    const live = startLiveCapture(mk.whatsapp(), sink, { tz: "UTC", isLinked: () => true, isAllowed: () => "ok" as const, seenFor: () => shared, pollMs: 60_000 });
+    await live.scan();
+    expect(sink.items).toHaveLength(4);
+    const up = vi.fn(async (_m: unknown[]) => undefined);
+    const r = await runImport(mk.whatsapp(), null, fast(), new RunGuard(300, 0), { tz: "UTC", chatKey: "Sam Example", isLinked: () => true, seen: shared }, up);
+    expect(r.count).toBe(4); // everything visible again, although live already had it
+    expect(up.mock.calls[0][0]).toHaveLength(4);
+    live.stop();
+  });
+  it("a failed upload records nothing", async () => {
+    loadFixture("whatsapp");
+    const shared = new SeenSet(null);
+    const r = await runImport(mk.whatsapp(), null, fast(), new RunGuard(300, 0), { tz: "UTC", chatKey: "Sam Example", isLinked: () => true, seen: shared }, async () => { throw new Error("x"); });
+    expect(r.reason).toBe("upload_failed");
+    const sink = new CollectSink();
+    const live = startLiveCapture(mk.whatsapp(), sink, { tz: "UTC", isLinked: () => true, isAllowed: () => "ok" as const, seenFor: () => shared, pollMs: 60_000 });
+    await live.scan();
+    live.stop();
+    expect(sink.items).toHaveLength(4);
   });
 });

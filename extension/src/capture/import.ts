@@ -1,6 +1,6 @@
 import type { CapturedMessage, MessageSink, SiteAdapter } from "../adapters/types";
 import type { RateLimiter, RunGuard } from "../ratelimit";
-import { SeenSet } from "./seen";
+import { SeenSet, type SeenLike } from "./seen";
 import { Harvester, scrollHarvestLoop, tsMillis, type LoopDeps, type StopReason } from "./common";
 
 export interface ImportResult {
@@ -31,7 +31,10 @@ export async function runImport(
     },
   };
   // Keys stay staged until the upload succeeds, so a failed upload does not make messages look captured.
-  const seen = deps.seen ?? new SeenSet(null);
+  // Import re-reads everything visible (the server merges duplicates). It only records keys afterwards, through a
+  // private session, so a failed upload leaves nothing marked and other writers of the shared set are untouched.
+  const shared = deps.seen as unknown as { session?: (ignore: boolean) => SeenLike } | undefined;
+  const seen: SeenLike = shared?.session ? shared.session(true) : new SeenSet(null).session(true);
   const d = { ...deps, seen, deferSeen: true };
   let reason: StopReason;
   // Only a run that scrolls is rate-limited and subject to the per-platform cool-down.
