@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">LoveVectorSpace</string>
+    <string name="title_activity_main">LoveVectorSpace</string>
+    <string name="package_name">app.lovevectorspace.demo</string>
+    <string name="custom_url_scheme">app.lovevectorspace.demo</string>
+</resources>
