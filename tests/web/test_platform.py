@@ -243,3 +243,23 @@ def test_uvicorn_access_log_query_redacted():
                             ("1.2.3.4:5", "GET", "/api/events?access_token=SECRET", "1.1", 200), None)
     RedactQueryFilter().filter(rec)
     assert "SECRET" not in rec.getMessage() and "/api/events" in rec.getMessage()
+
+
+def test_unknown_api_paths_404_for_all_methods(client):
+    for method in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+        r = client.request(method, "/api/nope")
+        assert r.status_code == 404 and r.json()["error"]["code"] == "not_found", method
+
+
+def test_unhandled_facade_error_is_contained(tmp_path, caplog):
+    caplog.set_level(logging.DEBUG)
+    h = Harness(tmp_path)
+    with h.client(raise_server_exceptions=False) as c:
+        at = h.signup(c, "alice@example.com")["access_token"]
+        for s in h.factory.services:
+            s.list_people = lambda: (_ for _ in ()).throw(RuntimeError("MESSAGE_TEXT_SECRET"))
+        r = c.get("/api/people", headers={**auth(at), "Origin": APP_ORIGIN})
+        assert r.status_code == 500 and r.json()["error"]["code"] == "internal_error"
+        assert r.headers["access-control-allow-origin"] == APP_ORIGIN
+    text = "\n".join(r.getMessage() + (r.exc_text or "") for r in caplog.records if not r.name.startswith("httpx"))
+    assert "MESSAGE_TEXT_SECRET" not in text

@@ -75,16 +75,17 @@ def send_message(tid: int, body: MessageIn, request: Request, p: Principal = Dep
             if first is not None:
                 yield sse_data(first)
             while True:
-                with h.lock:
+                failed = False
+                with h.lock:   # never yield while holding the lock: the generator may resume on another thread
                     try:
                         ev = next(it)
                     except StopIteration:
                         break
                     except Exception as exc:  # noqa: BLE001 - reported to the client as an event
-                        ev = _error_event(exc)
-                        yield sse_data(ev)
-                        break
+                        ev, failed = _error_event(exc), True
                 yield sse_data(ev)
+                if failed:
+                    break
         finally:
             close = getattr(it, "close", None)
             if callable(close):

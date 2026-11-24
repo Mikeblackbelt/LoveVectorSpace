@@ -80,7 +80,9 @@ def test_apple_token(h, client):
     # name is stored on first login only
     r2 = client.post("/api/auth/apple/token", json={"id_token": tok, "name": "Changed"})
     assert r2.json()["user"]["display_name"] == "Ann"
+    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     for bad in (h.idp.token(iss=iss, aud="com.other", sub="a-1"), h.idp.token(iss=iss, aud=APPLE_AUD, exp_in=-100),
+                h.idp.token(iss=iss, aud=APPLE_AUD, sub="a-1", key=other),
                 h.idp.token(iss="https://accounts.google.com", aud=APPLE_AUD)):
         assert client.post("/api/auth/apple/token", json={"id_token": bad}).status_code == 401
 

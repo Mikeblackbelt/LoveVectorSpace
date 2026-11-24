@@ -137,16 +137,23 @@ class RequestLog:
         scope.setdefault("state", {})
         start = time.perf_counter()
         status = 500
+        started = False
 
         async def send_wrapped(message):
-            nonlocal status
+            nonlocal status, started
             if message["type"] == "http.response.start":
-                status = message["status"]
+                status, started = message["status"], True
                 message = {**message, "headers": list(message.get("headers", [])) + [(b"x-request-id", rid.encode())]}
             await send(message)
 
         try:
             await self.app(scope, receive, send_wrapped)
+        except Exception as exc:
+            # contain it here: never let the server print a traceback whose message may carry user content
+            log.error("rid=%s unhandled %s", rid, type(exc).__name__)
+            if not started:
+                body = json.dumps({"error": {"code": "internal_error", "message": "Something went wrong."}}).encode()
+                await _send_plain(send_wrapped, 500, body, content_type=b"application/json")
         finally:
             state = scope.get("state") or {}
             uid = state.get("user_id") if isinstance(state, dict) else None

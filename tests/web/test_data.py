@@ -117,7 +117,8 @@ def _walk(routes):
 
 
 def api_routes(app):
-    return {(m, r.path) for r in _walk(app.routes) if r.path.startswith("/api") for m in r.methods}
+    return {(m, r.path) for r in _walk(app.routes)
+            if r.path.startswith("/api") and r.path != "/api/{rest:path}" for m in r.methods}   # 404 catch-all
 
 
 def test_every_api_route_is_probed(h):

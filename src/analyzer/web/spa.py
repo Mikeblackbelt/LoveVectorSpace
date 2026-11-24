@@ -14,6 +14,10 @@ RESERVED = ("/api", "/mcp", "/healthz")
 def install_spa(app: FastAPI, dist: Path) -> None:
     dist = dist.resolve()
 
+    @app.api_route("/api/{rest:path}", methods=["POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)
+    async def api_not_found(rest: str):
+        raise ApiError(404, "not_found", "Not found.")
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa(full_path: str, request: Request):
         path = "/" + full_path

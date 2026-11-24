@@ -67,19 +67,32 @@ class UserDBManager:
     def _acquire(self, user_id: str) -> UserHandle:
         with self._cv:
             h = self._entries.get(user_id)
+            if h is not None:
+                return self._pin(h)
+        # Open outside the cache lock: _key_for reads accounts.db, whose lock may be held by a caller that is
+        # itself waiting for this cache (signup creating the DB). Never hold both in cache-then-accounts order.
+        conn = open_db(self.path(user_id), self._key_for(user_id))
+        try:
+            service = self._make_service(user_id, conn)
+        except Exception:
+            conn.close()
+            raise
+        fresh = UserHandle(user_id, conn, service)
+        with self._cv:
+            h = self._entries.get(user_id)
             if h is None:
-                conn = open_db(self.path(user_id), self._key_for(user_id))
-                try:
-                    service = self._make_service(user_id, conn)
-                except Exception:
-                    conn.close()
-                    raise
-                h = UserHandle(user_id, conn, service)
-                self._entries[user_id] = h
-            self._entries.move_to_end(user_id)
-            h.pins += 1
-            self._evict_overflow()
-            return h
+                self._entries[user_id] = h = fresh
+                fresh = None
+            pinned = self._pin(h)
+        if fresh is not None:          # lost a race with a concurrent opener
+            self._close(fresh)
+        return pinned
+
+    def _pin(self, h: UserHandle) -> UserHandle:
+        self._entries.move_to_end(h.user_id)
+        h.pins += 1
+        self._evict_overflow()
+        return h
 
     def release(self, h: UserHandle) -> None:
         with self._cv:

@@ -21,8 +21,8 @@ def _token(request: Request) -> str | None:
     return request.query_params.get("access_token") or None   # EventSource cannot set headers; this route only
 
 
-async def event_stream(request: Request, bus, user_id: str, heartbeat: float, sub=None):
-    sub = sub or bus.subscribe(user_id)
+async def event_stream(request: Request, bus, user_id: str, heartbeat: float):
+    sub = bus.subscribe(user_id)   # inside the generator, so a client that never starts reading leaks nothing
     try:
         yield ": connected\n\n"
         while True:
@@ -47,7 +47,6 @@ async def events(request: Request):
     p = await run_in_threadpool(accounts(request).authenticate_access, token)
     request.state.user_id = p.user.id
     bus = request.app.state.events
-    sub = bus.subscribe(p.user.id)
-    return StreamingResponse(event_stream(request, bus, p.user.id, request.app.state.settings.sse_heartbeat_s, sub),
+    return StreamingResponse(event_stream(request, bus, p.user.id, request.app.state.settings.sse_heartbeat_s),
                              media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
