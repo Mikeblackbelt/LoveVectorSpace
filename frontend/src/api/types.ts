@@ -375,7 +375,7 @@ export type AgentEvent =
   | { type: 'token'; text: string }
   | { type: 'tool_call'; name: string; args: Record<string, unknown> }
   | { type: 'tool_result'; name: string; ok: boolean; summary: string }
-  | { type: 'done'; message_id: number }
+  | { type: 'done'; message_id: number | null }
   | { type: 'error'; code: string; message: string };
 
 export interface InterviewProgress {

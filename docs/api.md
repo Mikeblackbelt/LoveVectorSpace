@@ -193,7 +193,7 @@ If no key is set or the agent is disabled, these routes return 503 `agent_unavai
 - `{"type":"token","text":str}`
 - `{"type":"tool_call","name":str,"args":{}}`
 - `{"type":"tool_result","name":str,"ok":bool,"summary":str}`
-- `{"type":"done","message_id":int}`
+- `{"type":"done","message_id":int|null}` (null when the turn produced no text, e.g. an empty final round: nothing is stored)
 - `{"type":"error","code":str,"message":str}`
 
 ## Live events

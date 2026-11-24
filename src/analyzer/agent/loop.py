@@ -112,7 +112,8 @@ def run_agent(svc, client, thread_id: int | None, user_text: str | None, kind: s
                 final_text = text or (FALLBACK_TEXT if last else "")
                 if last and not text and not background:
                     yield {"type": "token", "text": final_text}
-                final_id = persist("assistant", final_text)
+                if final_text.strip():  # never store a blank assistant message (done.message_id is then null)
+                    final_id = persist("assistant", final_text)
                 break
             tc = [{"id": c["id"], "type": "function",
                    "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}} for c in calls]

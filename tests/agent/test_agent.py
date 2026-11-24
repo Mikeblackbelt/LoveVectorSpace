@@ -210,3 +210,20 @@ def test_history_repairs_old_poisoned_thread(make_factory, conn, events):
     sent = fake.calls[-1]["messages"]
     assert not any(m.get("tool_calls") for m in sent) and not any(m["role"] == "tool" for m in sent)
     assert [m["content"] for m in sent if m["role"] == "user"] == ["first", "second"]
+
+
+def test_blank_final_round_is_not_persisted(make_factory, conn, events):
+    f, svc, pid, fake = boot(make_factory, conn, events, [say("")], import_chat=False)
+    tid = svc.create_thread(pid, "chat")["id"]
+    evs = list(svc.send_message(tid, "hello"))
+    assert evs[-1] == {"type": "done", "message_id": None}
+    assert [m["role"] for m in svc.get_thread(tid)["messages"]] == ["user"]
+
+
+def test_log_interaction_schema_has_explicit_fields(make_factory, conn, events):
+    from analyzer.agent.tools import build_registry
+    f, svc, pid, fake = boot(make_factory, conn, events, [], import_chat=False)
+    spec = next(t for t in build_registry(svc, svc.get_settings(), pid) if t.name == "log_interaction")
+    fields = spec.schema()["function"]["parameters"]["properties"]["fields"]
+    assert {"ts", "initiated_by", "closeness_1_7", "comfort_1_7", "responsiveness"} <= set(fields["properties"])
+    assert fields["properties"]["closeness_1_7"]["maximum"] == 7 and "ts" in fields["required"]

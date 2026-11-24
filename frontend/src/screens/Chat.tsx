@@ -174,7 +174,7 @@ export function ChatScreen() {
               return { ...x, tools };
             });
           else if (e.type === 'done') {
-            patch((x) => ({ ...x, streaming: false, id: 'm' + e.message_id }));
+            patch((x) => ({ ...x, streaming: false, id: e.message_id != null ? 'm' + e.message_id : x.id }));
             setAnnounce(`Reply: ${full.slice(0, 400)}`);
           }
           else if (e.type === 'error') patch((x) => ({ ...x, streaming: false, role: 'error', text: x.text || e.message }));
