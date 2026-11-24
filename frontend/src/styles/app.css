@@ -68,7 +68,7 @@ html,body{margin:0;min-height:100%}
 .lvs .fact-k{font-weight:600;color:var(--text)}
 .lvs .fact-v{margin:4px 0}
 .lvs .fact.unsure .fact-v{color:var(--text-dim);font-style:italic}
-.lvs .fact.revoked{opacity:.6}
+.lvs .fact.revoked,.lvs .fact.revoked .fact-k{color:var(--text-dim)}
 .lvs .scale-list{list-style:none;margin:0;padding:0}
 .lvs .scale-row{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;padding:12px 0;border-top:var(--rule-w) dashed var(--rule)}
 .lvs .scale-row:first-child{border-top:0}
@@ -81,7 +81,7 @@ html,body{margin:0;min-height:100%}
 .lvs .safety.sev-concern{background:var(--concern-bg);color:var(--concern-fg)}
 .lvs .safety.sev-urgent{background:var(--urgent-bg);color:var(--urgent-fg);border-color:var(--urgent-bg)}
 .lvs .safety.sev-info{background:var(--panel);color:var(--text);border-color:var(--rule)}
-.lvs .safety .dimt,.lvs .safety .lbl{color:inherit;opacity:.85}
+.lvs .safety .dimt,.lvs .safety .lbl{color:inherit}
 .lvs .safety-h{margin:0 0 6px;font-size:14px;letter-spacing:.12em}
 .lvs .safety-lede{margin:0 0 8px}
 .lvs .safety-flags{margin:0 0 10px;padding-left:18px}
@@ -273,7 +273,7 @@ html,body{margin:0;min-height:100%}
 .spec[data-theme="pulse"] .num{font-weight:800;font-size:38px;text-shadow:-2px 0 color-mix(in srgb,var(--them) 80%,transparent),2px 0 color-mix(in srgb,var(--me) 80%,transparent)}
 .spec[data-theme="pulse"] .spec-radar .v{filter:drop-shadow(0 0 3px var(--me))}
 .spec[data-theme="crt"]{background:repeating-linear-gradient(0deg,color-mix(in srgb,var(--bg) 70%,transparent) 0 1px,transparent 1px 3px),var(--bg)}
-.spec[data-theme="crt"] .num{color:var(--me);text-shadow:0 0 8px color-mix(in srgb,var(--me) 75%,transparent)}
+.spec[data-theme="crt"] .num{color:var(--me-t);text-shadow:0 0 8px color-mix(in srgb,var(--me) 75%,transparent)}
 .spec[data-theme="journal"]{box-shadow:var(--shadow)}
 .spec[data-theme="journal"] .spec-head{letter-spacing:0;text-transform:none;font-size:13px}
 .spec[data-theme="journal"] .num{font-weight:600}
@@ -338,7 +338,7 @@ html,body{margin:0;min-height:100%}
 .lvs .btn svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6}
 .lvs .btn svg .fl{fill:currentColor;stroke:none}
 .lvs .or{display:flex;align-items:center;gap:10px;margin:20px 0 10px;color:var(--text-dim);font-size:11px;letter-spacing:.12em}
-.lvs .or .ln{flex:1;overflow:hidden;white-space:nowrap;color:var(--rule)}
+.lvs .or .ln{flex:1;overflow:hidden;white-space:nowrap;color:var(--text-dim)}
 .lvs .links{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 16px;margin-top:18px;font-size:12px}
 .lvs .links a,.lvs .foot-links a{color:var(--link-t);text-decoration:underline;text-underline-offset:3px;display:inline-flex;align-items:center;min-height:44px}
 .lvs .fine{margin-top:16px;font-size:12px;color:var(--text-dim)}
