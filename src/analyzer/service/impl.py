@@ -307,8 +307,10 @@ class ServiceFactoryImpl:
         return svc
 
     def seed_demo(self, user_id: str, conn: Any) -> None:
+        """Idempotent and resumable (see service/seed.py): safe to call on every start."""
         from .seed import seed
-        seed(self.for_user(user_id, conn, NullEvents()))
+        status = seed(self.for_user(user_id, conn, NullEvents()))
+        log.info("demo seed: %s", ", ".join(f"{k}={v}" for k, v in status.items()))
 
 
 # ---------------------------------------------------------------------------------------------

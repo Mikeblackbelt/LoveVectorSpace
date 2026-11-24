@@ -675,15 +675,31 @@ class AccountService:
         self.users.hard_delete(user.id)
         self.audit.log(user.id, "account_deleted")
 
+    def request_stop(self) -> None:
+        """Ask background loops (maintenance, demo seeding) to stop at their next check."""
+        self._stop.set()
+
     def seed_demo(self) -> None:
+        """Create the demo accounts if missing and bring their data to a complete state. Idempotent and
+        resumable: runs on every start (from a background thread, see web/app.py); a user row without a
+        database file, or a partial seed, is completed; an already complete account is left as it is."""
         if not self.s.demo_password:
             log.warning("SEED_DEMO=1 but DEMO_PASSWORD is not set; skipping demo accounts")
             return
         for i, email in enumerate(DEMO_EMAILS, start=1):
-            if self.users.by_email(email) is not None:
-                continue
-            user = self._new_user(email, password_hash=self.passwords.hash(self.s.demo_password),
-                                  display_name=f"Judge {i}", email_verified=True)
-            with self.userdbs.use(user.id, create=True) as h, h.lock:
-                self.factory.seed_demo(user.id, h.conn)
-            self.audit.log(user.id, "demo_seeded")
+            if self._stop.is_set():
+                return
+            try:
+                user = self.users.by_email(email)
+                if user is None:
+                    user = self._new_user(email, password_hash=self.passwords.hash(self.s.demo_password),
+                                          display_name=f"Judge {i}", email_verified=True)
+                elif not self.passwords.verify(user.password_hash, self.s.demo_password):
+                    self.users.update(user.id, password_hash=self.passwords.hash(self.s.demo_password))
+                # create=True also recreates a missing file. No user lock here: seed_demo takes it itself
+                # and releases it while the models run, so the judge can sign in and browse meanwhile.
+                with self.userdbs.use(user.id, create=True) as h:
+                    self.factory.seed_demo(user.id, h.conn)
+                self.audit.log(user.id, "demo_seeded")
+            except Exception as e:
+                log.warning("demo seeding for judge %d failed: %s", i, type(e).__name__)

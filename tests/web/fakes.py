@@ -353,6 +353,8 @@ class FakeFactory:
         self.imports: list = []
         self.services: list[FakeUserService] = []
         self.seeded: list[str] = []
+        self.seed_calls: list[str] = []
+        self.seed_gate = None   # threading.Event: seed_demo blocks until it is set (slow-seeder tests)
 
     def for_user(self, user_id: str, conn: Any, events: Any) -> FakeUserService:
         s = FakeUserService(user_id, conn, events, self)
@@ -360,5 +362,11 @@ class FakeFactory:
         return s
 
     def seed_demo(self, user_id: str, conn: Any) -> None:
-        FakeUserService(user_id, conn, None, self).create_person("Yu Cheng", "potential", None)
-        self.seeded.append(user_id)
+        """Idempotent like the real one: `seeded` records only calls that actually added data."""
+        if self.seed_gate is not None:
+            assert self.seed_gate.wait(10), "test never released the seeder"
+        svc = FakeUserService(user_id, conn, None, self)
+        self.seed_calls.append(user_id)
+        if not svc.list_people():
+            svc.create_person("Yu Cheng", "potential", None)
+            self.seeded.append(user_id)

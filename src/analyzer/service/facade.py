@@ -112,4 +112,6 @@ class UserService(Protocol):
 
 class ServiceFactory(Protocol):
     def for_user(self, user_id: str, conn: Any, events: EventSink) -> UserService: ...
-    def seed_demo(self, user_id: str, conn: Any) -> None: ...      # synthetic Yu Cheng / Sam / Jordan data
+    def seed_demo(self, user_id: str, conn: Any) -> None: ...      # synthetic Yu Cheng / Sam / Jordan data;
+    # idempotent and resumable: called on every start, it completes a partial seed and is a no-op otherwise.
+    # Called WITHOUT the user lock held (it takes the lock itself and releases it while models run).

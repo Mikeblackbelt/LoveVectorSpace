@@ -316,11 +316,47 @@ def test_lru_eviction_and_reopen(tmp_path):
 def test_seed_demo(tmp_path):
     h = Harness(tmp_path, seed_demo=True, demo_password="demo-password-for-judges")
     with h.client() as c:
+        assert h.app.state.seed_done.wait(10)
         assert len(h.factory.seeded) == 2
         r = c.post("/api/auth/login", json={"email": "judge1@demo.lvs", "password": "demo-password-for-judges"})
         assert r.status_code == 200
         people = c.get("/api/people", headers=auth(r.json()["access_token"])).json()
         assert people[0]["pseudonym"] == "Yu Cheng"
     h2 = Harness(tmp_path, seed_demo=True, demo_password="demo-password-for-judges")   # idempotent
-    assert h2.factory.seeded == []
-    h2.accounts.close()
+    with h2.client() as c:
+        assert h2.app.state.seed_done.wait(10)
+        assert len(h2.factory.seed_calls) == 2 and h2.factory.seeded == []   # checked again, nothing added
+        r = c.post("/api/auth/login", json={"email": "judge1@demo.lvs", "password": "demo-password-for-judges"})
+        assert len(c.get("/api/people", headers=auth(r.json()["access_token"])).json()) == 1
+
+
+def test_seed_demo_runs_in_background_and_healthz_answers(tmp_path):
+    import threading
+    import time
+    h = Harness(tmp_path, seed_demo=True, demo_password="demo-password-for-judges")
+    h.factory.seed_gate = threading.Event()          # a seeder that would take "forever"
+    t0 = time.monotonic()
+    with h.client() as c:
+        r = c.get("/healthz")
+        assert r.status_code == 200 and r.json()["seeding"] is True
+        assert time.monotonic() - t0 < 5             # startup did not wait for the seeder
+        h.factory.seed_gate.set()
+        assert h.app.state.seed_done.wait(10)
+        assert c.get("/healthz").json()["seeding"] is False
+        assert len(h.factory.seeded) == 2
+
+
+def test_seed_demo_repairs_user_without_db_and_rotated_password(tmp_path):
+    h = Harness(tmp_path, seed_demo=True, demo_password="demo-password-for-judges")
+    with h.client():
+        assert h.app.state.seed_done.wait(10)
+        uid = h.accounts.users.by_email("judge1@demo.lvs").id
+        path = h.accounts.userdbs.path(uid)
+    path.unlink()                                     # half-seeded: user row but no database
+    h2 = Harness(tmp_path, seed_demo=True, demo_password="a-new-demo-password-123")
+    with h2.client() as c:
+        assert h2.app.state.seed_done.wait(10)
+        assert h2.factory.seeded == [uid]
+        r = c.post("/api/auth/login", json={"email": "judge1@demo.lvs", "password": "a-new-demo-password-123"})
+        assert r.status_code == 200
+        assert [p["pseudonym"] for p in c.get("/api/people", headers=auth(r.json()["access_token"])).json()] ==             ["Yu Cheng"]
