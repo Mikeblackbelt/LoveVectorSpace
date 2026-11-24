@@ -48,10 +48,18 @@ def build_registry(svc, settings: dict, person_id: int | None = None, thread_kin
             required = ["person_id", *(required or [])]
         return _obj(props, required)
 
+    reads_text = bool(settings.get("agent_reads_text", True))
+
+    def safety_for_model(block: dict) -> dict:
+        """No message text reaches the model when the owner turned that off: drop every excerpt."""
+        if reads_text:
+            return block
+        return {**block, "flags": [{k: v for k, v in f.items() if k != "snippets"} for f in block["flags"]]}
+
     def overview(a):
         o = svc.overview(pid_of(a))
         return {"person": o["person"], "mode": o["mode"], "generated_at": o["generated_at"],
-                "success": o["success"], "safety": o["safety"], "reciprocity": o["reciprocity"],
+                "success": o["success"], "safety": safety_for_model(o["safety"]), "reciprocity": o["reciprocity"],
                 "metrics": [m for m in o["metrics"] if m["status"] == "ok"],
                 "interaction_metrics": o["interaction_metrics"], "scales": o["scales"],
                 "coverage_ratio": o["coverage_ratio"], "next_steps": o["next_steps"]}
@@ -63,7 +71,7 @@ def build_registry(svc, settings: dict, person_id: int | None = None, thread_kin
         q = str(a.get("query", "")).strip()
         if not q:
             raise InvalidInput("query required", "query")
-        return {"matches": svc.search_messages(pid_of(a), q, min(int(a.get("limit", 20) or 20), 20))}
+        return {"matches": svc.search_messages(pid_of(a), q, max(1, min(int(a.get("limit", 20) or 20), 50)))}
 
     def explain(a):
         return svc.explain_metric(str(a.get("metric_id", "")))
@@ -75,7 +83,13 @@ def build_registry(svc, settings: dict, person_id: int | None = None, thread_kin
         return propose(svc, pid_of(a), a)
 
     def update_step(a):
-        return svc.set_next_step_status(int(a.get("id", 0)), str(a.get("status", "")))
+        try:
+            sid = int(a.get("id", 0))
+        except (TypeError, ValueError) as e:
+            raise InvalidInput("id must be an integer", "id") from e
+        if person_id is not None and sid not in {s["id"] for s in svc.list_next_steps(person_id)}:
+            raise InvalidInput("no such next step for this person", "id")
+        return svc.set_next_step_status(sid, str(a.get("status", "")))
 
     def get_context(a):
         pid = pid_of(a)
@@ -135,7 +149,7 @@ def build_registry(svc, settings: dict, person_id: int | None = None, thread_kin
                  pprop({"since": {"type": "string"}}), list_inter),
         ToolSpec("get_interview_progress", "Which intake topics are covered or open.", pprop({}), progress),
     ]
-    if not settings.get("agent_reads_text", True):
+    if not reads_text:
         specs = [s for s in specs if not s.needs_text]
     if background:
         specs = [s for s in specs if s.name in BACKGROUND_TOOLS]

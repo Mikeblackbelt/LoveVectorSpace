@@ -999,6 +999,7 @@ class UserServiceImpl:
     @locked
     def search_messages(self, pid: int, query: str, limit: int = 20) -> list[dict]:
         from analyzer.store.messages import normalize
+        limit = max(1, min(int(limit), 50))
         q = normalize(query).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         rows = self.conn.execute(
             "SELECT ts, role, text FROM messages WHERE person_id=? AND role IS NOT NULL"
