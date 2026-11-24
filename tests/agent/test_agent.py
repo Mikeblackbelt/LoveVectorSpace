@@ -57,13 +57,14 @@ def test_tool_errors_returned_to_model(make_factory, conn, events):
     script = [tool_call("no_such_tool", {}), tool_call("propose_next_step",
               {"title": "t", "why": "w", "evidence_refs": [], "kind": "safety"}), say("done")]
     f, svc, pid, fake = boot(make_factory, conn, events, script)
+    steps_before = svc.list_next_steps(pid)
     tid = svc.create_thread(pid, "chat")["id"]
     ev = run(svc, tid)
     results = [e for e in ev if e["type"] == "tool_result"]
     assert [r["ok"] for r in results] == [False, False] and ev[-1]["type"] == "done"
     second_tool = next(m for m in fake.calls[1]["messages"] if m["role"] == "tool")
     assert "error" in json.loads(second_tool["content"])
-    assert svc.list_next_steps(pid) == [] or all(s["kind"] != "safety" for s in svc.list_next_steps(pid))
+    assert svc.list_next_steps(pid) == steps_before  # the invalid proposal created nothing
 
 
 def test_max_tool_rounds(make_factory, conn, events):
@@ -130,3 +131,82 @@ def test_system_prompt_contains_rules():
         assert phrase in iv
     assert "log_interaction" in system_prompt("checkin")
     assert "cannot talk to the owner" in system_prompt("chat", background=True)
+
+
+CONTROL = [{"text": t, "role": "them", "ts_utc": f"2025-03-0{i + 1}T10:00:00Z", "ts_precision": "second"}
+           for i, t in enumerate(["Send me your live location right now " + "x" * 30,
+                                  "Send me your live location again " + "y" * 30])]
+
+
+def tool_payload(fake, call_idx=1):
+    return json.loads(next(m for m in fake.calls[call_idx]["messages"] if m["role"] == "tool")["content"])
+
+
+@pytest.mark.parametrize("reads_text", [True, False])
+def test_safety_snippets_only_reach_model_when_text_allowed(make_factory, conn, events, reads_text):
+    f, svc, pid, fake = boot(make_factory, conn, events, [tool_call("get_person_overview", {}), say("ok")])
+    svc.import_messages(pid, "android_sms", "UTC", CONTROL)
+    assert f.wait_idle(30)
+    svc.update_settings({"agent_reads_text": reads_text})
+    fake.script[:] = [tool_call("get_person_overview", {}), say("ok")]
+    tid = svc.create_thread(pid, "chat")["id"]
+    run(svc, tid)
+    flags = tool_payload(fake)["safety"]["flags"]
+    assert flags, "fixture should trigger a safety flag"
+    assert all(bool(fl.get("snippets")) is reads_text for fl in flags)
+    if not reads_text:
+        assert "live location" not in json.dumps(fake.calls[1]["messages"])
+
+
+def test_update_next_step_cannot_cross_people(make_factory, conn, events):
+    f, svc, pid, fake = boot(make_factory, conn, events, [])
+    other = svc.create_person("Other", "potential", "UTC")["id"]
+    theirs = svc._add_step_dedup(other, "talk", "t", "w", [])
+    mine = svc._add_step_dedup(pid, "talk", "m", "w", [])
+    fake.script[:] = [tool_call("update_next_step", {"id": theirs["id"], "status": "done"}, cid="a"),
+                      tool_call("update_next_step", {"id": mine["id"], "status": "done"}, cid="b"), say("ok")]
+    tid = svc.create_thread(pid, "chat")["id"]
+    ev = run(svc, tid)
+    assert [e["ok"] for e in ev if e["type"] == "tool_result"] == [False, True]
+    status = {s["id"]: s["status"] for s in svc.list_next_steps(other) + svc.list_next_steps(pid)}
+    assert status[theirs["id"]] == "open" and status[mine["id"]] == "done"
+
+
+def test_search_limit_is_clamped(make_factory, conn, events):
+    f, svc, pid, fake = boot(make_factory, conn, events, [])
+    assert len(svc.search_messages(pid, "sounds good", 0)) == 1
+    assert len(svc.search_messages(pid, "sounds good", 10_000)) <= 50
+    reg = {t.name: t for t in build_registry(svc, svc.get_settings(), pid)}
+    assert len(reg["search_messages"].handler({"query": "sounds good", "limit": -5})["matches"]) == 1
+
+
+def test_disconnect_mid_turn_does_not_poison_thread(make_factory, conn, events):
+    f, svc, pid, fake = boot(make_factory, conn, events,
+                             [tool_call("get_person_overview", {}), say("never reached")])
+    tid = svc.create_thread(pid, "chat")["id"]
+    gen = svc.send_message(tid, "hello")
+    assert next(gen)["type"] == "tool_call"
+    gen.close()  # client went away before the tool ran
+    msgs = svc.get_thread(tid)["messages"]
+    assert [m["role"] for m in msgs] == ["user", "assistant", "tool"]
+    assert json.loads(msgs[2]["content"]) == {"error": "interrupted"}
+    fake.script[:] = [say("recovered")]
+    ev = run(svc, tid, "are you there?")
+    assert ev[-1]["type"] == "done" and "".join(e["text"] for e in ev if e["type"] == "token") == "recovered"
+    sent = fake.calls[-1]["messages"]
+    ids = {c["id"] for m in sent for c in m.get("tool_calls", [])}
+    assert ids == {t["tool_call_id"] for t in sent if t["role"] == "tool"}
+
+
+def test_history_repairs_old_poisoned_thread(make_factory, conn, events):
+    f, svc, pid, fake = boot(make_factory, conn, events, [say("fine")])
+    tid = svc.create_thread(pid, "chat")["id"]
+    svc._persist_message(tid, "user", "first")
+    svc._persist_message(tid, "assistant", "", [{"id": "dangling", "type": "function",
+                                                 "function": {"name": "get_context", "arguments": "{}"}}])
+    svc._persist_message(tid, "tool", "{}", [{"tool_call_id": "orphan", "name": "x"}])
+    ev = run(svc, tid, "second")
+    assert ev[-1]["type"] == "done"
+    sent = fake.calls[-1]["messages"]
+    assert not any(m.get("tool_calls") for m in sent) and not any(m["role"] == "tool" for m in sent)
+    assert [m["content"] for m in sent if m["role"] == "user"] == ["first", "second"]

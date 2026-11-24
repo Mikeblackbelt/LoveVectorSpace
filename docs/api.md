@@ -126,7 +126,7 @@ SuccessEstimate = { "mode": str, "status": "ok"|"insufficient_data", "percent": 
                     "calibrated": {"status": "not_available"|"ok", "percent": float|null, "low": float|null, "high": float|null,
                                    "n_outcomes": int, "needed": 20} }
 SafetyFlag = { "category": str, "severity": "info"|"concern"|"urgent", "speaker": "me"|"them"|"owner_report", "count": int,
-               "first_seen": str, "last_seen": str, "snippets": [str] }
+               "first_seen": str, "last_seen": str /* ISO UTC datetimes, e.g. 2025-03-09T00:00:00Z */, "snippets": [str] }
 SafetyBlock = { "flags": [SafetyFlag], "resources": [{"name","phone","text","url","description","action": "suggestion_only"}],
                 "disclaimer": str }
 PersonOverview = { "person": Person, "mode": str, "generated_at": str, "success": SuccessEstimate, "safety": SafetyBlock,
@@ -216,3 +216,13 @@ CORS allows only `chrome-extension://$EXTENSION_ID`.
 ## Health
 
 `GET /healthz` returns `{ok: true, version}` and requires no authentication.
+
+## Service lifetime (API layer contract)
+
+Build the factory with `ServiceFactoryImpl.from_settings(settings)`. To evict a cached connection or delete an
+account: `service.close()` (cancels the user's debounce timers, makes queued tasks no-ops, waits a bounded time
+for running tasks; call it without holding the lock), then `with service.lock: conn.close()` using the SAME
+per-user lock. `factory.close_user(user_id)` closes every service of a user and forgets its state;
+`factory.shutdown()` does so for all users at process exit. Jobs left queued/running are marked `error`
+("cancelled") the next time the user is opened. A `conn_opener` must raise (e.g. `open_db(path, key,
+create=False)`) when the user's database no longer exists.

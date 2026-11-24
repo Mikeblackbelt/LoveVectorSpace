@@ -288,7 +288,7 @@ def test_extension_flow(svc, person):
                       "last_captured_ids"}
     # local 09:15 New York is EDT (DST began 02:00 that day) = 13:15 UTC
     assert svc.list_units(pid)[0]["start_ts"].startswith("2025-03-09T13:15")
-    assert svc.list_units(pid)[0]["unit_id"] == "capture:whatsapp:2025-03-09"
+    assert svc.list_units(pid)[0]["unit_id"] == "capture:whatsapp:chat1:2025-03-09"
     svc.ext_unlink("whatsapp", "chat1")
     with pytest.raises(ChatNotLinked):
         svc.ingest_capture(batch())

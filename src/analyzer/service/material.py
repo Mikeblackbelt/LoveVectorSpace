@@ -14,8 +14,8 @@ def material_change(prev: dict | None, cur: dict, last_cards_at: datetime | None
     pi, ci = prev.get("_internal", {}), cur.get("_internal", {})
     if pi.get("bands") != ci.get("bands"):
         return True
-    if ci.get("change_points"):
-        return True
+    if set(ci.get("change_points") or []) - set(pi.get("change_points") or []):
+        return True  # a change point that was already in the previous snapshot is not news
     if max_severity(prev) != max_severity(cur):
         return True
     pscales = {s["scale_id"]: s["subscales"] for s in prev["scales"]}

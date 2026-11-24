@@ -11,7 +11,7 @@ def test_seed_demo(factory, conn):
     yu, sam, jordan = (svc.overview(people[n]["id"]) for n in ("Yu Cheng", "Sam", "Jordan"))
     assert yu["success"]["status"] == "ok" and yu["success"]["tag"].startswith("uncalibrated")
     assert 300 <= sum(u["message_count"] for u in svc.list_units(yid)) <= 500
-    assert [w["covered"] for w in yu["weekly"]].count(False) >= 2  # the two-week coverage gap
+    assert [w["covered"] for w in yu["weekly"]].count(False) >= 1  # the two-week coverage gap (week-aligned: 1-2 weeks)
     assert {s["scale_id"] for s in yu["scales"]} == {"reciprocity", "disclosure_balance", "breadcrumbing"}
     assert any(m["status"] == "ok" for m in yu["interaction_metrics"])
     assert len(svc.list_facts(yid)) >= 3 and len(svc.list_interactions(yid)) >= 3

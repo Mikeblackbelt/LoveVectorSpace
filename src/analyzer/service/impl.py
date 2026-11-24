@@ -9,6 +9,17 @@ scheduled them, unless the factory was given a `conn_opener(user_id)`, in which 
 task opens (and closes) its own connection, which is the right choice if the API closes request
 connections. Either way the per-user lock serialises all access.
 
+Lifetime: `UserServiceImpl.close()` (or `ServiceFactoryImpl.close_user(user_id)`) cancels the user's debounce
+timers, flags the service closed (checked under the user lock by every timer and queued task, which then
+no-op) and waits, bounded, for tasks already running. The API must call `service.close()` and then
+`with service.lock: conn.close()`, holding the SAME per-user lock (`service.lock`) around the connection
+close, before deleting or evicting a user. `ServiceFactoryImpl.shutdown()` does the same for all users.
+Jobs left queued/running by a close are marked `error` ("cancelled") the next time the user is opened.
+
+Integration: the API should build the factory with `ServiceFactoryImpl.from_settings(settings)`, which wires
+the scales, overlay and models directories and the Groq client factory (the agent is unavailable only when
+GROQ_API_KEY is missing). `conn_opener(user_id)` must raise (never create a file) for a deleted user.
+
 Logs never contain message text, fact values or agent content: only ids, counts and exception names.
 """
 from __future__ import annotations
@@ -21,6 +32,7 @@ import queue
 import re
 import threading
 import uuid
+import weakref
 from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -127,10 +139,14 @@ def _job_dict(j) -> dict:
             "created_at": iso(j.created_at), "finished_at": iso(j.finished_at) if j.finished_at else None}
 
 
+class ServiceClosed(RuntimeError):
+    """The service (or its factory) was closed; background work must stop touching the connection."""
+
+
 def locked(fn):
     @functools.wraps(fn)
     def wrapper(self, *a, **kw):
-        with self._lock:
+        with self._live():
             return fn(self, *a, **kw)
     return wrapper
 
@@ -138,9 +154,13 @@ def locked(fn):
 # ---------------------------------------------------------------------------------------------
 class _UserState:
     def __init__(self):
-        self.lock = threading.RLock()
+        self.lock = threading.RLock()  # the per-user lock: every touch of the user's DB holds it
+        self.cv = threading.Condition()  # guards the fields below; never held while taking `lock`
         self.pending: dict[int, threading.Timer] = {}
         self.firing = 0  # debounce timers that fired but have not yet queued their job
+        self.running = 0  # background tasks of this user currently executing
+        self.services: "weakref.WeakSet" = weakref.WeakSet()
+        self.recovered = False
 
 
 class ServiceFactoryImpl:
@@ -155,8 +175,27 @@ class ServiceFactoryImpl:
         self._states_lock = threading.Lock()
         self._queue: queue.Queue = queue.Queue()
         self._worker: threading.Thread | None = None
+        self._submit_lock = threading.Lock()  # guards worker start, queue put and the shutdown flag
+        self._shutdown = False
         self._clf: SimpleNamespace | None = None
         self._clf_lock = threading.Lock()
+
+    @classmethod
+    def from_settings(cls, settings, **kw) -> "ServiceFactoryImpl":
+        """The factory the API should use: derives directories from settings/env, wires the Groq client."""
+        import os
+        from analyzer.agent.groq_client import client_factory_from_env
+        root = Path(__file__).resolve().parents[1]
+        data_dir = getattr(settings, "data_dir", None) or os.environ.get("DATA_DIR")
+        overlay = Path(data_dir) / "scale_items" if data_dir else Path("data") / "scale_items"
+        models = getattr(settings, "models_dir", None) or os.environ.get("MODELS_DIR")             or root.parents[1] / "models"
+        key = getattr(settings, "groq_api_key", None)
+        if key:  # settings may come from .env; the env-based factory reads os.environ
+            os.environ.setdefault("GROQ_API_KEY", key)
+        model = getattr(settings, "groq_model", None)
+        if model:
+            os.environ.setdefault("GROQ_MODEL", model)
+        return cls(root / "scales" / "defs", overlay, Path(models), client_factory_from_env(), **kw)
 
     # -- shared plumbing --
     def state(self, user_id: str) -> _UserState:
@@ -183,10 +222,13 @@ class ServiceFactoryImpl:
             return None
 
     def submit(self, fn: Callable[[], None]) -> None:
-        if self._worker is None or not self._worker.is_alive():
-            self._worker = threading.Thread(target=self._work, name="analysis-worker", daemon=True)
-            self._worker.start()
-        self._queue.put(fn)
+        with self._submit_lock:
+            if self._shutdown:
+                raise ServiceClosed("service factory is shut down")
+            if self._worker is None or not self._worker.is_alive():
+                self._worker = threading.Thread(target=self._work, name="analysis-worker", daemon=True)
+                self._worker.start()
+            self._queue.put(fn)
 
     def _work(self) -> None:
         while True:
@@ -204,25 +246,63 @@ class ServiceFactoryImpl:
         deadline = datetime.now() + timedelta(seconds=timeout)
         while datetime.now() < deadline:
             with self._states_lock:
-                pending = any(s.firing or any(t.is_alive() for t in s.pending.values())
-                              for s in self._states.values())
+                states = list(self._states.values())
+            pending = False
+            for st in states:
+                with st.cv:
+                    if st.firing or any(t.is_alive() for t in st.pending.values()):
+                        pending = True
+                        break
             if not pending and self._queue.unfinished_tasks == 0:
                 return True
             end.wait(0.02)
         return False
 
-    def shutdown(self, timeout: float = 30.0) -> None:
-        """Cancel debounce timers and drain the worker. Call before closing user connections."""
+    @staticmethod
+    def _cancel_timers(st: _UserState) -> None:
+        with st.cv:
+            for t in st.pending.values():
+                t.cancel()
+            st.pending.clear()
+
+    def close_user(self, user_id: str, timeout: float = 10.0) -> None:
+        """Close every service of one user (see `UserServiceImpl.close`) and forget the user's state.
+        Call before closing/deleting the user's connection; then `with lock: conn.close()`."""
         with self._states_lock:
-            for st in self._states.values():
-                for t in st.pending.values():
-                    t.cancel()
-                st.pending.clear()
+            st = self._states.get(user_id)
+        if st is None:
+            return
+        for svc in list(st.services):
+            svc.close(timeout)
+        self._cancel_timers(st)
+        with self._states_lock:
+            if self._states.get(user_id) is st:
+                del self._states[user_id]
+
+    def shutdown(self, timeout: float = 30.0) -> None:
+        """Stop all background work: no new submissions, timers cancelled, queued tasks and already-fired
+        timers become no-ops. Call before closing user connections."""
+        with self._submit_lock:
+            self._shutdown = True
+        with self._states_lock:
+            states = list(self._states.values())
+        for st in states:
+            self._cancel_timers(st)
         self.wait_idle(timeout)
 
     # -- facade --
     def for_user(self, user_id: str, conn: Any, events: EventSink) -> "UserServiceImpl":
-        return UserServiceImpl(self, user_id, conn, events)
+        svc = UserServiceImpl(self, user_id, conn, events)
+        st = svc._state
+        with svc._lock:
+            if not st.recovered:  # first open in this process: nothing of this user can be running
+                st.recovered = True
+                try:
+                    Jobs(conn).fail_unfinished("cancelled")
+                except Exception as e:
+                    log.warning("job recovery failed: %s", e.__class__.__name__)
+        st.services.add(svc)
+        return svc
 
     def seed_demo(self, user_id: str, conn: Any) -> None:
         from .seed import seed
@@ -231,31 +311,82 @@ class ServiceFactoryImpl:
 
 # ---------------------------------------------------------------------------------------------
 class UserServiceImpl:
-    def __init__(self, factory: ServiceFactoryImpl, user_id: str, conn: Any, events: EventSink):
+    def __init__(self, factory: ServiceFactoryImpl, user_id: str, conn: Any, events: EventSink,
+                 origin: "UserServiceImpl | None" = None):
         self.factory, self.user_id, self.conn, self._events = factory, user_id, conn, events
         self._state = factory.state(user_id)
         self._lock = self._state.lock
+        self._origin = origin or self  # task services share the closed flag of the service that spawned them
+        self._closed = False
 
-    # ------------------------------------------------------------------ plumbing
+    # ------------------------------------------------------------------ lifetime
+    @property
+    def lock(self) -> threading.RLock:
+        """The per-user lock. The API must hold this same lock around `conn.close()`."""
+        return self._lock
+
+    @property
+    def closed(self) -> bool:
+        return self._origin._closed or self.factory._shutdown
+
+    @contextlib.contextmanager
+    def _live(self):
+        """Hold the user lock; raise ServiceClosed if the service was closed (flag read under the lock)."""
+        with self._lock:
+            if self.closed:
+                raise ServiceClosed(self.user_id)
+            yield
+
+    def close(self, timeout: float = 10.0) -> None:
+        """Cancel this user's debounce timers, make every timer/queued task a no-op from now on, and wait
+        (at most `timeout`) for tasks already running. Idempotent. Call it WITHOUT holding `lock` (waiting
+        while holding it cannot finish a task that needs it); afterwards take `lock` around `conn.close()`."""
+        with self._lock:
+            self._closed = True
+        ServiceFactoryImpl._cancel_timers(self._state)
+        st = self._state
+        with st.cv:
+            if not st.cv.wait_for(lambda: st.running == 0 and st.firing == 0, timeout):
+                log.warning("close timed out waiting for background work")
+
     @contextlib.contextmanager
     def _task_service(self):
         """Service object a background task should use (own connection when an opener exists)."""
         opener = self.factory.conn_opener
         if opener is None:
+            with self._live():
+                pass
             yield self
             return
-        conn = opener(self.user_id)
+        with self._live():  # check + open under the lock: a deleted/closed user's file is never re-created
+            conn = opener(self.user_id)
         try:
-            yield UserServiceImpl(self.factory, self.user_id, conn, self._events)
+            yield UserServiceImpl(self.factory, self.user_id, conn, self._events, origin=self._origin)
         finally:
             with contextlib.suppress(Exception):
                 conn.close()
 
     def _submit(self, fn: Callable[["UserServiceImpl"], None]) -> None:
+        st = self._state
+
         def task():
-            with self._task_service() as svc:
-                fn(svc)
-        self.factory.submit(task)
+            if self.closed:
+                return
+            with st.cv:
+                st.running += 1
+            try:
+                with self._task_service() as svc:
+                    fn(svc)
+            except ServiceClosed:
+                pass
+            finally:
+                with st.cv:
+                    st.running -= 1
+                    st.cv.notify_all()
+        try:
+            self.factory.submit(task)
+        except ServiceClosed:
+            log.warning("task rejected: service closed")
 
     def _publish(self, event: dict) -> None:
         try:
@@ -548,36 +679,45 @@ class UserServiceImpl:
     def schedule_reanalysis(self, pid: int, debounce_s: float | None = None) -> None:
         """Debounced re-analysis: while a timer is pending for this person, further calls add nothing."""
         delay = self.factory.debounce_s if debounce_s is None else debounce_s
+        st = self._state
         with self._lock:
-            if pid in self._state.pending and self._state.pending[pid].is_alive():
+            if self.closed:
                 return
+            with st.cv:
+                if pid in st.pending and st.pending[pid].is_alive():
+                    return
 
-            def fire():
-                with self._lock:
-                    self._state.pending.pop(pid, None)
-                    self._state.firing += 1
-                try:
-                    with self._lock:
-                        if People(self.conn).get(pid) is None:
-                            return
-                        job_id = Jobs(self.conn).create(pid, "reanalysis")
-                    self._publish({"type": "job", "person_id": pid, "job_id": job_id, "status": "queued"})
-                    self._submit(lambda svc: svc._exec_analysis(job_id, pid))
-                except Exception as e:
-                    log.warning("debounced job failed: %s", e.__class__.__name__)
-                finally:
-                    with self._lock:
-                        self._state.firing -= 1
+                def fire():
+                    with st.cv:
+                        if st.pending.get(pid) is timer:
+                            del st.pending[pid]
+                        st.firing += 1
+                    try:
+                        with self._task_service() as svc, svc._live():  # no-op once closed / shut down
+                            if People(svc.conn).get(pid) is None:
+                                return
+                            job_id = Jobs(svc.conn).create(pid, "reanalysis")
+                        self._publish({"type": "job", "person_id": pid, "job_id": job_id, "status": "queued"})
+                        self._submit(lambda t: t._exec_analysis(job_id, pid))
+                    except ServiceClosed:
+                        pass
+                    except Exception as e:
+                        log.warning("debounced job failed: %s", e.__class__.__name__)
+                    finally:
+                        with st.cv:
+                            st.firing -= 1
+                            st.cv.notify_all()
 
-            t = threading.Timer(delay, fire)
-            t.daemon = True
-            self._state.pending[pid] = t
-            t.start()
+                timer = threading.Timer(delay, fire)
+                timer.daemon = True
+                st.pending[pid] = timer
+                timer.start()
 
     def run_now(self, pid: int) -> int:
         """Bypass the debounce: cancel any pending timer and analyse immediately."""
-        with self._lock:
-            t = self._state.pending.pop(pid, None)
+        with self._live():
+            with self._state.cv:
+                t = self._state.pending.pop(pid, None)
             if t:
                 t.cancel()
         return self.start_analysis(pid)
@@ -587,7 +727,7 @@ class UserServiceImpl:
 
     def analyze_now(self, pid: int) -> dict:
         """Synchronous analysis + snapshot (no job row). Returns (snapshot data, material)."""
-        with self._lock:
+        with self._live():
             prev = self._latest_overview(pid)
             data = analysis.compute_overview(self.conn, pid, self.factory.scales, self.factory.classifiers())
             Snapshots(self.conn).save(pid, data)
@@ -599,7 +739,7 @@ class UserServiceImpl:
         return data
 
     def _exec_analysis(self, job_id: int, pid: int) -> None:
-        with self._lock:
+        with self._live():
             jobs = Jobs(self.conn)
             if People(self.conn).get(pid) is None:
                 jobs.update(job_id, "error", "person removed")
@@ -611,11 +751,11 @@ class UserServiceImpl:
             material = data.pop("_material")
         except Exception as e:
             log.warning("analysis job %s failed: %s", job_id, e.__class__.__name__)
-            with self._lock:
+            with self._live():
                 Jobs(self.conn).update(job_id, "error", f"analysis failed ({e.__class__.__name__})")
             self._job_event(pid, job_id, "error")
             return
-        with self._lock:
+        with self._live():
             Jobs(self.conn).update(job_id, "done")
         self._job_event(pid, job_id, "done")
         if material:
@@ -623,23 +763,23 @@ class UserServiceImpl:
 
     def _exec_next_steps(self, job_id: int | None, pid: int, on_demand: bool) -> None:
         if job_id is not None:
-            with self._lock:
+            with self._live():
                 Jobs(self.conn).update(job_id, "running")
             self._job_event(pid, job_id, "running")
         try:
-            with self._lock:
+            with self._live():
                 if People(self.conn).get(pid) is None:
                     raise NotFound("person")
             _generate(self, pid, on_demand)
         except Exception as e:
             log.warning("next-steps job failed: %s", e.__class__.__name__)
             if job_id is not None:
-                with self._lock:
+                with self._live():
                     Jobs(self.conn).update(job_id, "error", f"failed ({e.__class__.__name__})")
                 self._job_event(pid, job_id, "error")
             return
         if job_id is not None:
-            with self._lock:
+            with self._live():
                 Jobs(self.conn).update(job_id, "done")
             self._job_event(pid, job_id, "done")
 
@@ -730,13 +870,18 @@ class UserServiceImpl:
             raise NotFound("fact") from e
         except ValueError as e:
             raise InvalidInput(str(e), "confidence") from e
+        if f.key.startswith("safety."):
+            self.schedule_reanalysis(f.person_id)
         return _fact_dict(f)
 
     @locked
     def delete_fact(self, fact_id: int) -> None:
-        if Facts(self.conn).get(fact_id) is None:
+        cur = Facts(self.conn).get(fact_id)
+        if cur is None:
             raise NotFound("fact")
         Facts(self.conn).delete(fact_id)
+        if cur.key.startswith("safety."):
+            self.schedule_reanalysis(cur.person_id)
 
     @locked
     def list_interactions(self, pid: int, since: str | None = None) -> list[dict]:
@@ -823,12 +968,13 @@ class UserServiceImpl:
         return [_step_dict(s) for s in NextSteps(self.conn).list(pid) if s.id > step_id]
 
     @locked
-    def _auto_run_allowed(self, pid: int, now: datetime) -> bool:
+    def _auto_run_allowed(self, pid: int, now: datetime, cap: timedelta = timedelta(days=1)) -> bool:
+        from analyzer.store._base import fmt
         st, key = Settings(self.conn), f"next_steps_auto_at:{pid}"
         last = st.get(key)
-        if last and now - parse_ts(last) < timedelta(days=1):
+        if last and now - parse_ts(last) < cap:
             return False
-        st.set(key, now_str())
+        st.set(key, fmt(now))
         return True
 
     @locked
@@ -859,6 +1005,7 @@ class UserServiceImpl:
     @locked
     def search_messages(self, pid: int, query: str, limit: int = 20) -> list[dict]:
         from analyzer.store.messages import normalize
+        limit = max(1, min(int(limit), 50))
         q = normalize(query).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         rows = self.conn.execute(
             "SELECT ts, role, text FROM messages WHERE person_id=? AND role IS NOT NULL"
@@ -867,7 +1014,7 @@ class UserServiceImpl:
 
     # ------------------------------------------------------------------ agent
     def _agent_client(self):
-        with self._lock:
+        with self._live():
             if not Settings(self.conn).get("agent_enabled", True):
                 return None
         f = self.factory.groq_client_factory
@@ -940,7 +1087,7 @@ class UserServiceImpl:
 
     def send_message(self, tid: int, text: str) -> Iterator[dict]:
         client = self._require_agent()  # eager: raises before any streaming starts
-        with self._lock:
+        with self._live():
             t = AgentStore(self.conn).thread(tid)
         if t is None:
             raise NotFound("thread")
@@ -1058,7 +1205,7 @@ class UserServiceImpl:
         raw_msgs = batch.get("messages")
         if not isinstance(raw_msgs, list):
             raise InvalidInput("messages must be a list", "messages")
-        with self._lock:
+        with self._live():
             pid = ChatLinks(self.conn).person_for(platform, chat_key or "")
             if pid is None:
                 raise ChatNotLinked(platform)
@@ -1089,11 +1236,17 @@ class UserServiceImpl:
             store = MessageStore(self.conn)
             by_unit: dict[str, list[Message]] = {}
             for m in sorted(msgs, key=lambda x: x.ts):
-                key = given_unit or f"capture:{platform}:{m.ts.strftime('%Y-%m-%d')}"
+                day = m.ts.astimezone(timezone.utc).strftime("%Y-%m-%d")
+                key = given_unit or f"capture:{platform}:{chat_key}:{day}"
                 by_unit.setdefault(key, []).append(m)
             for unit, ms in by_unit.items():
                 for chunk in self._chunks(ms):
-                    r = store.ingest(pid, chunk, unit)
+                    try:
+                        r = store.ingest(pid, chunk, unit)
+                    except ValueError as e:
+                        if "another person" in str(e):
+                            raise InvalidInput("unit_id belongs to another person", "unit_id") from e
+                        raise
                     added, merged, skipped = added + r.added, merged + r.merged, skipped + r.skipped
             sm = SpeakerMap(self.conn)
             for src, speaker, role in {(m.source, m.speaker_raw, m.role) for m in msgs}:
@@ -1120,7 +1273,7 @@ class UserServiceImpl:
     def export(self, include_messages: bool) -> dict:
         c = self.conn
         out: dict[str, Any] = {"exported_at": iso(datetime.now(timezone.utc)), "people": [],
-                               "settings": self.get_settings(), "scale_results": [], "overviews": []}
+                               "settings": self.get_settings()}
         store, agent = MessageStore(c), AgentStore(c)
         for p in People(c).list():
             entry = {"person": person_dict(p), "facts": self.list_facts(p.id),

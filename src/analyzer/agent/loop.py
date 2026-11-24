@@ -33,20 +33,27 @@ def _context_message(svc, pid: int) -> str:
 
 
 def _history(msgs) -> list[dict]:
-    out = []
-    for m in msgs[-HISTORY_LIMIT:]:
+    """Replay persisted messages, repairing threads poisoned by an interrupted turn: assistant tool_calls
+    without a matching tool message are dropped (and so are tool messages without a preceding call)."""
+    window = msgs[-HISTORY_LIMIT:]
+    answered = {(m.tool_calls or [{}])[0].get("tool_call_id") for m in window if m.role == "tool"}
+    out, open_ids = [], set()
+    for m in window:
         if m.role == "assistant":
             d = {"role": "assistant", "content": m.content}
-            if m.tool_calls:
-                d["tool_calls"] = m.tool_calls
+            calls = [c for c in (m.tool_calls or []) if c.get("id") in answered]
+            if calls:
+                d["tool_calls"] = calls
+                open_ids |= {c["id"] for c in calls}
+            elif not (m.content or "").strip():
+                continue
             out.append(d)
         elif m.role == "tool":
-            tc = (m.tool_calls or [{}])[0]
-            out.append({"role": "tool", "tool_call_id": tc.get("tool_call_id", ""), "content": m.content})
+            tid = (m.tool_calls or [{}])[0].get("tool_call_id", "")
+            if tid in open_ids:
+                out.append({"role": "tool", "tool_call_id": tid, "content": m.content})
         elif m.role == "user":
             out.append({"role": "user", "content": m.content})
-    while out and out[0]["role"] == "tool":  # never start with an orphaned tool result
-        out.pop(0)
     return out
 
 
@@ -89,6 +96,7 @@ def run_agent(svc, client, thread_id: int | None, user_text: str | None, kind: s
     messages = [{"role": "system", "content": system_prompt(kind, background)},
                 {"role": "system", "content": _context_message(svc, person_id)}, *history]
     final_text, final_id = "", None
+    unanswered: dict[str, str] = {}  # persisted tool_call ids that have no persisted result yet
     try:
         for round_no in range(MAX_TOOL_ROUNDS + 1):
             last = round_no == MAX_TOOL_ROUNDS
@@ -109,6 +117,7 @@ def run_agent(svc, client, thread_id: int | None, user_text: str | None, kind: s
             tc = [{"id": c["id"], "type": "function",
                    "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}} for c in calls]
             persist("assistant", text, tc)
+            unanswered = {c["id"]: c["name"] for c in calls}
             messages.append({"role": "assistant", "content": text, "tool_calls": tc})
             for c in calls:
                 try:
@@ -119,6 +128,7 @@ def run_agent(svc, client, thread_id: int | None, user_text: str | None, kind: s
                 result, ok = _run_tool(tools, c["name"], c["arguments"])
                 payload = json.dumps(result, default=str)
                 persist("tool", payload, [{"tool_call_id": c["id"], "name": c["name"]}])
+                unanswered.pop(c["id"], None)
                 messages.append({"role": "tool", "tool_call_id": c["id"], "content": payload})
                 yield {"type": "tool_result", "name": c["name"], "ok": ok,
                        "summary": "done" if ok else str(result.get("error", "failed"))[:120]}
@@ -126,4 +136,11 @@ def run_agent(svc, client, thread_id: int | None, user_text: str | None, kind: s
         log.warning("agent turn failed: %s", e.__class__.__name__)
         yield {"type": "error", "code": "agent_error", "message": "The assistant ran into a problem. Try again."}
         return
+    finally:
+        # client disconnect (GeneratorExit) or failure mid-tool-round: never leave tool_calls unanswered
+        for cid, name in unanswered.items():
+            try:
+                persist("tool", json.dumps({"error": "interrupted"}), [{"tool_call_id": cid, "name": name}])
+            except Exception as e:
+                log.warning("could not persist interrupted tool result: %s", e.__class__.__name__)
     yield {"type": "done", "message_id": final_id}
