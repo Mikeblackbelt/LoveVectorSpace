@@ -124,9 +124,10 @@ function Tokens() {
     <Pane id="tokens" tech="TOKENS" plain="Connection keys">
       <p className="dimt small"><L t="// extension tokens: the desktop capture extension. api tokens: your scripts and MCP." p="Extension keys connect the browser extension. API keys are for scripts." /></p>
       {shown && (
-        <div className="once" role="alert" data-testid="token-once">
-          <p><b><L t="COPY IT NOW — SHOWN ONCE" p="Copy this key now. You won't see it again." /></b></p>
-          <code className="secret">{shown.token}</code>
+        <div className="once" data-testid="token-once">
+          <p role="status"><b><L t="NEW TOKEN CREATED — COPY IT NOW, IT IS SHOWN ONCE" p="Key created. Copy it now; you won't see it again." /></b></p>
+          {/* the secret is not read out by screen readers; use Copy */}
+          <code className="secret" aria-hidden="true">{shown.token}</code>
           <div className="keys">
             <Key tech={copied ? 'COPIED' : 'COPY'} plain={copied ? 'Copied' : 'Copy'} onClick={() => void navigator.clipboard?.writeText(shown.token).then(() => setCopied(true))} />
             <Key variant="ghost" tech="I SAVED IT" plain="Done" onClick={() => setShown(null)} />

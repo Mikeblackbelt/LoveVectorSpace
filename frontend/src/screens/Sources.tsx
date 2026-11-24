@@ -10,6 +10,7 @@ import { say } from '../components/prompt';
 import { n as fmtN, timezoneGuess, ymd } from '../lib/format';
 import { haptic } from '../native/native';
 import { L } from '../theme/Plain';
+import { checkSharedFile } from './SharedImport';
 import { useHotkey } from '../lib/hotkeys';
 
 const CELLS = 28;
@@ -205,7 +206,8 @@ export function ImportDialog({ pid, onClose, initial }: { pid: number; onClose: 
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (!f) return;
-            if (f.size > 50 * 1024 * 1024) return setLocalErr('That file is over 50 MB.');
+            const bad = checkSharedFile(f.name, f.size);
+            if (bad) return setLocalErr(bad);
             const v = { blob: f, name: f.name };
             setFile(v);
             setLocalErr(null);

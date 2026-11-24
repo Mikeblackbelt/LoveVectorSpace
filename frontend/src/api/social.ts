@@ -7,7 +7,6 @@ import { apiUrl } from './config';
 import { nativeMode } from './client';
 import { auth } from './endpoints';
 import type { AuthResult } from './types';
-import { nativeAppleIdToken, nativeGoogleIdToken } from '../native/native';
 
 /** Web: full-page redirect; a new user's invite rides along as `invite=`. Success lands on /auth/complete?redirect=…#ok. */
 export function googleStartUrl(redirect: string, invite?: string): string {
@@ -17,10 +16,46 @@ export function googleStartUrl(redirect: string, invite?: string): string {
   return apiUrl(`/api/auth/google/start?${q.toString()}`);
 }
 
+/** One-time nonce bound into the ID token, so a captured token can't be replayed against the token endpoints. */
+export function makeNonce(): string {
+  const a = new Uint8Array(16);
+  crypto.getRandomValues(a);
+  return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+let socialInit: Promise<void> | null = null;
+/** Native sign-in through @capgo/capacitor-social-login, with a fresh nonce per attempt. */
+export async function nativeIdToken(provider: 'google' | 'apple', nonce: string): Promise<{ idToken: string; name?: string }> {
+  const { SocialLogin } = await import('@capgo/capacitor-social-login');
+  if (!socialInit) {
+    socialInit = SocialLogin.initialize({
+      google: {
+        webClientId: import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID || undefined,
+        iOSClientId: import.meta.env.VITE_GOOGLE_IOS_CLIENT_ID || undefined,
+        iOSServerClientId: import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID || undefined,
+        mode: 'online',
+      },
+      apple: { clientId: import.meta.env.VITE_APPLE_CLIENT_ID || undefined },
+    } as never).catch((e) => {
+      socialInit = null;
+      throw e;
+    });
+  }
+  await socialInit;
+  const options = provider === 'apple' ? { scopes: ['email', 'name'], nonce } : { nonce };
+  const r = (await SocialLogin.login({ provider, options } as never)) as {
+    result: { idToken?: string | null; profile?: { givenName?: string | null; familyName?: string | null } };
+  };
+  if (!r.result?.idToken) throw new Error(`${provider === 'apple' ? 'Apple' : 'Google'} did not return an identity token.`);
+  const name = [r.result.profile?.givenName, r.result.profile?.familyName].filter(Boolean).join(' ');
+  return { idToken: r.result.idToken, name: name || undefined };
+}
+
 export async function signInWithGoogle(redirect: string, inviteCode?: string): Promise<AuthResult | null> {
   if (nativeMode()) {
-    const idToken = await nativeGoogleIdToken();
-    return auth.googleToken(idToken, inviteCode || undefined);
+    const nonce = makeNonce();
+    const { idToken } = await nativeIdToken('google', nonce);
+    return auth.googleToken(idToken, inviteCode || undefined, nonce);
   }
   window.location.assign(googleStartUrl(redirect, inviteCode || undefined));
   return null;
@@ -28,7 +63,7 @@ export async function signInWithGoogle(redirect: string, inviteCode?: string): P
 
 interface AppleIDGlobal {
   auth: {
-    init(o: { clientId: string; scope: string; redirectURI: string; usePopup: boolean; state?: string }): void;
+    init(o: { clientId: string; scope: string; redirectURI: string; usePopup: boolean; state?: string; nonce?: string }): void;
     signIn(): Promise<{ authorization: { id_token: string }; user?: { name?: { firstName?: string; lastName?: string } } }>;
   };
 }
@@ -55,13 +90,16 @@ function loadAppleJs(): Promise<AppleIDGlobal> {
 
 export async function signInWithApple(inviteCode?: string): Promise<AuthResult> {
   if (nativeMode()) {
-    const r = await nativeAppleIdToken();
-    return auth.appleToken(r.idToken, inviteCode || undefined, r.name);
+    const nonce = makeNonce();
+    const r = await nativeIdToken('apple', nonce);
+    return auth.appleToken(r.idToken, inviteCode || undefined, r.name, nonce);
   }
   const clientId = import.meta.env.VITE_APPLE_CLIENT_ID;
   if (!clientId) throw new Error('Sign in with Apple is not configured for this site.');
   const AppleID = await loadAppleJs();
+  const nonce = makeNonce();
   AppleID.auth.init({
+    nonce,
     clientId,
     scope: 'name email',
     redirectURI: import.meta.env.VITE_APPLE_REDIRECT_URI || window.location.origin + '/auth/complete',
@@ -70,5 +108,5 @@ export async function signInWithApple(inviteCode?: string): Promise<AuthResult> 
   const res = await AppleID.auth.signIn();
   const n = res.user?.name;
   const name = n ? [n.firstName, n.lastName].filter(Boolean).join(' ') : undefined;
-  return auth.appleToken(res.authorization.id_token, inviteCode || undefined, name || undefined);
+  return auth.appleToken(res.authorization.id_token, inviteCode || undefined, name || undefined, nonce);
 }
