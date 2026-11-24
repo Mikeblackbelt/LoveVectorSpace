@@ -45,6 +45,12 @@ def create_person(body: PersonCreate, request: Request, p: Principal = Depends(a
     return _call(request, p, lambda s: s.create_person(body.pseudonym, body.mode, body.timezone))
 
 
+@router.post("/people/sample", status_code=201)
+def load_sample(request: Request, p: Principal = Depends(app_principal)):
+    """Optional: add one synthetic, clearly labelled sample person to explore the app."""
+    return _call(request, p, lambda s: s.load_sample())
+
+
 @router.get("/people/{pid}")
 def get_person(pid: int, request: Request, p: Principal = Depends(app_principal)):
     return _call(request, p, lambda s: s.get_person(pid))

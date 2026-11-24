@@ -98,6 +98,7 @@ PROBES = {
         {"ts_utc": "2026-11-20T18:00:00Z", "ts_precision": "second", "direction": "incoming", "speaker_raw": "x",
          "text": "hello"}]}},
     ("GET", "/api/events"): None,   # covered by test_events (SSE)
+    ("POST", "/api/people/sample"): None,   # creates only in the caller's own account (no ids)
 }
 NOT_USER_DATA = {  # credential endpoints that take no session (cannot reach another user's data by design)
     ("POST", "/api/auth/signup"), ("POST", "/api/auth/login"), ("POST", "/api/auth/refresh"),
@@ -399,3 +400,10 @@ def test_demo_lock_off_without_seed_demo(h, client):
     a = auth(r.json()["access_token"])
     tok = client.post("/api/tokens", json={"kind": "api"}, headers=a).json()["info"]["id"]
     assert client.delete(f"/api/tokens/{tok}", headers=a).status_code == 204
+
+
+def test_load_sample_person_route(h, client, alice):
+    r = client.post("/api/people/sample", headers=auth(alice["access_token"]))
+    assert r.status_code == 201 and r.json()["pseudonym"].startswith("Sample")
+    assert [x["pseudonym"] for x in client.get("/api/people", headers=auth(alice["access_token"])).json()] == \
+        ["Sample: Yu Cheng"]

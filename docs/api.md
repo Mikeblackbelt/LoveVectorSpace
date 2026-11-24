@@ -92,6 +92,7 @@ Invite = { "code": str, "email": str|null, "created_at": str, "expires_at": str,
 |---|---|---|---|
 | GET | `/api/people` | — | `[PersonSummary]` |
 | POST | `/api/people` | `{pseudonym, mode: "potential"|"established", timezone?}` | 201 `Person` |
+| POST | `/api/people/sample` | — | 201 `Person`. Optional: adds one synthetic, clearly labelled person ("Sample: Yu Cheng", invented chat, facts, hangouts and check-ins) and queues its analysis, so a new user can explore before importing their own data. Delete it like any person. |
 | GET | `/api/people/{pid}` | — | `Person` |
 | PATCH | `/api/people/{pid}` | `{pseudonym?, mode?, timezone?}` | `Person` |
 | DELETE | `/api/people/{pid}` | — | 204 (cascade) |

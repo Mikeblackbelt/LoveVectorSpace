@@ -63,6 +63,9 @@ class FakeUserService:
         pid = self._x("INSERT INTO fake_people(pseudonym, mode, timezone) VALUES (?,?,?)", (pseudonym, mode, timezone))
         return self.get_person(pid)
 
+    def load_sample(self):
+        return self.create_person("Sample: Yu Cheng", "potential", "America/New_York")
+
     def get_person(self, pid):
         r = self._person_row(pid)
         return {"id": r[0], "pseudonym": r[1], "mode": r[2], "timezone": r[3], "created_at": TS}

@@ -31,3 +31,12 @@ def test_forms_lists_scales_for_a_potential_person(svc):
     available = {s["id"] for s in svc.list_scales() if p["mode"] in s["mode"]}
     assert {"reciprocity", "breadcrumbing", "disclosure_balance", "cdaq_items"} <= available
     assert all(not s["verified"] for s in svc.list_scales() if s["custom"])
+
+
+def test_load_sample_person(factory, svc):
+    p = svc.load_sample()
+    assert p["pseudonym"] == "Sample: Yu Cheng" and p["mode"] == "potential"
+    assert factory.wait_idle(30)
+    ov = svc.overview(p["id"])
+    assert ov["success"]["status"] == "ok"
+    assert len(svc.list_people()) == 1

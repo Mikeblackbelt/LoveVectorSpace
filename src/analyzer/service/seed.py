@@ -102,11 +102,14 @@ def _marker(name: str) -> str:
     return f"demo_seed:{name}"
 
 
-def _seed_yu(svc, now):
+SAMPLE_NAME = "Sample: Yu Cheng"
+
+
+def _seed_yu(svc, now, name="Yu Cheng"):
     conn, rng = svc.conn, random.Random(7)
     store, facts, inter, ppl, sm = MessageStore(conn), Facts(conn), Interactions(conn), People(conn), SpeakerMap(conn)
     # potential, 10 weeks, two-week coverage gap
-    yu = ppl.add("Yu Cheng", "potential", "America/New_York")
+    yu = ppl.add(name, "potential", "America/New_York")
     start = (now - timedelta(days=70)).replace(hour=0, minute=0)
     part1 = _chat(rng, start, 28, 0.85, "whatsapp_import", None, (4, 11), "Yu", me_init=0.62)
     part2 = _chat(rng, start + timedelta(days=42), 28, 0.85, "whatsapp_ext", "yu", (4, 11), "Yu", me_init=0.6)
@@ -185,6 +188,11 @@ def _seed_jordan(svc, now):
 
 
 SEEDERS = {"Yu Cheng": _seed_yu, "Sam": _seed_sam, "Jordan": _seed_jordan}
+
+
+def add_sample_person(svc) -> int:
+    """Lock held. One synthetic person ("Sample: Yu Cheng") for a new user to explore; returns its id."""
+    return _seed_yu(svc, datetime.now(timezone.utc).replace(second=0, microsecond=0), SAMPLE_NAME)
 
 
 def _has_overview(conn, pid: int) -> bool:

@@ -444,6 +444,14 @@ class UserServiceImpl:
         return person_dict(People(self.conn).add(pseudonym, mode, _tz(timezone)))
 
     @locked
+    def load_sample(self) -> dict:
+        """Add one synthetic, clearly labelled sample person (optional, for exploring) and analyse it."""
+        from .seed import add_sample_person
+        pid = add_sample_person(self)
+        self.start_analysis(pid)
+        return person_dict(self._person(pid))
+
+    @locked
     def get_person(self, pid: int) -> dict:
         return person_dict(self._person(pid))
 
