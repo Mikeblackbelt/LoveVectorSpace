@@ -5,7 +5,6 @@ The app is built lazily on first access of `app`, wiring create_app to the servi
 """
 from __future__ import annotations
 
-import inspect
 from typing import Any
 
 from .app import create_app
@@ -21,8 +20,7 @@ def build_app() -> Any:
             "Cannot start: analyzer.service.impl.ServiceFactoryImpl is not available "
             f"({e}). The service layer must provide it."
         ) from e
-    params = inspect.signature(ServiceFactoryImpl).parameters
-    factory = ServiceFactoryImpl(settings) if params else ServiceFactoryImpl()
+    factory = ServiceFactoryImpl.from_settings(settings)   # create_app wires conn_opener (create=False)
     return create_app(settings, factory)
 
 

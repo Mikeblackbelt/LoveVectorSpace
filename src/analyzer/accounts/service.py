@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import secrets
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,6 +26,7 @@ log = logging.getLogger("analyzer.accounts")
 
 ACCESS_TTL_S = 900
 REFRESH_DAYS = 30
+REFRESH_GRACE_S = 10.0
 VERIFY_TTL = timedelta(hours=24)
 RESET_TTL = timedelta(minutes=30)
 DELETE_PHRASE = "DELETE MY ACCOUNT"
@@ -84,7 +87,12 @@ class AccountService:
         self.factory, self.events = factory, events
         self.userdbs = UserDBManager(data_dir, self._key_for,
                                      lambda uid, conn: factory.for_user(uid, conn, events),
-                                     capacity=settings.user_db_cache_size)
+                                     capacity=settings.user_db_cache_size,
+                                     close_user=getattr(factory, "close_user", None))
+        if hasattr(factory, "conn_opener") and getattr(factory, "conn_opener") is None:
+            factory.conn_opener = self.userdbs.open_existing   # background jobs never re-create a deleted DB
+        self._grace: dict[str, tuple[float, str, str]] = {}   # old refresh hash -> (deadline, new raw, family)
+        self._grace_lock = threading.Lock()
 
     def close(self) -> None:
         self.userdbs.close_all()
@@ -140,14 +148,22 @@ class AccountService:
             raise _unauth()
         return Principal(user, "session", sid=sid)
 
+    def session_valid(self, user_id: str, sid: str | None) -> bool:
+        """Still signed in? (user exists and, for session tokens, the refresh family is not revoked)."""
+        if self.users.get(user_id) is None:
+            return False
+        return sid is None or self.refresh_tokens.family_active(sid)
+
     # ---------- signup / login ----------
     def _new_user(self, email: str, **kw: Any) -> UserRow:
         uid = new_id()
         wrapped = crypto.wrap_dek(self.s.master_key, crypto.new_dek(), uid)
-        user = self.users.create(email=email, wrapped_dek=wrapped, user_id=uid, **kw)
-        with self.userdbs.use(uid):   # creates the encrypted per-user DB file
+        return self.users.create(email=email, wrapped_dek=wrapped, user_id=uid, **kw)
+
+    def _create_db(self, user_id: str) -> None:
+        """Create the encrypted per-user DB file. Never call while holding the accounts lock."""
+        with self.userdbs.use(user_id, create=True):
             pass
-        return user
 
     def _is_admin_email(self, email: str | None) -> bool:
         return bool(self.s.admin_email and email and email.lower() == self.s.admin_email.lower())
@@ -183,6 +199,7 @@ class AccountService:
             user = self._new_user(email, password_hash=pw_hash, display_name=(display_name or None))
             if invite is not None:
                 self.invites.consume(invite["code"], user.id)
+        self._create_db(user.id)
         self.audit.log(user.id, "signup", self.ip_hash(ip))
         self._send_verification(user)
         return user, self._issue(user, device)
@@ -213,6 +230,9 @@ class AccountService:
             if row is None or not crypto.consteq(row["token_hash"], h):
                 raise _unauth()
             if row["revoked_at"] is not None:
+                grace = self._grace_pair(h, row)
+                if grace is not None:
+                    return grace
                 self.refresh_tokens.revoke_family(row["family_id"])
                 self.audit.log(row["user_id"], "refresh_reuse_family_revoked")
                 raise _unauth()
@@ -226,7 +246,31 @@ class AccountService:
             if not self.refresh_tokens.mark_rotated(row["id"], new["id"]):
                 self.refresh_tokens.revoke_family(row["family_id"])
                 raise _unauth()
+            self._remember_rotation(h, tokens)
         return user, tokens
+
+    def _remember_rotation(self, old_hash: str, tokens: Tokens) -> None:
+        """Concurrent web refreshes (two tabs) may present the same token: for REFRESH_GRACE_S after a rotation
+        the old token yields the same new refresh token instead of being treated as reuse. Memory only."""
+        now = time.monotonic()
+        with self._grace_lock:
+            self._grace = {k: v for k, v in self._grace.items() if v[0] > now}
+            self._grace[old_hash] = (now + REFRESH_GRACE_S, tokens.refresh, tokens.family_id)
+
+    def _grace_pair(self, old_hash: str, row: dict) -> tuple[UserRow, Tokens] | None:
+        with self._grace_lock:
+            entry = self._grace.get(old_hash)
+        if entry is None or entry[0] <= time.monotonic() or entry[2] != row["family_id"]:
+            return None
+        if not self.refresh_tokens.family_active(row["family_id"]):
+            return None
+        new_row = self.refresh_tokens.by_hash(crypto.sha256_hex(entry[1]))
+        if new_row is None or new_row["revoked_at"] is not None:
+            return None    # the replacement was itself rotated or revoked: treat as reuse
+        user = self.users.get(row["user_id"])
+        if user is None:
+            return None
+        return user, Tokens(self._access(user, row["family_id"]), entry[1], row["family_id"])
 
     def logout(self, p: Principal, raw: str | None) -> None:
         family = None
@@ -326,6 +370,7 @@ class AccountService:
     def social_login(self, ident: Identity, invite_code: str | None, name: str | None, ip: str | None,
                      device: str | None) -> tuple[UserRow, Tokens]:
         col = {"google": "google_sub", "apple": "apple_sub"}[ident.provider]
+        created = False
         with self.db.lock:
             user = self.users.by_sub(ident.provider, ident.sub)
             if user is None and ident.email and ident.email_verified:
@@ -351,7 +396,10 @@ class AccountService:
                 user = self._new_user(ident.email, display_name=display, email_verified=True, **{col: ident.sub})
                 if invite is not None:
                     self.invites.consume(invite["code"], user.id)
+                created = True
                 self.audit.log(user.id, f"signup_{ident.provider}", self.ip_hash(ip))
+        if created:
+            self._create_db(user.id)
         user = self._maybe_promote(user)
         self.audit.log(user.id, f"login_{ident.provider}", self.ip_hash(ip))
         return user, self._issue(user, device)
@@ -431,6 +479,6 @@ class AccountService:
                 continue
             user = self._new_user(email, password_hash=self.passwords.hash(self.s.demo_password),
                                   display_name=f"Judge {i}", email_verified=True)
-            with self.userdbs.use(user.id) as h, h.lock:
+            with self.userdbs.use(user.id, create=True) as h, h.lock:
                 self.factory.seed_demo(user.id, h.conn)
             self.audit.log(user.id, "demo_seeded")

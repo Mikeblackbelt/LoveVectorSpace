@@ -50,6 +50,12 @@ def create_app(settings: AppSettings, factory: ServiceFactory, *, mailer: Any = 
             async with mcp.session_manager.run():
                 yield
         finally:
+            shutdown = getattr(factory, "shutdown", None)
+            if callable(shutdown):
+                try:
+                    shutdown()          # stop background work before closing user connections
+                except Exception:
+                    log.exception("factory shutdown failed")
             accounts.close()
 
     app = FastAPI(title="LoveVectorSpace API", version=_version(), lifespan=lifespan,

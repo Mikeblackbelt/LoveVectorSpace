@@ -11,6 +11,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from analyzer.accounts.service import AccountError
 from analyzer.service.facade import AgentUnavailable, ChatNotLinked, InvalidInput, NotFound
 
+try:   # the service layer's "service/factory closed" signal (eviction, deletion or shutdown in progress)
+    from analyzer.service.impl import ServiceClosed
+except ImportError:  # pragma: no cover - service layer absent
+    class ServiceClosed(RuntimeError):
+        pass
+
 log = logging.getLogger("analyzer.web")
 
 
@@ -44,13 +50,13 @@ def map_exception(exc: Exception) -> ApiError | None:
     if isinstance(exc, NotFound):
         return ApiError(404, "not_found", str(exc) or "Not found.")
     if isinstance(exc, InvalidInput):
-        if exc.field:
-            return ApiError(422, "validation_error", str(exc) or "Invalid input.", exc.field)
-        return ApiError(400, "invalid_input", str(exc) or "Invalid input.")
+        return ApiError(400, "invalid_input", str(exc) or "Invalid input.", exc.field)
     if isinstance(exc, ChatNotLinked):
         return ApiError(409, "chat_not_linked", "This chat is not linked to a person.")
     if isinstance(exc, AgentUnavailable):
         return ApiError(503, "agent_unavailable", "The agent is not available.")
+    if isinstance(exc, ServiceClosed):
+        return ApiError(503, "unavailable", "Temporarily unavailable; retry.", headers={"Retry-After": "1"})
     return None
 
 
@@ -59,7 +65,7 @@ def install_error_handlers(app: FastAPI) -> None:
         e = map_exception(exc)
         return error_response(e.status, e.code, e.message, e.field, e.headers)
 
-    for cls in (ApiError, AccountError, NotFound, InvalidInput, ChatNotLinked, AgentUnavailable):
+    for cls in (ApiError, AccountError, NotFound, InvalidInput, ChatNotLinked, AgentUnavailable, ServiceClosed):
         app.add_exception_handler(cls, known)
 
     @app.exception_handler(StarletteHTTPException)
