@@ -1,10 +1,11 @@
 """People, sources, imports, analysis, questionnaires, context, next steps (all per-user via the facade)."""
 from __future__ import annotations
 
+import json
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, Depends, File, Form, Request, Response, UploadFile
-from pydantic import BaseModel, Field, model_validator
+from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from analyzer.accounts.service import Principal
 from analyzer.service.facade import InvalidInput
@@ -92,7 +93,7 @@ class ImportedMessage(BaseModel):
     ts_utc: str | None = Field(default=None, max_length=64)
     ts_precision: Literal["second", "minute", "approx"]
     role: Literal["me", "them"]
-    text: str
+    text: str = Field(max_length=4000)
 
     @model_validator(mode="after")
     def _one_ts(self):
@@ -104,7 +105,7 @@ class ImportedMessage(BaseModel):
 class MessagesImport(BaseModel):
     source: str = Field(min_length=1, max_length=64)
     tz: str = Field(min_length=1, max_length=64)
-    messages: list[ImportedMessage]
+    messages: list[ImportedMessage] = Field(max_length=10_000)
 
 
 @router.post("/people/{pid}/imports/messages", status_code=201)
@@ -244,9 +245,31 @@ def delete_fact(fact_id: int, request: Request, p: Principal = Depends(app_princ
     return Response(status_code=204)
 
 
+def _bounded_fields(v: dict[str, Any] | None) -> dict[str, Any] | None:
+    if v is not None and (len(v) > 40 or len(json.dumps(v, default=str)) > 10_000):
+        raise ValueError("interaction fields are too large")
+    return v
+
+
 class InteractionIn(BaseModel):
     fields: dict[str, Any]
     notes: str = Field(default="", max_length=5000)
+
+    @field_validator("fields")
+    @classmethod
+    def _check(cls, v):
+        return _bounded_fields(v)
+
+
+class InteractionPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")   # whitelist: only these keys reach the service
+    fields: dict[str, Any] | None = None
+    notes: str | None = Field(default=None, max_length=5000)
+
+    @field_validator("fields")
+    @classmethod
+    def _check(cls, v):
+        return _bounded_fields(v)
 
 
 @router.get("/people/{pid}/interactions")
@@ -260,9 +283,10 @@ def add_interaction(pid: int, body: InteractionIn, request: Request, p: Principa
 
 
 @router.patch("/interactions/{interaction_id}")
-def update_interaction(interaction_id: int, request: Request, body: dict[str, Any] = Body(...),
+def update_interaction(interaction_id: int, body: InteractionPatch, request: Request,
                        p: Principal = Depends(app_principal)):
-    return _call(request, p, lambda s: s.update_interaction(interaction_id, **body))
+    fields = body.model_dump(exclude_unset=True)
+    return _call(request, p, lambda s: s.update_interaction(interaction_id, **fields))
 
 
 @router.delete("/interactions/{interaction_id}", status_code=204)

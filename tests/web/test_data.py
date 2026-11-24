@@ -306,6 +306,7 @@ def test_lru_eviction_and_reopen(tmp_path):
             r = c.post("/api/people", json={"pseudonym": f"P{i}", "mode": "potential"}, headers=auth(u["access_token"]))
             assert r.status_code == 201
         assert h.accounts.userdbs.open_count() <= 2
+        h.accounts.userdbs.wait_closers()                  # evictions are closed on a background thread
         assert any(s.closed for s in h.factory.services)   # evicted services were closed
         for i, u in enumerate(users):   # reopen evicted DBs with the right DEK
             people = c.get("/api/people", headers=auth(u["access_token"])).json()

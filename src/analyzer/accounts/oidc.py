@@ -39,16 +39,19 @@ def http_fetch_json(transport: httpx.BaseTransport | None = None) -> Fetch:
 
 
 class JwksCache:
-    """Caches a JWKS document; refetches on unknown kid at most once per `min_refetch` seconds."""
+    """Caches a JWKS document; refetches on unknown kid at most once per `min_refetch` seconds.
+
+    The network fetch happens outside the state lock and is single-flight: concurrent callers wait for the
+    one in-flight fetch instead of starting their own."""
 
     def __init__(self, url: str, fetch: Fetch, ttl: float = 3600.0, min_refetch: float = 60.0):
         self.url, self._fetch, self.ttl, self.min_refetch = url, fetch, ttl, min_refetch
         self._keys: dict[str, jwt.PyJWK] = {}
         self._fetched_at = 0.0
         self._lock = threading.Lock()
+        self._inflight: threading.Event | None = None
 
-    def _refresh(self) -> None:
-        doc = self._fetch(self.url)
+    def _parse(self, doc: dict) -> dict[str, jwt.PyJWK]:
         keys = {}
         for k in doc.get("keys", []):
             if "kid" in k:
@@ -56,17 +59,38 @@ class JwksCache:
                     keys[k["kid"]] = jwt.PyJWK(k)
                 except jwt.PyJWTError:
                     continue
-        self._keys, self._fetched_at = keys, time.monotonic()
+        return keys
+
+    def _need_fetch(self, kid: str) -> bool:
+        age = time.monotonic() - self._fetched_at
+        return not self._keys or age > self.ttl or (kid not in self._keys and age > self.min_refetch)
 
     def key(self, kid: str) -> jwt.PyJWK:
         with self._lock:
-            age = time.monotonic() - self._fetched_at
-            if not self._keys or age > self.ttl or (kid not in self._keys and age > self.min_refetch):
-                try:
-                    self._refresh()
-                except Exception as e:
-                    if not self._keys:
-                        raise TokenInvalid("jwks unavailable") from e
+            leader = False
+            if self._need_fetch(kid):
+                if self._inflight is None:
+                    self._inflight, leader = threading.Event(), True
+                waiter = self._inflight
+            else:
+                waiter = None
+        if leader:
+            try:
+                keys = self._parse(self._fetch(self.url))
+                with self._lock:
+                    self._keys, self._fetched_at = keys, time.monotonic()
+            except Exception:
+                with self._lock:
+                    self._fetched_at = time.monotonic() if self._keys else 0.0
+            finally:
+                with self._lock:
+                    self._inflight = None
+                waiter.set()
+        elif waiter is not None:
+            waiter.wait(15.0)
+        with self._lock:
+            if not self._keys:
+                raise TokenInvalid("jwks unavailable")
             if kid not in self._keys:
                 raise TokenInvalid("unknown key")
             return self._keys[kid]
@@ -96,8 +120,11 @@ def verify_id_token(token: str, jwks: JwksCache, issuers: Sequence[str], audienc
         raise
     except jwt.PyJWTError as e:
         raise TokenInvalid(type(e).__name__) from e
-    if nonce is not None and not secrets.compare_digest(str(claims.get("nonce", "")), nonce):
-        raise TokenInvalid("nonce mismatch")
+    if nonce is not None:
+        got = str(claims.get("nonce", ""))
+        hashed = hashlib.sha256(nonce.encode("utf-8")).hexdigest()   # Apple/native flows send sha256(nonce)
+        if not (got and (secrets.compare_digest(got, nonce) or secrets.compare_digest(got, hashed))):
+            raise TokenInvalid("nonce mismatch")
     ev = claims.get("email_verified", False)
     verified = ev is True or (isinstance(ev, str) and ev.lower() == "true")
     email = claims.get("email")

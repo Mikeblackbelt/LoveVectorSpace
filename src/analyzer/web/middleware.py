@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 
-from .errors import ApiError
 
 log = logging.getLogger("analyzer.web.access")
 
@@ -82,24 +82,35 @@ class PathCORS:
         await self.app(scope, receive, send_cors)
 
 
-class BodyLimit:
-    """Rejects bodies over the per-path limit: early by Content-Length, otherwise while streaming."""
+TOO_LARGE = json.dumps({"error": {"code": "too_large", "message": "Request body is too large."}}).encode()
 
-    def __init__(self, app, import_limit: int, ingest_limit: int, default_limit: int = 1024 * 1024):
+
+class _Overrun(Exception):
+    pass
+
+
+class BodyLimit:
+    """Rejects bodies over the per-path limit: early by Content-Length, otherwise while streaming.
+
+    A streaming overrun aborts the body read and the response is replaced by 413 here, before FastAPI's own
+    body parsing can turn the aborted read into a 400."""
+
+    def __init__(self, app, import_limit: int, ingest_limit: int, messages_limit: int = 2 * 1024 * 1024,
+                 default_limit: int = 1024 * 1024):
         self.app = app
         self.import_limit = import_limit + 1024 * 1024   # multipart overhead
         self.ingest_limit = ingest_limit
+        self.messages_limit = messages_limit
         self.default_limit = default_limit
 
-    def _limit(self, path: str) -> int | None:
-        if path.startswith("/mcp"):
-            return self.default_limit
-        if not path.startswith("/api/"):
-            return self.default_limit
-        if path.endswith(("/imports", "/imports/preview", "/imports/messages")):
-            return self.import_limit
-        if path == "/api/ingest":
-            return self.ingest_limit
+    def _limit(self, path: str) -> int:
+        if path.startswith("/api/"):
+            if path.endswith("/imports/messages"):
+                return self.messages_limit
+            if path.endswith(("/imports", "/imports/preview")):
+                return self.import_limit
+            if path == "/api/ingest":
+                return self.ingest_limit
         return self.default_limit
 
     async def __call__(self, scope, receive, send):
@@ -107,21 +118,37 @@ class BodyLimit:
             return await self.app(scope, receive, send)
         limit = self._limit(scope["path"])
         cl = _header(scope, b"content-length")
-        if limit is not None and cl and cl.isdigit() and int(cl) > limit:
-            body = json.dumps({"error": {"code": "too_large", "message": "Request body is too large."}}).encode()
-            return await _send_plain(send, 413, body, content_type=b"application/json")
+        if cl and cl.isdigit() and int(cl) > limit:
+            return await _send_plain(send, 413, TOO_LARGE, content_type=b"application/json")
         seen = 0
+        overrun = False
+        replaced = False
 
         async def limited_receive():
-            nonlocal seen
+            nonlocal seen, overrun
             message = await receive()
             if message["type"] == "http.request":
                 seen += len(message.get("body", b""))
-                if limit is not None and seen > limit:
-                    raise ApiError(413, "too_large", "Request body is too large.")
+                if seen > limit:
+                    overrun = True
+                    raise _Overrun()
             return message
 
-        await self.app(scope, limited_receive, send)
+        async def guarded_send(message):
+            nonlocal replaced
+            if overrun:
+                if message["type"] == "http.response.start" and not replaced:
+                    replaced = True
+                    await _send_plain(send, 413, TOO_LARGE, content_type=b"application/json")
+                return    # drop whatever the app tried to send after the overrun
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, guarded_send)
+        except _Overrun:
+            pass
+        if overrun and not replaced:
+            await _send_plain(send, 413, TOO_LARGE, content_type=b"application/json")
 
 
 class RequestLog:
@@ -157,8 +184,20 @@ class RequestLog:
         finally:
             state = scope.get("state") or {}
             uid = state.get("user_id") if isinstance(state, dict) else None
-            log.info("rid=%s %s %s -> %s %.0fms user=%s", rid, scope["method"], scope["path"], status,
+            log.info("rid=%s %s %s -> %s %.0fms user=%s", rid, scope["method"], log_path(scope), status,
                      (time.perf_counter() - start) * 1000, uid or "-")
+
+
+_SENSITIVE = re.compile(r"^(/api/(?:invites|tokens|auth/sessions))/[^/]+")
+
+
+def log_path(scope) -> str:
+    """The route template when known (no ids, codes or keys); otherwise the path with secrets redacted."""
+    route = scope.get("route")
+    tmpl = getattr(route, "path", None)
+    if isinstance(tmpl, str) and "{" in tmpl:
+        return tmpl
+    return _SENSITIVE.sub(r"\1/:redacted", scope["path"])
 
 
 class RedactQueryFilter(logging.Filter):

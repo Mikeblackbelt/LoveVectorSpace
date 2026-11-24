@@ -74,9 +74,10 @@ def create_app(settings: AppSettings, factory: ServiceFactory, *, mailer: Any = 
         app.include_router(r)
     app.router.routes.append(Route("/mcp", McpGate(mcp, accounts, settings.app_origin),
                                    methods=["GET", "POST", "DELETE"]))
-    install_spa(app, Path(settings.frontend_dist))   # must be last: catch-all GET
+    install_spa(app, Path(settings.frontend_dist), settings.app_origin)   # must be last: catch-all GET
 
-    app.add_middleware(BodyLimit, import_limit=settings.max_import_bytes, ingest_limit=settings.max_ingest_bytes)
+    app.add_middleware(BodyLimit, import_limit=settings.max_import_bytes, ingest_limit=settings.max_ingest_bytes,
+                       messages_limit=settings.max_messages_import_bytes)
     app.add_middleware(RequestLog)
     app.add_middleware(PathCORS, app_origins=[settings.app_origin, *NATIVE_ORIGINS],
                        extension_id=settings.extension_id)   # outermost, so error responses carry CORS headers
