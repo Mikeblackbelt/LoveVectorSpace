@@ -110,3 +110,11 @@ def test_model_scoring_window_and_note(factory, svc, person, monkeypatch):
     emo_m = [m for m in new["metrics"] if m["id"].startswith("emotion_share")]
     assert emo_m and "most recent 90 days" in emo_m[0]["note"]
     assert "most recent 90 days" in next(m for m in new["metrics"] if m["id"] == "toxicity_rate")["note"]
+
+
+def test_old_change_point_in_window_is_not_material_every_run():
+    now = datetime.now(timezone.utc)
+    recent = now - timedelta(days=1)
+    old = _ov(cps=["message_share@2025-03-03"])
+    assert material_change(old, _ov(cps=["message_share@2025-03-03"]), recent, now) is False
+    assert material_change(old, _ov(cps=["message_share@2025-03-10"]), recent, now) is True

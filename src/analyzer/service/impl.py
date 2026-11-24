@@ -870,13 +870,18 @@ class UserServiceImpl:
             raise NotFound("fact") from e
         except ValueError as e:
             raise InvalidInput(str(e), "confidence") from e
+        if f.key.startswith("safety."):
+            self.schedule_reanalysis(f.person_id)
         return _fact_dict(f)
 
     @locked
     def delete_fact(self, fact_id: int) -> None:
-        if Facts(self.conn).get(fact_id) is None:
+        cur = Facts(self.conn).get(fact_id)
+        if cur is None:
             raise NotFound("fact")
         Facts(self.conn).delete(fact_id)
+        if cur.key.startswith("safety."):
+            self.schedule_reanalysis(cur.person_id)
 
     @locked
     def list_interactions(self, pid: int, since: str | None = None) -> list[dict]:
@@ -963,12 +968,13 @@ class UserServiceImpl:
         return [_step_dict(s) for s in NextSteps(self.conn).list(pid) if s.id > step_id]
 
     @locked
-    def _auto_run_allowed(self, pid: int, now: datetime) -> bool:
+    def _auto_run_allowed(self, pid: int, now: datetime, cap: timedelta = timedelta(days=1)) -> bool:
+        from analyzer.store._base import fmt
         st, key = Settings(self.conn), f"next_steps_auto_at:{pid}"
         last = st.get(key)
-        if last and now - parse_ts(last) < timedelta(days=1):
+        if last and now - parse_ts(last) < cap:
             return False
-        st.set(key, now_str())
+        st.set(key, fmt(now))
         return True
 
     @locked
@@ -1267,7 +1273,7 @@ class UserServiceImpl:
     def export(self, include_messages: bool) -> dict:
         c = self.conn
         out: dict[str, Any] = {"exported_at": iso(datetime.now(timezone.utc)), "people": [],
-                               "settings": self.get_settings(), "scale_results": [], "overviews": []}
+                               "settings": self.get_settings()}
         store, agent = MessageStore(c), AgentStore(c)
         for p in People(c).list():
             entry = {"person": person_dict(p), "facts": self.list_facts(p.id),

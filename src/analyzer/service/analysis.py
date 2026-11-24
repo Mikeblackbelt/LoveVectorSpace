@@ -36,6 +36,11 @@ def iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _day_iso(d) -> str:
+    """A calendar date as an ISO datetime (midnight UTC, trailing Z), like every other timestamp."""
+    return iso(datetime(d.year, d.month, d.day, tzinfo=timezone.utc))
+
+
 def person_dict(p) -> dict:
     return {"id": p.id, "pseudonym": p.pseudonym, "mode": p.mode, "timezone": p.timezone,
             "created_at": iso(p.created_at)}
@@ -134,8 +139,8 @@ def compute_overview(conn, pid: int, scales: dict, classifiers, now: datetime | 
 
     block = safety_check(msgs, tox_list, cdaq, facts)
     safety = {"flags": [{"category": f.category, "severity": f.severity, "speaker": f.speaker,
-                         "count": f.count, "first_seen": f.first_seen.isoformat(),
-                         "last_seen": f.last_seen.isoformat(), "snippets": f.snippets}
+                         "count": f.count, "first_seen": _day_iso(f.first_seen),
+                         "last_seen": _day_iso(f.last_seen), "snippets": f.snippets}
                         for f in block.flags],
               "resources": [{k: v for k, v in asdict(r).items() if k != "urgent_threat_only"}
                             for r in block.resources],
@@ -159,7 +164,7 @@ def compute_overview(conn, pid: int, scales: dict, classifiers, now: datetime | 
                            coverage or None)["message_share"]
         last_week = max((w for w, v in tr if v is not None), default=None)
         if last_week is not None and last_week in change_points(tr):
-            cps.append("message_share")
+            cps.append(f"message_share@{last_week.isoformat()}")  # keyed by week: only a new one is material
     return {
         "kind": "overview", "person": person_dict(person), "mode": person.mode, "generated_at": iso(now),
         "success": success, "safety": safety, "reciprocity": recip, "metrics": metrics,

@@ -33,7 +33,7 @@ def propose(svc, pid: int, args: dict) -> dict:
 def generate_next_steps(svc, pid: int, on_demand: bool, now: datetime | None = None) -> list[dict]:
     """Returns the cards created. Auto runs are capped at one per person per day."""
     now = now or datetime.now(timezone.utc)
-    if not on_demand and not svc._auto_run_allowed(pid, now):
+    if not on_demand and not svc._auto_run_allowed(pid, now, AUTO_CAP):
         return []
     created: list[dict] = []
     for draft in checkin_triggers(svc, pid, now):
