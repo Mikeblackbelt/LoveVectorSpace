@@ -296,6 +296,8 @@ export interface ScaleDef {
   measures?: string;
   does_not_measure?: string;
   verified?: boolean;
+  /** an original LoveVectorSpace item set (not a published instrument) */
+  custom?: boolean;
 }
 
 export interface ScaleResult {

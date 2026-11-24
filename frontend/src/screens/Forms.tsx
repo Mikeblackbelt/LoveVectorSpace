@@ -42,6 +42,7 @@ export function FormsScreen() {
                 <div>
                   <b>{s.name}</b>{' '}
                   {!s.verified && <span className="tag t-heur"><L t="[UNVERIFIED]" p="not yet checked" /></span>}
+                  {s.custom && <span className="tag t-heur"><L t="[CUSTOM]" p="our own questions" /></span>}
                   {s.item_text === 'local_overlay' && <span className="tag t-desc"><L t="[OVERLAY]" p="text from official form" /></span>}
                   <div className="dimt small">{s.measures}{s.does_not_measure ? ` · can't tell you: ${s.does_not_measure}` : ''}</div>
                   <div className="dimt small">{s.items.length} items · {s.source.citation}</div>
