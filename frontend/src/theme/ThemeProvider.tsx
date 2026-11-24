@@ -4,7 +4,7 @@ import { useSession } from '../api/session';
 import type { ThemeName, ThemeSetting } from '../api/types';
 import { applyNativeTheme } from '../native/native';
 import {
-  DEFAULT_PREFS, THEMES, isTheme, loadLocalPrefs, nextTheme, resolveTheme, saveLocalPrefs, type ThemePrefs,
+  DEFAULT_PREFS, THEMES, hasPendingPrefs, isTheme, setPendingPrefs, loadLocalPrefs, nextTheme, resolveTheme, saveLocalPrefs, type ThemePrefs,
 } from './themes';
 
 interface ThemeCtx {
@@ -74,7 +74,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     settingsApi
       .get()
       .then((s) => {
-        if (touched.current) return; // a choice made while loading wins over the server copy
+        // a choice made while loading, or while signed out (pending flag), wins over the server copy
+        if (touched.current) return;
+        if (hasPendingPrefs()) {
+          const { theme, auto_theme, reduce_motion, contrast_boost, text_size } = loadLocalPrefs();
+          settingsApi.put({ theme, auto_theme, reduce_motion, contrast_boost, text_size }).then(() => setPendingPrefs(false), () => undefined);
+          return;
+        }
         const next: ThemePrefs = {
           theme: s.theme === 'auto' || isTheme(s.theme) ? s.theme : DEFAULT_PREFS.theme,
           auto_theme: { ...DEFAULT_PREFS.auto_theme, ...s.auto_theme },
@@ -99,7 +105,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         saveLocalPrefs(next);
         return next;
       });
-      if (authed) settingsApi.put(p).catch(() => undefined);
+      if (authed) settingsApi.put(p).catch(() => setPendingPrefs(true));
+      else setPendingPrefs(true);
     },
     [authed],
   );

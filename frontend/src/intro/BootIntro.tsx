@@ -80,7 +80,10 @@ export function BootIntro({ loading, onDone, minMs = 3200 }: { loading: boolean;
   useEffect(() => {
     let i = 0;
     const id = window.setInterval(() => {
-      if (i < LOG.length) setLog((l) => [...l, LOG[i++]]);
+      if (i < LOG.length) {
+        const line = LOG[i++];
+        setLog((l) => (l.includes(line) ? l : [...l, line]));
+      }
       else window.clearInterval(id);
     }, reducedMotion ? 60 : 900);
     return () => window.clearInterval(id);
@@ -388,7 +391,8 @@ export function BootIntro({ loading, onDone, minMs = 3200 }: { loading: boolean;
       }
       const s = tip();
       if (readRef.current) {
-        readRef.current.textContent = `Σv = (${f2(s[0])},${f2(s[1])},${f2(s[2])})  |Σv| = ${len(s).toFixed(2)}  OCTANT ${phase === 'load' ? curOct : '000'}`;
+        readRef.current.textContent = `Σv = (${f2(s[0])},${f2(s[1])},${f2(s[2])})
+|Σv| = ${len(s).toFixed(2)}   OCTANT ${phase === 'load' ? curOct : '000'}`;
       }
     };
 

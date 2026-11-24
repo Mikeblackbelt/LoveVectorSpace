@@ -330,7 +330,7 @@ html,body{margin:0;min-height:100%}
 .lvs .hint{margin-top:6px;font-size:12px;color:var(--text-dim)}
 .lvs .hint.ok{color:var(--ok-t)}
 .lvs .meter{margin-top:6px;font-size:13px;letter-spacing:.04em;font-family:var(--font-data)}
-.lvs .btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;font-size:12px;letter-spacing:.12em;border:var(--rule-w) solid var(--me);background:transparent;color:var(--me-t);text-transform:uppercase;padding:0 12px}
+.lvs .btn{display:flex;gap:.6ch;align-items:center;justify-content:center;width:100%;min-height:48px;font-size:12px;letter-spacing:.12em;border:var(--rule-w) solid var(--me);background:transparent;color:var(--me-t);text-transform:uppercase;padding:0 12px}
 .lvs .btn:hover{background:color-mix(in srgb,var(--me) 14%,transparent)}
 .lvs .btn.pri{background:var(--me);color:var(--on-me);font-weight:600;box-shadow:var(--glow-me)}
 .lvs .btn.out{border-color:var(--text-dim);color:var(--text);margin-top:10px;gap:10px}

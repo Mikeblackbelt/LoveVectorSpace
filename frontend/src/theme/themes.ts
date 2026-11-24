@@ -74,3 +74,21 @@ export function saveLocalPrefs(p: ThemePrefs): void {
     /* storage blocked: the server copy still persists */
   }
 }
+
+const PENDING_KEY = 'lvs.prefs.pending';
+/** Set when prefs changed while signed out (or a PUT failed): pushed to the server on next sign-in. */
+export function setPendingPrefs(v: boolean): void {
+  try {
+    if (v) localStorage.setItem(PENDING_KEY, '1');
+    else localStorage.removeItem(PENDING_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+export function hasPendingPrefs(): boolean {
+  try {
+    return localStorage.getItem(PENDING_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
