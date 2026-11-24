@@ -125,6 +125,16 @@ describe('consent gating', () => {
     cap.paused = true;
     expect(gateState('a11y', await caps(), true)).toBe('paused');
   });
+  it('the accessibility idle auto-pause shows as paused for that reader only', async () => {
+    const cap = new FakeCapture();
+    cap.enabled = { notify: true, sms: false, a11y: true };
+    cap.granted = { notify: true, sms: false, a11y: true };
+    const base = await cap.status();
+    cap.status = async () => ({ ...base, methods: { ...base.methods, a11y: { ...base.methods.a11y, idle: true } } });
+    const c = await detectCapabilities(fakeEnv({ capture: cap }));
+    expect(gateState('a11y', c, true)).toBe('paused');
+    expect(gateState('notify', c, true)).toBe('active');
+  });
   it('consent is stored per method and versioned', () => {
     expect(localConsent.get('a11y')).toBe(false);
     localConsent.set('a11y', true);

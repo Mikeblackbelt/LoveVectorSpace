@@ -45,7 +45,7 @@ export function gateState(method: ReaderMethod, caps: Capabilities, consented: b
   const s = caps.status.methods[method];
   if (!s.enabled) return 'off';
   if (!s.granted) return 'needs_access';
-  if (caps.status.paused) return 'paused';
+  if (caps.status.paused || s.idle) return 'paused';
   return 'active';
 }
 

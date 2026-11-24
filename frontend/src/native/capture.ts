@@ -33,6 +33,8 @@ export interface MethodStatus {
   enabled: boolean;
   /** OS access granted (notification access, READ_SMS, accessibility service on). */
   granted: boolean;
+  /** a11y only: auto-paused after 30 minutes without a linked chat (setPaused(false) resumes). */
+  idle?: boolean;
 }
 
 export interface CaptureStatus {

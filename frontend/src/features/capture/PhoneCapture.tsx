@@ -104,8 +104,10 @@ function ReaderControls({ caps, consent, refresh }: { caps: Capabilities; consen
       <div className="cap-method">
         <span className="cap-state">
           {status.paused
-            ? <L t={status.pausedReason === 'idle' ? '[ PAUSED · IDLE 30 MIN ]' : '[ PAUSED ]'} p={status.pausedReason === 'idle' ? 'Paused (no linked chat for 30 minutes)' : 'Paused'} />
-            : <L t="[ LIVE ]" p="Running" />}
+            ? <L t="[ PAUSED ]" p="Paused" />
+            : status.methods.a11y.idle
+              ? <L t="[ LIVE · CHAT READER IDLE-PAUSED ]" p="Running (chat reader paused after 30 minutes without a linked chat)" />
+              : <L t="[ LIVE ]" p="Running" />}
           {' · '}
           <L t={`${status.queued} queued`} p={`${status.queued} messages waiting to upload`} />
         </span>
@@ -118,6 +120,9 @@ function ReaderControls({ caps, consent, refresh }: { caps: Capabilities; consen
             disabled={pause.isPending}
             id="btn-cap-pause"
           />
+          {!status.paused && status.methods.a11y.idle && (
+            <Key variant="pri" tech="RESUME CHAT READER" plain="Resume the chat reader" onClick={() => pause.mutate(false)} disabled={pause.isPending} id="btn-cap-resume-a11y" />
+          )}
           <Key tech="UPLOAD NOW" plain="Upload now" onClick={() => upload.mutate()} disabled={upload.isPending} id="btn-cap-upload" />
         </div>
         {upload.data?.error && <p className="err" role="alert">Upload paused: {upload.data.error}. Captured messages stay queued.</p>}
