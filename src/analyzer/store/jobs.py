@@ -24,6 +24,12 @@ class Jobs:
                              (status, error, finished, job_id)).rowcount:
                 raise KeyError(job_id)
 
+    def fail_unfinished(self, error: str) -> int:
+        """Mark jobs left queued/running (process died or service closed) as error."""
+        with tx(self.conn) as c:
+            return c.execute("UPDATE jobs SET status='error', error=?, finished_at=?"
+                             " WHERE status IN ('queued','running')", (error, now_str())).rowcount
+
     def get(self, job_id: int) -> Optional[Job]:
         r = self.conn.execute(
             "SELECT id, person_id, kind, status, error, created_at, finished_at FROM jobs WHERE id=?",
