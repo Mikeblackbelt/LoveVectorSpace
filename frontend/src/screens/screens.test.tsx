@@ -141,8 +141,37 @@ describe('agent chat', () => {
     await screen.findByText(/ask anything about/i);
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'how do I bring up weekend plans?' } });
     await act(async () => fireEvent.submit(screen.getByLabelText('Message').closest('form')!));
-    await waitFor(() => expect(screen.getByTestId('transcript').textContent).toContain('how do I bring up weekend plans?'), { timeout: 5000 });
-    await waitFor(() => expect(screen.getByTestId('transcript').textContent).toContain('Want me to draft a message'), { timeout: 5000 });
+    // deterministic: wait for the stream's `done` (announced) and for the post-send thread refetch to settle
+    await waitFor(() => expect(screen.getByTestId('chat-announce').textContent).toContain('Want me to draft a message'), { timeout: 5000 });
+    await waitFor(() => expect(screen.getByLabelText('Message')).not.toBeDisabled());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    const t = screen.getByTestId('transcript').textContent || '';
+    expect(t).toContain('how do I bring up weekend plans?');
+    expect(t).toContain('Want me to draft a message');
+  });
+
+  it('a stale thread fetch that resolves after the reply does not wipe the transcript', async () => {
+    let first = true;
+    setTransport(async (url, init) => {
+      if (first && /\/api\/agent\/threads\/\d+$/.test(url) && (init.method || 'GET') === 'GET') {
+        first = false;
+        const stale = await mockFetch(url, init); // snapshot taken before the message is stored
+        await new Promise((r) => setTimeout(r, 300));
+        return stale;
+      }
+      return mockFetch(url, init);
+    });
+    renderAt(<DashRoute />, { route: '/p/3/chat' });
+    await screen.findByText(/ask anything about/i);
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'first message' } });
+    await act(async () => fireEvent.submit(screen.getByLabelText('Message').closest('form')!));
+    await waitFor(() => expect(screen.getByTestId('chat-announce').textContent).toContain('Reply'), { timeout: 5000 });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 450));
+    });
+    expect(screen.getByTestId('transcript').textContent).toContain('first message');
   });
 
   it('shows the agent_unavailable state on 503 and keeps hangout logging', async () => {
