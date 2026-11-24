@@ -89,7 +89,7 @@ export function PeopleScreen() {
                           <>
                             <span className="big">{Math.round(p.success.percent)}<i>%</i></span>{' '}
                             <span className="rng c-me glyph">{rangeBar(p.success.low, p.success.high)}</span>{' '}
-                            <span className="sub dimt"><L t="UNCAL" p="rough estimate" /> · {p.success.low}–{p.success.high}</span>
+                            <span className="sub dimt"><L t="UNCAL" p="rough estimate" /> · {p.success.low != null && p.success.high != null ? `${p.success.low}–${p.success.high}` : <L t="NO RANGE" p="no range yet" />}</span>
                           </>
                         ) : (
                           <>

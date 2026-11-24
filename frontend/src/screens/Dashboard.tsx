@@ -15,6 +15,7 @@ import { haptic } from '../native/native';
 import { L, MetricName, Tag } from '../theme/Plain';
 import { useTheme } from '../theme/ThemeProvider';
 import { useHotkey } from '../lib/hotkeys';
+import { headlineText } from '../lib/headline';
 
 export function DashboardScreen() {
   const { pid: p } = useParams();
@@ -49,6 +50,10 @@ function Dashboard({ o, pid, lastSync }: { o: PersonOverview; pid: number; lastS
   const allMetrics = useMemo(() => [...o.reciprocity, ...o.metrics, ...o.interaction_metrics], [o]);
   return (
     <>
+      {/* §7b: the warning is the first thing after the command bar, above session chips and the ticker */}
+      <div className={flagged ? 'safety-top' : 'safety-top compact'}>
+        <SafetyBlockView block={o.safety} />
+      </div>
       <div className="session">
         <span className="journal-only">
           {subject} · {o.weekly.length} weeks · updated <b>{hhmm(o.generated_at)}</b>
@@ -67,11 +72,6 @@ function Dashboard({ o, pid, lastSync }: { o: PersonOverview; pid: number; lastS
       </div>
       <Ticker o={o} />
       <main className="grid" id="dashboard">
-        {flagged && (
-          <div className="safety-wrap">
-            <SafetyBlockView block={o.safety} />
-          </div>
-        )}
         <Pane id="radar" tech="RECIPROCITY RADAR" plain="How balanced it feels" className="radar-pane" meta={<span className="glyph">§2 · {o.reciprocity.length} SPOKES · {o.weekly.length}W</span>}>
           <div className="rd-top">
             <span>
@@ -134,7 +134,7 @@ function Ticker({ o }: { o: PersonOverview }) {
   useHotkey('p', () => setPaused((v) => !v));
   const t = hhmm(o.generated_at);
   const items: [string, string][] = [
-    [t, `analysis snapshot · ${o.success.percent != null ? `${Math.round(o.success.percent)}% (${o.success.low}–${o.success.high}) [UNCAL]` : 'insufficient data'}`],
+    [t, `analysis snapshot · ${headlineText(o.success) ?? 'insufficient data'}`],
     ...o.reciprocity
       .filter((m) => m.status === 'ok')
       .map((m): [string, string] => [t, `${m.label} ${m.per_speaker ? `me ${fmtVal(m.per_speaker.me)} · them ${fmtVal(m.per_speaker.them)}` : fmtVal(m.value)}`]),
@@ -200,7 +200,7 @@ function Calibrated({ o }: { o: PersonOverview }) {
             </div>
             {o.success.percent != null && (
               <p className="cmt">
-                <L t={`# until then, read ${Math.round(o.success.percent)}% as a rough lean, not odds.`} p={`Until then, treat ${Math.round(o.success.percent)}% as a rough lean, not odds.`} />
+                <L t={`# until then, read ${headlineText(o.success)} as a rough lean, not odds.`} p={`Until then, treat ${headlineText(o.success, true)} as a rough lean, not odds.`} />
               </p>
             )}
           </>
@@ -238,8 +238,8 @@ function Contributors({ o, metrics }: { o: PersonOverview; metrics: Metric[] }) 
       {o.success.percent != null && (
         <div className="sum-line">
           <L
-            t={<>TOP {rows.length} · {rows.map(([, v]) => (v > 0 ? `+${v}` : `−${Math.abs(v)}`)).join(' ')} = <b>{total > 0 ? '+' : ''}{total}pp</b> · HEADLINE <b className="c-me">{Math.round(o.success.percent)}</b></>}
-            p={`These ${rows.length} signals move the estimate by ${total > 0 ? '+' : ''}${total} points`}
+            t={<>TOP {rows.length} · {rows.map(([, v]) => (v > 0 ? `+${v}` : `−${Math.abs(v)}`)).join(' ')} = <b>{total > 0 ? '+' : ''}{total}pp</b> · HEADLINE <b className="c-me">{headlineText(o.success)}</b></>}
+            p={`These ${rows.length} signals move the estimate by ${total > 0 ? '+' : ''}${total} points. Estimate: ${headlineText(o.success, true)}`}
           />
         </div>
       )}

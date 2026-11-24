@@ -132,6 +132,8 @@ export function Radar({ metrics, success, subject }: { metrics: Metric[]; succes
   const pctN = ok ? Math.round(success.percent!) : null;
   const lo = success.low ?? null;
   const hi = success.high ?? null;
+  const ranged = lo != null && hi != null;
+  const rangeWords = ranged ? `range ${lo} to ${hi}` : 'no range available';
 
   useEffect(() => {
     if (!sweepOn || !spokes.length) return;
@@ -177,7 +179,7 @@ export function Radar({ metrics, success, subject }: { metrics: Metric[]; succes
 
   const desc = `${spokes.length} reciprocity spokes. ` +
     spokes.map((s) => `${s.plain || s.name}: ${s.me == null ? 'not enough data' : s.same ? fmt(s.me, true) : `me ${fmt(s.me, false)}, them ${fmt(s.them, false)}`}`).join('; ') +
-    (ok ? `. The outer rim shows the uncalibrated chance of ${pctN} percent, range ${lo} to ${hi}.` : '. Not enough data for a headline estimate yet.');
+    (ok ? `. The outer rim shows the uncalibrated chance of ${pctN} percent, ${rangeWords}.` : '. Not enough data for a headline estimate yet.');
 
   const cur = spokes[focus];
   const ticks = Array.from({ length: 72 }, (_, i) => {
@@ -343,7 +345,7 @@ export function Radar({ metrics, success, subject }: { metrics: Metric[]; succes
         <div className="hub" data-testid="headline">
           <p className="sr">
             {ok
-              ? `Chance of success: ${pctN} percent, uncalibrated, range ${lo} to ${hi}. Probability that ${success.definition}.`
+              ? `Chance of success: ${pctN} percent, uncalibrated, ${rangeWords}. Probability that ${success.definition}.`
               : 'Chance of success: not enough data yet.'}
           </p>
           <div aria-hidden="true">
@@ -355,8 +357,10 @@ export function Radar({ metrics, success, subject }: { metrics: Metric[]; succes
               <span className="hl-pct">%</span>
             </div>
             <div className="hub-range">
-              {ok ? (
+              {ok && ranged ? (
                 <L t={<>RANGE <b>{lo}</b> ──── <b>{hi}</b></>} p={`likely ${lo} to ${hi}`} />
+              ) : ok ? (
+                <L t={<>RANGE <b>--</b> · NOT AVAILABLE</>} p="no range available" />
               ) : (
                 <L t={<>RANGE <b>--</b> ──── <b>--</b></>} p="no range yet" />
               )}
@@ -369,7 +373,7 @@ export function Radar({ metrics, success, subject }: { metrics: Metric[]; succes
       </div>
       <div className="hub-under" aria-hidden="true">
         <div className="hub-range">
-          {ok ? <L t={<>RANGE <b>{lo}</b> ──── <b>{hi}</b> · RIM MARKER = {pctN}</>} p={`Likely between ${lo} and ${hi}`} /> : <L t="RANGE -- · NOT ENOUGH DATA" p="Not enough data yet" />}
+          {ok && ranged ? <L t={<>RANGE <b>{lo}</b> ──── <b>{hi}</b> · RIM MARKER = {pctN}</>} p={`Likely between ${lo} and ${hi}`} /> : ok ? <L t="RANGE -- · NOT AVAILABLE" p="No range available" /> : <L t="RANGE -- · NOT ENOUGH DATA" p="Not enough data yet" />}
         </div>
         <div className="hub-def">
           <L t={`P(${success.definition})`} p={`Chance that ${success.definition}`} />
