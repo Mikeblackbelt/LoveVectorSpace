@@ -1,0 +1,7 @@
+{"conversations": [
+ {"match_id": "b-1", "messages": [
+  {"id": "k1", "sender": "Jordan", "message_text": "hi there", "date_sent": "2025-04-01T18:00:00Z"},
+  {"id": "k2", "sender": "Jordan", "message_text": "tea or coffee?", "date_sent": "2025-04-01T18:05:00Z"}]},
+ {"match_id": "b-2", "messages": [
+  {"id": "k3", "sender": "Jordan", "message_text": "good morning", "date_sent": "2025-04-03T08:00:00Z"}]}
+], "source": "bumble"}

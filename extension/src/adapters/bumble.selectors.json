@@ -1,0 +1,17 @@
+{
+  "shell": "#bumble-app, div[class*='app']",
+  "chatTitle": "[data-lvs='bumble-chat-title'], main header h1, main header h2",
+  "messageList": "[aria-label='Message list'], [data-lvs='bumble-messages']",
+  "scroller": "[aria-label='Message list'], [data-lvs='bumble-messages']",
+  "row": "[data-lvs='bumble-row'], [role='row']",
+  "timeSeparator": "[data-lvs='bumble-timestamp'], time[class*='separator']",
+  "bubble": "[data-lvs='bumble-bubble'], [class*='msg']",
+  "outgoing": "[data-lvs='bumble-bubble'][data-outgoing='true'], [class*='msg'][class*='--sent']",
+  "text": "[data-lvs='bumble-text'], span[class*='text']",
+  "login": "[data-testid='login'], a[href*='/login'][role='button']",
+  "captcha": "iframe[src*='captcha'], [class*='captcha']",
+  "errorBanner": "[data-testid='error-banner']",
+  "errorContainer": "[role='alert']",
+  "errorPattern": "something went wrong|could(n't| not) (load|send)|connection (lost|error)|try again later|network error",
+  "directionMarker": "[data-lvs='bumble-bubble'][data-outgoing], [class*='msg'][class*='--sent'], [class*='msg'][class*='--received']"
+}

@@ -151,3 +151,23 @@ The layout, terminal structure (box-drawing frames, command bar, bracketed keys,
   - **AUTO mode:** follows system `prefers-color-scheme` (light → journal, dark → signal), or a time-of-day schedule (07–19 day theme, otherwise night theme). The user picks the day and night themes.
   - **Accessibility controls:** reduced motion, contrast boost and text size.
   - Fully responsive: a specimen grid on desktop, swipeable full-bleed cards on phone.
+- **Themes 7–9 (owner request: more themes):**
+  - `inkwell`: high-contrast black and white e-ink, Atkinson Hyperlegible and Newsreader fonts. It's the accessibility theme: 7:1+ contrast, THEM drawn hatched so charts never rely on colour, 3px focus outlines, essential motion only.
+  - `matcha`: a calm light theme in tea green and clay, with Manrope and Newsreader fonts, 8px radius and soft cards.
+  - `midnight`: a refined dark theme, navy with gold and moonlight blue, with Outfit, Cormorant Garamond and JetBrains Mono fonts, gold hairlines and a faint star field.
+- **Cycle order:** signal → pulse → riso → blueprint → journal → matcha → midnight → inkwell → crt.
+- **AUTO defaults:** day = journal, night = signal. Each theme sets `--radius` (only inkwell, signal, riso, blueprint, pulse and crt are 0).
+- **Device scaling rules (every screen):**
+  - a viewport meta tag; fluid type with `clamp()`; layout in `rem`, `%` or `fr`, never fixed-width page containers;
+  - canvases sized from their container with DPR handling, redrawn on `resize` and `orientationchange` (debounced);
+  - no horizontal scroll at 320–1920px; tap targets ≥44px under 768px;
+  - honour `env(safe-area-inset-*)`, `prefers-reduced-motion` and `prefers-color-scheme` (for AUTO).
+- **Contrast and motion fixes (owner bug report: "intro is not dynamic, many themes have way too low contrast"):**
+  - **Token fixes:** journal `--me` is now `#b0442e`; matcha `--me` is `#4f7030` and `--text-dim` is `#4f5a46`. Every token text pair is ≥4.9:1.
+  - **Rendered contrast is the bar, not token pairs.**
+    - Text must use the text tokens (`--text`, `--text-dim`, `-t` variants), never fill tokens or `--rule`.
+    - No `opacity` on text below 1. Effect overlays (scanlines, halftone, vignette, grid, star field, glow) must sit behind text or be weak enough that rendered text stays ≥4.5:1 (≥3:1 for text ≥24px, or ≥18.66px bold).
+  - **Motion:**
+    - A `prefers-reduced-motion` setting no longer freezes the intro or the screens. It switches to a gentle mode: vectors still draw and close, numbers still count, but there is no camera orbit, flicker, scan wipes, parallax or continuous loops.
+    - Every screen gets an explicit **Motion: Full / Gentle / Off** control (in the theme popover and on the Themes screen), stored as `lvs-motion`. The user's explicit choice overrides the OS setting.
+    - Inkwell defaults to Gentle, not Off.

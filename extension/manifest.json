@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "LoveVectorSpace Capture",
+  "version": "0.1.0",
+  "description": "Opt-in, per-chat message capture for your own LoveVectorSpace server. Reads linked chats only; never sends, reacts or marks as read.",
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://web.whatsapp.com/*",
+    "https://discord.com/*",
+    "https://www.instagram.com/*",
+    "https://tinder.com/*",
+    "https://web.grindr.com/*",
+    "https://bumble.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "LoveVectorSpace Capture"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web.whatsapp.com/*",
+        "https://discord.com/channels/@me/*",
+        "https://www.instagram.com/direct/*",
+        "https://tinder.com/app/messages/*",
+        "https://web.grindr.com/messages/*",
+        "https://bumble.com/app/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; base-uri 'none'"
+  }
+}

@@ -9,10 +9,14 @@ class DatabaseKeyError(Exception):
     """Missing or wrong database key."""
 
 
-def open_db(path: Path, key: str, *, migrator=migrate):
-    """Open (or create) the encrypted DB. Fails closed; never creates a plaintext file."""
+def open_db(path: Path, key: str, create: bool = True, *, migrator=migrate):
+    """Open (or create) the encrypted DB. Fails closed; never creates a plaintext file.
+
+    Background openers pass `create=False` so a deleted user's file is never re-created."""
     if not key:
         raise DatabaseKeyError("DB_KEY is missing")
+    if not create and not Path(path).exists():
+        raise FileNotFoundError("database does not exist")
     conn = sqlcipher3.connect(str(path), check_same_thread=False)
     try:
         conn.execute("PRAGMA key = '" + key.replace("'", "''") + "'")

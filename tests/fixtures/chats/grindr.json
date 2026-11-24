@@ -1,0 +1,7 @@
+{"conversations": [
+ {"conversation_id": "c-100", "messages": [
+  {"id": "m1", "sender": "Alex", "body": "hey", "timestamp": 1740000000000},
+  {"id": "m2", "sender": "Alex", "body": "how is the week?", "timestamp": 1740003600000}]},
+ {"conversation_id": "c-200", "messages": [
+  {"id": "m3", "sender": "Alex", "body": "hello again", "timestamp": 1741000000000}]}
+]}
