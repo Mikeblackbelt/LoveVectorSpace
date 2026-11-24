@@ -50,10 +50,13 @@ interface Group {
 
 type Work = Group | Exclude<ChatItem, BubbleItem>;
 
+// U+200B..U+200D and U+FEFF, built from code points so no invisible characters live in the source.
+const ZERO_WIDTH = new RegExp(`[${String.fromCharCode(0x200b)}-${String.fromCharCode(0x200d)}${String.fromCharCode(0xfeff)}]`, 'g');
+
 /** Strip read ticks, zero-width characters and repeated whitespace OCR leaves behind. */
 export function cleanText(s: string): string {
   return s
-    .replace(/[​-‍﻿]/g, '')
+    .replace(ZERO_WIDTH, '')
     .replace(/(^|\s)[✓✔√]{1,2}(?=\s|$)/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -74,7 +77,7 @@ function sideOf(left: number, right: number, W: number): Role | null {
 export function segmentScreenshot(img: OcrImage, opts: SegmentOptions): ChatItem[] {
   const W = img.width || 1;
   const H = img.height || 1;
-  const prof = opts.profile ?? APP_PROFILES.generic;
+  const prof: AppProfile = opts.profile ?? APP_PROFILES.generic;
   const dayFirst = opts.dayFirst ?? prof.dayFirst ?? false;
   const top = H * prof.headerFrac;
   const bottom = H * (1 - prof.footerFrac);
