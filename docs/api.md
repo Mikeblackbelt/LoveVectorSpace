@@ -43,15 +43,17 @@ There are four ways to authenticate:
 | POST | `/api/auth/password/change` | `{current_password, new_password}` | 204 |
 | GET | `/api/auth/google/start?redirect=/people&invite=<code>` | — | 302 to Google (PKCE, state). `invite` is optional and is used if the Google account is new. `redirect` must be a same-site path. |
 | GET | `/api/auth/google/callback` | — | 302 to the SPA `/auth/complete#ok` with the refresh cookie set, or `#error=<code>` |
-| POST | `/api/auth/google/token` | `{id_token, invite_code?, nonce?}` (native) | `AuthResult` |
-| POST | `/api/auth/apple/token` | `{id_token, invite_code?, name?, nonce?}` (web JS and native) | `AuthResult`. If `nonce` is sent, the token's `nonce` claim must equal it or its sha256 hex (required when the server sets `NATIVE_NONCE_REQUIRED=1`; 400 `field: "nonce"` if missing). |
+| POST | `/api/auth/nonce` | — | `{nonce, expires_in: 600}`. Issues a single-use nonce for an ID-token sign-in. Rate-limited per IP (429). |
+| POST | `/api/auth/google/token` | `{id_token, invite_code?}` (native) | `AuthResult`. The token's `nonce` claim must be a nonce from `/api/auth/nonce`, passed to Google as-is. |
+| POST | `/api/auth/apple/token` | `{id_token, invite_code?, name?}` (web JS and native) | `AuthResult`. The token's `nonce` claim must be the sha256 hex of a nonce from `/api/auth/nonce` (pass `sha256(nonce)` to Apple). |
 | GET | `/api/auth/sessions` | — | `[{id, device, created_at, last_used_at, current}]` |
 | DELETE | `/api/auth/sessions/{id}` | — | 204 |
 
 - **Interactive session only.** These routes need a session access JWT; api and extension tokens get 403 `forbidden`: `POST/DELETE /api/tokens`, `GET/DELETE /api/auth/sessions*`, `POST /api/auth/password/change`, `POST /api/account/export`, `DELETE /api/account`, and `/api/invites*`.
 - `POST /api/auth/password/change` on an account without a password (social-only) returns 403 `reauth_required` unless the session's sign-in happened in the last 10 minutes. The client should sign in again, then retry.
 - Password sign-ups always need an invite. `ADMIN_EMAIL` becomes admin once its email is verified; it can skip the invite only through a Google or Apple sign-in with a provider-verified email.
-- A password reset, or a Google/Apple sign-in that claims an unverified account with the same email, revokes all refresh sessions **and** api/extension tokens. If the account was never verified, its data is also wiped (fresh database), because whoever created it never proved the address.
+- **ID-token nonces.** The issued nonce is valid for 10 minutes and works only once, as the raw value (Google) or its sha256 hex (Apple). A missing, unknown, expired or reused nonce returns 401. A `nonce` sent in the request body is ignored. The server can drop the "nonce must be present" requirement with `NATIVE_NONCE_REQUIRED=0`, but a nonce that is present is always checked.
+- A password reset, or a Google/Apple sign-in that claims an unverified account with the same email, revokes all refresh sessions **and** api/extension tokens. If the account was never verified, its data is **set aside, not deleted**: the database moves to quarantine and the owner starts with a fresh, empty one. An admin can restore it for 30 days with `scripts/restore_quarantine.py <user_id>`; after that it is purged. If the data can't be moved, the request returns 503 `unavailable` and nothing changes.
 - A social sign-in for a new user without a valid invite returns 403 `invite_required` (with `field: "invite_code"`).
 
 ```
