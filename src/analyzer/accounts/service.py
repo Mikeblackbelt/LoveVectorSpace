@@ -17,6 +17,7 @@ from .mailer import ConsoleMailer, Mailer, ResendMailer
 from .oidc import (APPLE_ISSUERS, APPLE_JWKS, GOOGLE_ISSUERS, GOOGLE_JWKS, Fetch, Identity, JwksCache, StateStore,
                    TokenInvalid, google_auth_url, google_exchange_code, http_fetch_json, pkce_pair, verify_id_token)
 from .passwords import Passwords, password_problem
+from .quarantine import Quarantine, move_db
 from .ratelimit import SlidingWindow
 from .repos import (AccountsDB, ApiTokens, Audit, EmailTokens, Invites, RefreshTokens, UserRow, Users, iso,
                     new_id, now_iso, utcnow)
@@ -28,6 +29,9 @@ ACCESS_TTL_S = 900
 REFRESH_DAYS = 30
 REFRESH_GRACE_S = 10.0
 REAUTH_WINDOW = timedelta(minutes=10)
+NONCE_TTL_S = 600.0
+MAINTENANCE_EVERY_S = 86400.0
+PENDING_DELETE_AFTER = timedelta(minutes=1)
 VERIFY_TTL = timedelta(hours=24)
 RESET_TTL = timedelta(minutes=30)
 DELETE_PHRASE = "DELETE MY ACCOUNT"
@@ -60,6 +64,37 @@ class Principal:
     token_id: str | None = None
 
 
+class NonceStore:
+    """Server-issued single-use nonces for native ID tokens (memory, single process)."""
+
+    def __init__(self, ttl: float = NONCE_TTL_S):
+        self.ttl = ttl
+        self._raw: dict[str, float] = {}       # raw nonce -> deadline
+        self._hashed: dict[str, str] = {}      # sha256 hex -> raw nonce
+        self._lock = threading.Lock()
+
+    def issue(self) -> str:
+        raw = secrets.token_urlsafe(24)
+        with self._lock:
+            now = time.monotonic()
+            for k in [k for k, d in self._raw.items() if d <= now]:
+                self._raw.pop(k, None)
+                self._hashed.pop(crypto.sha256_hex(k), None)
+            self._raw[raw] = now + self.ttl
+            self._hashed[crypto.sha256_hex(raw)] = raw
+        return raw
+
+    def consume(self, claim: str) -> bool:
+        """True if `claim` is an issued, unexpired nonce or the sha256 hex of one; it can never be used again."""
+        with self._lock:
+            raw = claim if claim in self._raw else self._hashed.get(claim)
+            if raw is None:
+                return False
+            deadline = self._raw.pop(raw, 0.0)
+            self._hashed.pop(crypto.sha256_hex(raw), None)
+            return deadline > time.monotonic()
+
+
 class AccountService:
     def __init__(self, settings: Any, factory: Any, events: Any, *, mailer: Mailer | None = None,
                  fetch: Fetch | None = None, google_transport: Any = None, passwords: Passwords | None = None):
@@ -73,7 +108,7 @@ class AccountService:
         self.passwords = passwords or Passwords()
         self.ip_hash = crypto.IpHasher(settings.master_key)
         self.login_limiter = SlidingWindow(5, 15 * 60)                       # failures per (email, IP)
-        self.ip_limiter = SlidingWindow(getattr(settings, "auth_ip_limit", 20), 15 * 60)   # per IP and action
+        self.ip_limiter = SlidingWindow(getattr(settings, "auth_ip_limit", 60), 15 * 60)   # per IP and action
         self.mail_limiter = SlidingWindow(5, 15 * 60)
         if mailer is not None:
             self.mailer = mailer
@@ -99,6 +134,41 @@ class AccountService:
             factory.conn_opener = self.userdbs.open_existing   # background jobs never re-create a deleted DB
         self._grace: dict[str, tuple[float, str, str]] = {}   # old refresh hash -> (deadline, new raw, family)
         self._grace_lock = threading.Lock()
+        self.quarantine = Quarantine(self.db, data_dir)
+        self.nonces = NonceStore()
+        self.nonce_limiter = SlidingWindow(60, 15 * 60)
+        self._stop = threading.Event()
+        self.maintenance()
+        self._maint = threading.Thread(target=self._maintenance_loop, name="accounts-maintenance", daemon=True)
+        self._maint.start()
+
+    # ---------- maintenance (startup + daily) ----------
+    def maintenance(self) -> None:
+        """Purge quarantine older than 30 days and finish deletions that failed earlier."""
+        try:
+            purged = self.quarantine.purge()
+            if purged:
+                log.info("quarantine: purged %d expired entries", purged)
+        except Exception as e:
+            log.warning("quarantine purge failed: %s", type(e).__name__)
+        self.finish_pending_deletions()
+
+    def _maintenance_loop(self) -> None:
+        while not self._stop.wait(MAINTENANCE_EVERY_S):
+            self.maintenance()
+
+    def finish_pending_deletions(self, older_than: timedelta = PENDING_DELETE_AFTER) -> int:
+        cutoff = iso(utcnow() - older_than)
+        done = 0
+        for (uid,) in self.db.q("SELECT id FROM users WHERE deleted_at IS NOT NULL AND deleted_at <= ?", (cutoff,)):
+            try:
+                self.userdbs.delete(uid)
+                self.users.hard_delete(uid)
+                self.audit.log(uid, "account_deleted")
+                done += 1
+            except Exception as e:
+                log.warning("pending deletion still failing: %s", type(e).__name__)
+        return done
 
     def _close_user(self, user_id: str) -> None:
         close_user = getattr(self.factory, "close_user", None)
@@ -106,6 +176,7 @@ class AccountService:
             close_user(user_id)
 
     def close(self) -> None:
+        self._stop.set()
         self.userdbs.close_all()
         self.db.close()
 
@@ -242,7 +313,8 @@ class AccountService:
         self.login_limiter.reset(key)                    # only failures count
         self.ip_limiter.refund(("login", ip or ""))
         if self.passwords.needs_rehash(user.password_hash):
-            self.users.update(user.id, password_hash=self.passwords.hash(password))
+            # conditional: never overwrite a password changed concurrently (reset / change)
+            self.users.replace_password_hash(user.id, user.password_hash, self.passwords.hash(password))
         user = self._maybe_promote(user)
         self.audit.log(user.id, "login", self.ip_hash(ip))
         return user, self._issue(user, device)
@@ -356,16 +428,27 @@ class AccountService:
         self.api_tokens.revoke_all(user_id)
 
     def _takeover_fields(self, user: UserRow) -> dict[str, Any]:
-        """The address was never proven by whoever created this account: forget their password, role and data
-        (fresh data key; the DB file is replaced after the accounts lock is released)."""
+        """The address was never proven by whoever created this account: forget their password and role and
+        start a fresh data key (the old database was already moved to quarantine)."""
         return {"password_hash": None, "role": "user", "email_verified": True,
                 "wrapped_dek": crypto.wrap_dek(self.s.master_key, crypto.new_dek(), user.id)}
 
-    def _wipe_user_data(self, user_id: str) -> None:
-        """Replace the user's database with a fresh, empty one. Never call while holding the accounts lock."""
-        self.userdbs.delete(user_id)
-        self._create_db(user_id)
-        self.audit.log(user_id, "user_data_reset")
+    def _quarantine_db(self, user: UserRow) -> Path | None:
+        """Step 1 of a takeover, before any accounts.db change: move the old DB file aside.
+        If the move fails nothing has changed and the caller gets 503 (retry)."""
+        dest = self.quarantine.target(user.id)
+        try:
+            return dest if self.userdbs.quarantine_file(user.id, dest) else None
+        except OSError:
+            raise AccountError(503, "unavailable", "Please try again in a moment.", retry_after=1) from None
+
+    def _unquarantine(self, user_id: str, dest: Path | None) -> None:
+        """Roll back step 1 when the takeover could not be committed."""
+        if dest is not None:
+            try:
+                move_db(dest, self.userdbs.path(user_id))
+            except OSError:
+                log.error("could not roll back a quarantine move; the entry stays in the quarantine folder")
 
     def reset_password(self, token: str, new_password: str) -> None:
         h = crypto.sha256_hex(token or "")
@@ -378,20 +461,30 @@ class AccountService:
         if problem:
             raise AccountError(422, "validation_error", problem, "new_password")
         pw_hash = self.passwords.hash(new_password)      # argon2 outside the accounts lock
-        with self.db.lock:
-            if self.email_tokens.consume("reset", h) is None:
-                raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
-            user = self.users.get(user.id)
-            if user is None:
-                raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
-            wipe = not user.email_verified
-            fields: dict[str, Any] = self._takeover_fields(user) if wipe else {"email_verified": True}
-            fields["password_hash"] = pw_hash
-            self.users.update(user.id, **fields)
-            self._revoke_all_credentials(user.id)        # refresh families AND api/extension tokens
-            self.email_tokens.invalidate(user.id, "reset")
-        if wipe:
-            self._wipe_user_data(user.id)
+        takeover = not user.email_verified
+        dest = self._quarantine_db(user) if takeover else None   # file first; accounts.db changes only after
+        committed = False
+        try:
+            with self.db.lock:
+                if self.email_tokens.consume("reset", h) is None:
+                    raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
+                current = self.users.get(user.id)
+                if current is None or current.email_verified != user.email_verified:
+                    raise AccountError(503, "unavailable", "Please try again in a moment.", retry_after=1)
+                fields: dict[str, Any] = self._takeover_fields(current) if takeover else {"email_verified": True}
+                fields["password_hash"] = pw_hash
+                if dest is not None:
+                    self.quarantine.add(user.id, dest, current.wrapped_dek)
+                self.users.update(user.id, **fields)
+                self._revoke_all_credentials(user.id)        # refresh families AND api/extension tokens
+                self.email_tokens.invalidate(user.id, "reset")
+                committed = True
+        finally:
+            if takeover and not committed:
+                self._unquarantine(user.id, dest)
+        if takeover:
+            self._create_db(user.id)                     # fresh, empty DB under the new key
+            self.audit.log(user.id, "takeover_data_quarantined")
         self._maybe_promote(self.users.get(user.id))
         self.audit.log(user.id, "password_reset")
 
@@ -412,31 +505,64 @@ class AccountService:
         self.audit.log(user.id, "password_changed")
 
     # ---------- social ----------
-    def _native_nonce(self, nonce: str | None) -> str | None:
-        if not nonce and getattr(self.s, "native_nonce_required", False):
-            raise AccountError(400, "invalid_input", "A sign-in nonce is required.", "nonce")
-        return nonce or None
+    def issue_nonce(self, ip: str | None) -> str:
+        wait = self.nonce_limiter.try_hit(ip or "")
+        if wait:
+            raise AccountError(429, "rate_limited", "Too many attempts. Try again later.", retry_after=wait)
+        return self.nonces.issue()
 
-    def verify_google(self, id_token: str, nonce: str | None = None) -> Identity:
-        nonce = self._native_nonce(nonce)
+    def _check_nonce(self, ident: Identity, provider: str) -> Identity:
+        """The token's nonce claim must be a server-issued nonce (raw, or its sha256 hex); it is consumed."""
+        if ident.nonce:
+            if not self.nonces.consume(ident.nonce):
+                raise _unauth(f"{provider} sign-in expired. Try again.")
+        elif getattr(self.s, "native_nonce_required", True):
+            raise _unauth(f"{provider} sign-in failed.")
+        return ident
+
+    def verify_google(self, id_token: str) -> Identity:
         try:
-            return verify_id_token(id_token, self.google_jwks, GOOGLE_ISSUERS, self.s.google_audiences, "google",
-                                   nonce=nonce)
+            ident = verify_id_token(id_token, self.google_jwks, GOOGLE_ISSUERS, self.s.google_audiences, "google")
         except TokenInvalid:
             raise _unauth("Google sign-in failed.") from None
+        return self._check_nonce(ident, "Google")
 
-    def verify_apple(self, id_token: str, nonce: str | None = None) -> Identity:
-        nonce = self._native_nonce(nonce)
+    def verify_apple(self, id_token: str) -> Identity:
         try:
-            return verify_id_token(id_token, self.apple_jwks, APPLE_ISSUERS, self.s.apple_audiences, "apple",
-                                   nonce=nonce)
+            ident = verify_id_token(id_token, self.apple_jwks, APPLE_ISSUERS, self.s.apple_audiences, "apple")
         except TokenInvalid:
             raise _unauth("Apple sign-in failed.") from None
+        return self._check_nonce(ident, "Apple")
 
     def social_login(self, ident: Identity, invite_code: str | None, name: str | None, ip: str | None,
                      device: str | None) -> tuple[UserRow, Tokens]:
         col = {"google": "google_sub", "apple": "apple_sub"}[ident.provider]
-        created = wipe = False
+        dest: Path | None = None
+        candidate: str | None = None
+        if self.users.by_sub(ident.provider, ident.sub) is None and ident.email and ident.email_verified:
+            ex = self.users.by_email(ident.email)
+            if ex is not None and not ex.email_verified and not getattr(ex, col):
+                dest, candidate = self._quarantine_db(ex), ex.id      # before any accounts.db change
+        try:
+            user, created, took_over = self._social_commit(ident, col, invite_code, name, ip, candidate, dest)
+        except BaseException:
+            if candidate is not None:
+                self._unquarantine(candidate, dest)
+            raise
+        taken_over = candidate is not None and user.id == candidate and took_over
+        if candidate is not None and not taken_over:
+            self._unquarantine(candidate, dest)
+        if created or taken_over:
+            self._create_db(user.id)
+        if taken_over:
+            self.audit.log(user.id, "takeover_data_quarantined")
+        user = self._maybe_promote(self.users.get(user.id))
+        self.audit.log(user.id, f"login_{ident.provider}", self.ip_hash(ip))
+        return user, self._issue(user, device)
+
+    def _social_commit(self, ident: Identity, col: str, invite_code: str | None, name: str | None,
+                       ip: str | None, candidate: str | None, dest: Path | None) -> tuple[UserRow, bool, bool]:
+        created = took_over = False
         with self.db.lock:
             user = self.users.by_sub(ident.provider, ident.sub)
             if user is None and ident.email and ident.email_verified:
@@ -446,11 +572,15 @@ class AccountService:
                         raise AccountError(409, "conflict", "This email is linked to another account.")
                     fields: dict[str, Any] = {col: ident.sub}
                     if not existing.email_verified:
-                        # someone pre-registered this address without proving it: drop their password, role,
-                        # sessions, api/extension tokens and data
+                        # someone pre-registered this address without proving it: their data was moved to
+                        # quarantine; now drop their password, role, sessions and api/extension tokens
+                        if candidate != existing.id:
+                            raise AccountError(503, "unavailable", "Please try again in a moment.", retry_after=1)
+                        if dest is not None:
+                            self.quarantine.add(existing.id, dest, existing.wrapped_dek)
                         fields.update(self._takeover_fields(existing))
                         self._revoke_all_credentials(existing.id)
-                        wipe = True
+                        took_over = True
                     self.users.update(existing.id, **fields)
                     self.audit.log(existing.id, f"link_{ident.provider}", self.ip_hash(ip))
                     user = self.users.get(existing.id)
@@ -466,13 +596,7 @@ class AccountService:
                     self.invites.consume(invite["code"], user.id)
                 created = True
                 self.audit.log(user.id, f"signup_{ident.provider}", self.ip_hash(ip))
-        if created:
-            self._create_db(user.id)
-        if wipe:
-            self._wipe_user_data(user.id)
-        user = self._maybe_promote(self.users.get(user.id))
-        self.audit.log(user.id, f"login_{ident.provider}", self.ip_hash(ip))
-        return user, self._issue(user, device)
+        return user, created, took_over
 
     def google_start(self, redirect: str, invite: str | None) -> tuple[str, str]:
         if not (self.s.google_client_id and self.s.google_client_secret):
@@ -540,7 +664,13 @@ class AccountService:
         self.users.mark_deleted(user.id)
         self._revoke_all_credentials(user.id)
         # 2) stop the user's background work and remove the database file
-        self.userdbs.delete(user.id)
+        try:
+            self.userdbs.delete(user.id)
+        except Exception as e:
+            # the account stays soft-deleted (no credential works); maintenance finishes the deletion later
+            log.warning("account deletion deferred: %s", type(e).__name__)
+            self.audit.log(user.id, "account_deletion_deferred")
+            return
         # 3) remove the rows
         self.users.hard_delete(user.id)
         self.audit.log(user.id, "account_deleted")
