@@ -70,13 +70,20 @@ public class LvsOcrPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// Screenshots are already upright; photos may carry an EXIF orientation, so redraw those.
+    /// Longest side after downscaling (matches Android's cap): keeps Vision fast and memory-safe.
+    private static let maxSide: CGFloat = 3200
+
+    /// Upright and at most `maxSide` on the longest side. Screenshots are usually upright already;
+    /// photos may carry an EXIF orientation, and very large images are scaled down.
     private static func uprightCGImage(_ image: UIImage) -> CGImage? {
-        if image.imageOrientation == .up { return image.cgImage }
+        let longest = max(image.size.width, image.size.height)
+        let scale = longest > maxSide ? maxSide / longest : 1
+        if image.imageOrientation == .up && scale == 1 { return image.cgImage }
+        let size = CGSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
-        let upright = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: image.size)) }
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let upright = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
         return upright.cgImage
     }
 }
