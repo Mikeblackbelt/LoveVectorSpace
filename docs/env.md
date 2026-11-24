@@ -1,7 +1,7 @@
 # Server environment variables
 
 The server reads these from the environment (or a local `.env`, which is never committed). Start it with
-`uvicorn analyzer.web.main:app --proxy-headers`.
+`uvicorn analyzer.web.main:app --no-proxy-headers`. X-Forwarded-For is parsed only by the app (`TRUSTED_PROXIES`, rightmost hop); uvicorn must not rewrite the peer address, because with `--forwarded-allow-ips=*` it takes the client-supplied leftmost value.
 
 ## Required (the server refuses to start without them)
 
