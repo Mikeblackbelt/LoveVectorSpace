@@ -1,11 +1,18 @@
-"""Compute a PersonOverview dict from one user's DB (no threading; callers hold the lock)."""
+"""Compute a PersonOverview dict from one user's DB.
+
+Threading: every function that takes `conn` must be called with the per-user lock held. Model scoring is
+split out so callers can run it WITHOUT the lock: `scoring_plan` (lock held: read the texts still to
+score), `run_scoring` (no lock, no DB: run the classifiers), `store_scores` (lock held: write the
+results for messages that still exist), then `compute_overview(..., score_missing=False)` (lock held:
+metrics from cached scores only, so it never calls a model).
+"""
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from analyzer.ml.emotion import emotion_metrics
-from analyzer.ml.toxicity import toxicity_metric, toxicity_scores
+from analyzer.ml.emotion import MODEL_KEY as EMOTION_KEY, emotion_metrics
+from analyzer.ml.toxicity import MODEL_KEY as TOXICITY_KEY, toxicity_metric, toxicity_scores
 from analyzer.safety.check import safety_check
 from analyzer.scales.schema import ScaleResult
 from analyzer.signals.evidence import insufficient
@@ -25,8 +32,10 @@ from . import labels
 
 WINDOW_DAYS = 90
 MAX_SCORED = 5000
+MAX_SYNC_SCORED = 1000  # at most this many not-yet-scored messages go through a model per analysis run
 SCORING_NOTE = (f"model-scored on the most recent {WINDOW_DAYS} days or last {MAX_SCORED:,} messages, "
                 "whichever is smaller")
+MODELS = (("emotion", EMOTION_KEY), ("toxicity", TOXICITY_KEY))
 SEV_RANK = {"none": 0, "info": 1, "concern": 2, "urgent": 3}
 
 
@@ -76,6 +85,65 @@ def _scoring_window(msgs):
     return recent[-MAX_SCORED:]
 
 
+@dataclass
+class ScoringPlan:
+    """What one analysis run sends through the models."""
+    todo: dict[str, list[tuple[int, str]]] = field(default_factory=dict)   # classifier name -> [(id, text)]
+    remaining: int = 0   # unscored window messages left for a later run (max over classifiers)
+
+    @property
+    def count(self) -> int:
+        return sum(len(v) for v in self.todo.values())
+
+
+def scoring_plan(conn, pid: int, classifiers, cap: int | None = None) -> ScoringPlan:
+    """Lock held. Per loaded classifier, the most recent `cap` (default MAX_SYNC_SCORED) messages of the
+    scoring window that have no cached score yet."""
+    cap = MAX_SYNC_SCORED if cap is None else cap
+    window = _scoring_window(MessageStore(conn).messages(pid))
+    scores, plan = Scores(conn), ScoringPlan()
+    ids = [m.id for m in window]
+    for name, key in MODELS:
+        if getattr(classifiers, name, None) is None:
+            continue
+        have = scores.ids(ids, key)
+        unscored = [m for m in window if m.id not in have]
+        take = unscored[-cap:] if cap > 0 else []
+        plan.todo[name] = [(m.id, m.text) for m in take]
+        plan.remaining = max(plan.remaining, len(unscored) - len(take))
+    return plan
+
+
+def run_scoring(plan: ScoringPlan, classifiers) -> dict[str, dict[int, list[float]]]:
+    """No lock, no DB access: run each classifier over its planned texts -> {model key: {id: vector}}."""
+    out: dict[str, dict[int, list[float]]] = {}
+    for name, key in MODELS:
+        items = plan.todo.get(name)
+        clf = getattr(classifiers, name, None)
+        if not items or clf is None:
+            continue
+        probs = clf.predict([t for _, t in items])
+        out[key] = {mid: [float(x) for x in row] for (mid, _), row in zip(items, probs)}
+    return out
+
+
+def store_scores(conn, fresh: dict[str, dict[int, list[float]]]) -> int:
+    """Lock held. Cache fresh scores, dropping messages deleted while the model ran. Returns rows written."""
+    all_ids = sorted({mid for m in fresh.values() for mid in m})
+    alive: set[int] = set()
+    for i in range(0, len(all_ids), 500):
+        part = all_ids[i:i + 500]
+        q = ",".join("?" * len(part))
+        alive |= {r[0] for r in conn.execute(f"SELECT id FROM messages WHERE id IN ({q})", part)}
+    scores, n = Scores(conn), 0
+    for key, mapping in fresh.items():
+        keep = {mid: v for mid, v in mapping.items() if mid in alive}
+        if keep:
+            scores.put(key, keep)
+            n += len(keep)
+    return n
+
+
 def weekly(msgs, coverage) -> list[dict]:
     if not msgs:
         return []
@@ -91,8 +159,18 @@ def weekly(msgs, coverage) -> list[dict]:
     return out
 
 
-def compute_overview(conn, pid: int, scales: dict, classifiers, now: datetime | None = None) -> dict:
-    """classifiers: object with .emotion and .toxicity attributes (either may be None)."""
+def _partial_note(n_scored: int, n_window: int) -> str:
+    if n_scored >= n_window:
+        return SCORING_NOTE
+    return f"{SCORING_NOTE}; {n_scored:,} of {n_window:,} scored so far, the rest are queued"
+
+
+def compute_overview(conn, pid: int, scales: dict, classifiers, now: datetime | None = None,
+                     score_missing: bool = True) -> dict:
+    """classifiers: object with .emotion and .toxicity attributes (either may be None).
+
+    score_missing=False: model metrics use only messages that already have cached scores, so no model
+    runs here (see `scoring_plan` / `run_scoring` / `store_scores`)."""
     person = People(conn).get(pid)
     store = MessageStore(conn)
     msgs = store.messages(pid)
@@ -109,15 +187,24 @@ def compute_overview(conn, pid: int, scales: dict, classifiers, now: datetime | 
     scored = _scoring_window(msgs)
     scores = Scores(conn)
     emo, tox = getattr(classifiers, "emotion", None), getattr(classifiers, "toxicity", None)
+
+    def cached(key):
+        if score_missing:
+            return scored
+        have = scores.ids([m.id for m in scored], key)
+        return [m for m in scored if m.id in have]
     tox_by_id: dict[int, float] = {}
     if emo is not None:
-        metrics += [metric_dict(m, SCORING_NOTE) for m in emotion_metrics(scored, emo, scores)]
+        sub = cached(EMOTION_KEY)
+        note = _partial_note(len(sub), len(scored))
+        metrics += [metric_dict(m, note) for m in emotion_metrics(sub, emo, scores)]
     else:
         metrics.append(metric_dict(insufficient("emotion_share", "descriptive",
                                                 "emotion model not installed; metric skipped")))
     if tox is not None:
-        metrics.append(metric_dict(toxicity_metric(scored, tox, scores), SCORING_NOTE))
-        tox_by_id = {m.id: s for m, s in zip(scored, toxicity_scores(scored, tox, scores))}
+        sub = cached(TOXICITY_KEY)
+        metrics.append(metric_dict(toxicity_metric(sub, tox, scores), _partial_note(len(sub), len(scored))))
+        tox_by_id = {m.id: s for m, s in zip(sub, toxicity_scores(sub, tox, scores))}
     else:
         metrics.append(metric_dict(insufficient("toxicity_rate", "heuristic",
                                                 "toxicity model not installed; metric skipped")))
