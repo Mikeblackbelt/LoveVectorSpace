@@ -1,5 +1,5 @@
 import sel from "./whatsapp.selectors.json";
-import { anomalyOf, defaultCtx, missing, qs, scrollUpAndWait, textOf, type PageCtx } from "./base";
+import { anomalyOf, directionPlausible, defaultCtx, missing, qs, scrollUpAndWait, textOf, type PageCtx } from "./base";
 import { parseWhatsAppMeta } from "./time";
 import type { CapturedMessage, Health, SiteAdapter } from "./types";
 
@@ -46,7 +46,8 @@ export function createWhatsAppAdapter(ctx: PageCtx = defaultCtx()): SiteAdapter 
       if (!qs(ctx.doc, sel.shell)) return missing("shell");
       if (qs(ctx.doc, sel.login)) return { ok: true }; // logged out is an anomaly, not drift
       if (qs(ctx.doc, sel.chatTitle) && !list()) return missing("messageList");
-      return { ok: true };
+      const msgRows = rows().filter((r) => r.querySelector(sel.meta));
+      return directionPlausible(msgRows.length, msgRows.filter((r) => r.querySelector(sel.outgoing)).length);
     },
     anomaly: () => anomalyOf(ctx.doc, sel),
   };

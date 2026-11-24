@@ -1,4 +1,4 @@
-import { anomalyOf, defaultCtx, missing, qs, scrollUpAndWait, textOf, type PageCtx } from "./base";
+import { anomalyOf, directionPlausible, defaultCtx, missing, qs, scrollUpAndWait, textOf, type PageCtx } from "./base";
 import { parseLooseTimestamp } from "./time";
 import type { CapturedMessage, Health, Platform, Selectors, SiteAdapter } from "./types";
 
@@ -70,7 +70,8 @@ export function createSeparatorAdapter(spec: SeparatorSpec, ctx: PageCtx = defau
       if (!qs(ctx.doc, sel.shell)) return missing("shell");
       if (!onChatPage()) return { ok: true };
       if (!list()) return missing("messageList");
-      return { ok: true };
+      const bubbles = rows().filter((r) => r.querySelector(sel.bubble));
+      return directionPlausible(bubbles.length, bubbles.filter((r) => r.querySelector(sel.outgoing)).length);
     },
     anomaly: () => anomalyOf(ctx.doc, sel),
   };

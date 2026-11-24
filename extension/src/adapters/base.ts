@@ -50,3 +50,15 @@ export async function scrollUpAndWait(scroller: Element | null, countRows: () =>
   }
   return false;
 }
+
+/** Fewer than this many message rows are too few to judge whether the direction marker works. */
+export const DIRECTION_MIN_ROWS = 10;
+
+/**
+ * With enough rows, a chat that shows no outgoing (or no incoming) messages at all almost certainly means the
+ * direction selector broke; capturing would silently flip every message. Fail instead of guessing.
+ */
+export function directionPlausible(total: number, outgoing: number): Health {
+  if (total >= DIRECTION_MIN_ROWS && (outgoing === 0 || outgoing === total)) return { ok: false, reason: "direction_marker_missing" };
+  return { ok: true };
+}

@@ -125,6 +125,48 @@ describe("error banner detection", () => {
   });
 });
 
+describe("direction marker plausibility", () => {
+  const grow = (p: Platform) => {
+    const rowSel = { whatsapp: "[role='row']:has(.message-in)", discord: "", instagram: "[role='row']:has([data-testid='message-bubble'])", tinder: "[data-lvs='tinder-row']:has([data-lvs='tinder-bubble'])", grindr: "[data-lvs='grindr-row']:has([data-lvs='grindr-bubble'])", bumble: "[data-lvs='bumble-row']:has([data-lvs='bumble-bubble'])" }[p];
+    const first = document.querySelector(rowSel)!;
+    for (let i = 0; i < 12; i++) first.parentElement!.append(first.cloneNode(true));
+  };
+  it.each(["whatsapp", "instagram", "tinder", "grindr", "bumble"] as Platform[])("%s: fails with direction_marker_missing when no outgoing marker matches", async (p) => {
+    loadFixture(p);
+    grow(p);
+    expect(mk[p]!().healthCheck()).toEqual({ ok: true });
+    document.body.innerHTML = document.body.innerHTML.replaceAll(' data-outgoing="true"', "").replaceAll("message-out", "message-in");
+    const a = mk[p]!();
+    expect(a.healthCheck()).toEqual({ ok: false, reason: "direction_marker_missing" });
+    const sink = new CollectSink();
+    const live = startLiveCapture(a, sink, { tz: "UTC", isLinked: () => true, isAllowed: () => "ok" as const, pollMs: 60_000 });
+    await live.scan();
+    live.stop();
+    expect(sink.items).toEqual([]);
+  });
+  it("whatsapp: also fails when nothing is incoming", () => {
+    loadFixture("whatsapp");
+    grow("whatsapp");
+    document.body.innerHTML = document.body.innerHTML.replaceAll("message-in", "message-out");
+    expect(mk.whatsapp().healthCheck()).toEqual({ ok: false, reason: "direction_marker_missing" });
+  });
+  it("small chats are not judged", () => {
+    loadFixture("instagram");
+    expect(mk.instagram().healthCheck()).toEqual({ ok: true });
+  });
+});
+
+describe("year-less dates", () => {
+  it("roll back a year when they would land in the future", () => {
+    const jan = new Date(2027, 0, 5, 12);
+    expect(parseLooseTimestamp("Nov 22, 3:45 PM", jan)).toBe("2026-11-22T15:45");
+    expect(parseLooseTimestamp("Jan 4, 3:45 PM", jan)).toBe("2027-01-04T15:45");
+    expect(parseLooseTimestamp("Jan 6, 9:00 AM", jan)).toBe("2027-01-06T09:00"); // within the 1-day tolerance
+    expect(parseLooseTimestamp("Nov 22, 2026, 3:45 PM", jan)).toBe("2026-11-22T15:45");
+    expect(parseLooseTimestamp("Jan 20, 3:45 PM", jan)).toBe("2026-01-20T15:45");
+  });
+});
+
 describe("whatsapp date format setting", () => {
   it("auto / month-first / day-first change ambiguous dates", () => {
     expect(parseWhatsAppMeta("[3:45 PM, 05/06/2026] A: ")?.ts_local).toBe("2026-05-06T15:45");
