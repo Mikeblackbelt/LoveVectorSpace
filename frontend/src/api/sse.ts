@@ -9,6 +9,8 @@ export async function readSSE(
   signal?: AbortSignal,
 ): Promise<void> {
   const reader = body.getReader();
+  const onAbort = () => void reader.cancel().catch(() => undefined);
+  signal?.addEventListener('abort', onAbort, { once: true });
   const decoder = new TextDecoder();
   let buf = '';
   let dataLines: string[] = [];
@@ -49,6 +51,7 @@ export async function readSSE(
     if (buf) handleLine(buf);
     flush();
   } finally {
+    signal?.removeEventListener('abort', onAbort);
     try {
       reader.releaseLock();
     } catch {

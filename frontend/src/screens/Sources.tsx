@@ -10,6 +10,7 @@ import { say } from '../components/prompt';
 import { n as fmtN, timezoneGuess, ymd } from '../lib/format';
 import { haptic } from '../native/native';
 import { L } from '../theme/Plain';
+import { useHotkey } from '../lib/hotkeys';
 
 const CELLS = 28;
 
@@ -46,6 +47,7 @@ export function SourcesPanel({ pid, compact, shared }: { pid: number; compact?: 
   const speakers = useQuery({ queryKey: ['speakers', pid], queryFn: () => peopleApi.speakers(pid), enabled: !compact });
   const [importing, setImporting] = useState(!!shared);
   const [confirm, setConfirm] = useState<string | null>(null);
+  useHotkey('i', () => setImporting(true), !importing && !compact);
   const del = useMutation({
     mutationFn: (u: Unit) => peopleApi.deleteUnit(u.unit_id),
     onSuccess: (r, u) => {

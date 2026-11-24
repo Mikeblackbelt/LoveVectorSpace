@@ -75,12 +75,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       .get()
       .then((s) => {
         // a choice made while loading, or while signed out (pending flag), wins over the server copy
-        if (touched.current) return;
         if (hasPendingPrefs()) {
           const { theme, auto_theme, reduce_motion, contrast_boost, text_size } = loadLocalPrefs();
           settingsApi.put({ theme, auto_theme, reduce_motion, contrast_boost, text_size }).then(() => setPendingPrefs(false), () => undefined);
           return;
         }
+        if (touched.current) return;
         const next: ThemePrefs = {
           theme: s.theme === 'auto' || isTheme(s.theme) ? s.theme : DEFAULT_PREFS.theme,
           auto_theme: { ...DEFAULT_PREFS.auto_theme, ...s.auto_theme },

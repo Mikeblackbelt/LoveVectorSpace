@@ -48,9 +48,10 @@ function Account() {
   const [cur, setCur] = useState('');
   const [nw, setNw] = useState('');
   const ch = useMutation({ mutationFn: () => auth.change(cur, nw), onSuccess: () => { setCur(''); setNw(''); say('lvs passwd', '↳ password changed'); } });
+  const nav = useNavigate();
   if (!u) return null;
   return (
-    <Pane id="acct" tech="ACCOUNT" plain="Your account">
+    <Pane id="acct" tech="ACCOUNT" plain="Your account" meta={<button className="key ghost" type="button" onClick={() => void auth.logout().then(() => nav('/auth/login'))}><L t="LOG OUT" p="Log out" /></button>}>
       <dl className="kv">
         <dt><L t="EMAIL" p="Email" /></dt><dd>{u.email} {u.email_verified ? <span className="ok">✓</span> : <span className="c-me"><L t="(unverified)" p="(not confirmed yet)" /></span>}</dd>
         <dt><L t="NAME" p="Name" /></dt><dd>{u.display_name || '—'}</dd>

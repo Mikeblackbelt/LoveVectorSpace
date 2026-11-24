@@ -12,6 +12,7 @@ import { FxLayers } from './FxLayers';
 import { lastPerson, rememberPerson, say, usePromptLine } from './prompt';
 import { ThemePopover } from './ThemePopover';
 import { ago, hhmm } from '../lib/format';
+import { useHotkey } from '../lib/hotkeys';
 
 export const DISCLAIMER =
   'This tool offers reflection and pattern warnings. It is not therapy, counselling, or a crisis service.';
@@ -161,6 +162,8 @@ export function Shell() {
     }
   };
 
+  useHotkey('r', () => void analyze(), !!pid && /^\/p\/\d+/.test(loc.pathname));
+
   const path = loc.pathname.replace(/^\/p\/\d+\/?/, 'person/').replace(/^\//, '') || 'people';
   const last = person?.updated_at ? hhmm(person.updated_at) : '--:--';
 
@@ -190,7 +193,21 @@ export function Shell() {
           >
             <L t="[T]" p="Theme" />
           </button>
+          {person && (
+            <button className="key" type="button" aria-label="Analyze now" onClick={() => void analyze()}>
+              <L t="[R]" p="Update" />
+            </button>
+          )}
         </div>
+        {/* phone: the 5-item bottom bar has no room for Context / Check-ins / Themes */}
+        <nav className="msub" aria-label="More screens">
+          {items.filter((i) => i.key === '4' || i.key === '5').map((it) => (
+            <NavLink key={it.key} to={it.to} end className={() => (it.match(loc.pathname) ? 'on' : '')}>
+              <span className="key-hint">[{it.key}]</span><L t={it.tech} p={it.plain} />
+            </NavLink>
+          ))}
+          <NavLink to="/themes" className={() => (loc.pathname === '/themes' ? 'on' : '')}><L t="THEMES" p="Themes" /></NavLink>
+        </nav>
 
         <header className="cmdbar">
           <div className="brand">

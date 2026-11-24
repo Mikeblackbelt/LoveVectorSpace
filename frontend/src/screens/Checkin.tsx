@@ -88,6 +88,11 @@ export function HangoutCheckin({ pid, name, onClose }: { pid: number; name: stri
       aria-labelledby="chk-q"
       data-own-keys
       onKeyDown={(e) => {
+        if ((e.target as HTMLElement).tagName !== 'INPUT' && (e.key === 's' || e.key === 'S')) {
+          e.preventDefault();
+          next();
+          return;
+        }
         if (step.kind === 'scale' && /^[1-7]$/.test(e.key) && (e.target as HTMLElement).tagName !== 'INPUT') {
           set(step.field, Number(e.key));
           e.preventDefault();
@@ -158,7 +163,7 @@ export function HangoutCheckin({ pid, name, onClose }: { pid: number; name: stri
         <Key k="ENTER" variant="pri" tech={i === STEPS.length - 1 ? 'SAVE' : 'NEXT'} plain={i === STEPS.length - 1 ? 'Save' : 'Next'} onClick={next} disabled={save.isPending} />
         <Key variant="ghost" tech="CANCEL" plain="Cancel" onClick={onClose} />
       </div>
-      <div className="note"><span className="glyph">// </span><L t="every question is skippable" p="Every question is optional." /></div>
+      <div className="chk-note"><span className="glyph">// </span><L t="every question is skippable" p="Every question is optional." /></div>
     </div>
   );
 }

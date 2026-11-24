@@ -110,7 +110,7 @@ async function doRefresh(): Promise<AuthResult | null> {
   }
   let res: Response;
   try {
-    res = await transport(apiUrl('/api/auth/refresh'), { method: 'POST', headers, body, credentials: 'include' });
+    res = await transport(apiUrl('/api/auth/refresh'), { method: 'POST', headers, body, credentials: native ? 'omit' : 'include' });
   } catch {
     return null;
   }
@@ -158,7 +158,7 @@ export async function rawRequest(path: string, opts: ReqOpts = {}): Promise<Resp
       body = JSON.stringify(opts.json);
       headers.set('Content-Type', 'application/json');
     }
-    return transport(apiUrl(path), { method, headers, body, credentials: 'include', signal: opts.signal });
+    return transport(apiUrl(path), { method, headers, body, credentials: nativeMode() ? 'omit' : 'include', signal: opts.signal });
   };
   let res = await send();
   if (res.status === 401 && opts.retry !== false) {

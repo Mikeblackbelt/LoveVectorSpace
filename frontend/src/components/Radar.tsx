@@ -57,6 +57,17 @@ export function buildSpokes(ms: Metric[]): Spoke[] {
   });
 }
 
+/** Break a plain-language label into lines of about n characters (journal labels are long). */
+function wrap(t: string, n: number): string[] {
+  const out: string[] = [];
+  for (const w of t.split(' ')) {
+    const last = out[out.length - 1];
+    if (last && (last + ' ' + w).length <= n) out[out.length - 1] = last + ' ' + w;
+    else out.push(w);
+  }
+  return out;
+}
+
 function fmt(v: number | null, same: boolean) {
   if (v == null) return '--';
   return same ? (v / 100).toFixed(2) : String(Math.round(v));
@@ -281,10 +292,13 @@ export function Radar({ metrics, success, subject }: { metrics: Metric[]; succes
             const [x, y] = pt(s.ang === 0 ? 352 : 345, s.ang);
             const anchor = x > 20 ? 'start' : x < -20 ? 'end' : 'middle';
             const [sx, sy] = pt(330, s.ang);
+            const lines = journal ? wrap(s.plain || s.name, 13) : [s.name];
             return (
               <g key={s.id}>
-                <text className="sl" x={r1(x)} y={r1(y - (s.ang === 0 ? 4 : 0))} textAnchor={anchor}>
-                  {journal ? s.plain : s.name}
+                <text className="sl" x={r1(x)} y={r1(y - (s.ang === 0 ? 4 : 0) - (lines.length - 1) * 16)} textAnchor={anchor}>
+                  {lines.map((ln, k) => (
+                    <tspan key={k} x={r1(x)} dy={k ? 16 : 0}>{ln}</tspan>
+                  ))}
                 </text>
                 <text className="sv" x={r1(x)} y={r1(y + 14 - (s.ang === 0 ? 4 : 0))} textAnchor={anchor}>
                   {s.same ? (

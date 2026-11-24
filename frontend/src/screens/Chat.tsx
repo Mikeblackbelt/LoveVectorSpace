@@ -12,9 +12,24 @@ import { haptic } from '../native/native';
 import { L } from '../theme/Plain';
 import { useTheme } from '../theme/ThemeProvider';
 import { HangoutCheckin } from './Checkin';
+import { useHotkey } from '../lib/hotkeys';
 
 interface ToolChip { name: string; args?: Record<string, unknown>; ok?: boolean; summary?: string }
 interface Line { id: string; role: 'user' | 'assistant' | 'error'; text: string; at: string; tools: ToolChip[]; streaming?: boolean }
+
+// api.md leaves the tool_calls element shape open: accept {name,args} and OpenAI-style {function:{name,arguments}}.
+function toolName(t: unknown): { name: string; args?: Record<string, unknown> } {
+  const o = (t || {}) as { name?: string; args?: Record<string, unknown>; function?: { name?: string; arguments?: string | Record<string, unknown> } };
+  if (o.name) return { name: o.name, args: o.args };
+  const a = o.function?.arguments;
+  let args: Record<string, unknown> | undefined;
+  try {
+    args = typeof a === 'string' ? JSON.parse(a) : a;
+  } catch {
+    args = undefined;
+  }
+  return { name: o.function?.name || 'tool', args };
+}
 
 /** Turn stored thread messages into transcript lines (tool rows fold into the next reply). */
 export function toLines(msgs: AgentMessage[]): Line[] {
@@ -22,9 +37,11 @@ export function toLines(msgs: AgentMessage[]): Line[] {
   let pending: ToolChip[] = [];
   for (const m of msgs) {
     if (m.role === 'tool') {
-      (m.tool_calls || [{ name: 'tool' }]).forEach((t) => pending.push({ name: t.name, args: t.args, ok: true, summary: m.content.slice(0, 160) }));
+      (m.tool_calls?.length ? m.tool_calls : [{ name: 'tool' }]).forEach((t) => pending.push({ ...toolName(t), ok: true, summary: m.content.slice(0, 160) }));
       continue;
     }
+    if (m.role === 'assistant' && m.tool_calls?.length) m.tool_calls.forEach((t) => pending.push({ ...toolName(t), ok: true }));
+    if (m.role === 'assistant' && !m.content.trim()) continue;
     out.push({ id: String(m.id), role: m.role, text: m.content, at: m.created_at, tools: m.role === 'assistant' ? pending : [] });
     if (m.role === 'assistant') pending = [];
   }
@@ -74,11 +91,14 @@ export function ChatScreen() {
   const [railOpen, setRailOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const busyRef = useRef(false);
+  useHotkey('h', () => setCheckin(true), !checkin);
 
   const activeId = tid ?? threads.data?.[0]?.id ?? null;
   const thread = useQuery({ queryKey: ['thread', activeId], queryFn: () => agentApi.thread(activeId!), enabled: activeId != null });
   useEffect(() => {
-    if (thread.data) setLines(toLines(thread.data.messages));
+    // never re-hydrate mid-stream: a freshly created thread loads while its first reply streams
+    if (thread.data && !busyRef.current) setLines(toLines(thread.data.messages));
   }, [thread.data]);
   useEffect(() => {
     if (activeId == null) setLines([]);
@@ -101,6 +121,7 @@ export function ChatScreen() {
     if (!msg || busy) return;
     setErr(null);
     setBusy(true);
+    busyRef.current = true;
     haptic();
     let id = activeId;
     try {
@@ -141,7 +162,9 @@ export function ChatScreen() {
       setErr(e);
       setLines((l) => l.filter((x) => !(x.streaming && !x.text)));
     } finally {
+      busyRef.current = false;
       setBusy(false);
+      if (id != null) void qc.invalidateQueries({ queryKey: ['thread', id] });
     }
   };
 
@@ -198,7 +221,7 @@ export function ChatScreen() {
             ) : (
               <div key={ln.id}>
                 <ToolChips tools={ln.tools} />
-                <div className={`ln lvs${ln.role === 'error' ? ' err-line' : ''}`}>
+                <div className={`ln bot${ln.role === 'error' ? ' err-line' : ''}`}>
                   <span className="ts">{hhmm(ln.at)}</span>
                   <span className="who glyph">lvs ›</span>
                   <div className="body">
@@ -284,12 +307,12 @@ function InterviewRail({ pid, disabled, onInterview, onHangout }: { pid: number;
                 </li>
               ))}
             </ul>
-            <div className="bar" role="img" aria-label={`${done} of ${topics.length} topics done`}>
+            <div className="rail-bar" role="img" aria-label={`${done} of ${topics.length} topics done`}>
               <span className="glyph">{'█'.repeat(done * 2)}<i>{'░'.repeat((topics.length - done) * 2)}</i></span>
               <span className="pbar" aria-hidden="true"><b style={{ width: `${(done / (topics.length || 1)) * 100}%` }} /></span> {done}/{topics.length}
             </div>
             {next && (
-              <p className="legend">
+              <p className="rail-legend">
                 <L t="next up:" p="Next:" /> <span className="c-me">{next.label}</span>
               </p>
             )}
@@ -299,7 +322,7 @@ function InterviewRail({ pid, disabled, onInterview, onHangout }: { pid: number;
           <Key k="H" variant="pri" tech="LOG A HANGOUT" plain="Log a hangout" onClick={onHangout} />
           <Key k="N" tech={done ? 'CONTINUE INTERVIEW' : 'START INTERVIEW'} plain={done ? 'Continue interview' : 'Start interview'} onClick={onInterview} disabled={disabled} />
         </div>
-        <p className="legend"><span className="glyph">// </span><L t="answers stay on your account. skip anything." p="Your answers stay on your account. You can skip anything." /></p>
+        <p className="rail-legend"><span className="glyph">// </span><L t="answers stay on your account. skip anything." p="Your answers stay on your account. You can skip anything." /></p>
       </div>
     </aside>
   );

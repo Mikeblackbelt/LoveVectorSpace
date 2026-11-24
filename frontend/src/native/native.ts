@@ -90,7 +90,7 @@ async function social() {
 
 export async function nativeGoogleIdToken(): Promise<string> {
   const s = await social();
-  const r = (await s.login({ provider: 'google', options: { scopes: ['email', 'profile'] } } as never)) as {
+  const r = (await s.login({ provider: 'google', options: {} } as never)) as {
     result: { idToken?: string | null };
   };
   if (!r.result?.idToken) throw new Error('Google did not return an identity token.');

@@ -14,6 +14,7 @@ import { ago, blocks, hhmm, n as fmtN, ymd } from '../lib/format';
 import { haptic } from '../native/native';
 import { L, MetricName, Tag } from '../theme/Plain';
 import { useTheme } from '../theme/ThemeProvider';
+import { useHotkey } from '../lib/hotkeys';
 
 export function DashboardScreen() {
   const { pid: p } = useParams();
@@ -130,6 +131,7 @@ function Dashboard({ o, pid, lastSync }: { o: PersonOverview; pid: number; lastS
 
 function Ticker({ o }: { o: PersonOverview }) {
   const [paused, setPaused] = useState(false);
+  useHotkey('p', () => setPaused((v) => !v));
   const t = hhmm(o.generated_at);
   const items: [string, string][] = [
     [t, `analysis snapshot · ${o.success.percent != null ? `${Math.round(o.success.percent)}% (${o.success.low}–${o.success.high}) [UNCAL]` : 'insufficient data'}`],
@@ -308,7 +310,8 @@ function NextSteps({ pid, steps }: { pid: number; steps: NextStep[] }) {
   const [local, setLocal] = useState<Record<number, NextStep['status']>>({});
   const set = useMutation({
     mutationFn: ({ id, status }: { id: number; status: NextStep['status'] }) => stepsApi.setStatus(id, status),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['overview', pid] }),
+    // the card keeps its local state (so Undo works); the list refreshes on the next snapshot
+    onError: () => qc.invalidateQueries({ queryKey: ['overview', pid] }),
   });
   const gen = useMutation({ mutationFn: () => stepsApi.generate(pid) });
 

@@ -18,7 +18,7 @@ const config: CapacitorConfig = {
     },
     StatusBar: { overlaysWebView: false, style: 'DARK', backgroundColor: '#101114' },
     CapacitorShareTarget: { appGroupId: 'group.app.lovevectorspace.demo' },
-    SocialLogin: { google: true, apple: true, facebook: false, twitter: false },
+    SocialLogin: { providers: { google: true, apple: true, facebook: false, twitter: false } },
   },
 };
 

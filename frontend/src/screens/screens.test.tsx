@@ -130,6 +130,16 @@ describe('agent chat', () => {
     await screen.findByText(/Ask them about Saturday\./);
   });
 
+  it('keeps the first streamed reply when the thread is created on send (no thread yet)', async () => {
+    renderAt(<DashRoute />, { route: '/p/2/chat' });
+    await screen.findByText(/ask anything about/i);
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'how do I bring up weekend plans?' } });
+    await act(async () => fireEvent.submit(screen.getByLabelText('Message').closest('form')!));
+    expect(await screen.findByText(/how do I bring up weekend plans\?/)).toBeInTheDocument();
+    expect(await screen.findByText(/Want me to draft a message/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('transcript').textContent).toContain('Want me to draft a message'));
+  });
+
   it('shows the agent_unavailable state on 503 and keeps hangout logging', async () => {
     setTransport(async (url, init) => {
       if (url.includes('/agent/')) return json({ error: { code: 'agent_unavailable', message: 'off' } }, 503);

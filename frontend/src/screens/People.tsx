@@ -9,6 +9,7 @@ import { ago, timezoneGuess } from '../lib/format';
 import { haptic } from '../native/native';
 import { L } from '../theme/Plain';
 import { SourcesPanel } from './Sources';
+import { useHotkey } from '../lib/hotkeys';
 
 const SRC: Record<string, [string, string]> = {
   whatsapp: ['WA', 'WhatsApp'], instagram: ['IG', 'Instagram'], discord: ['DC', 'Discord'], import: ['IMPORT', 'uploaded file'], plaintext: ['TXT', 'text file'],
@@ -36,6 +37,7 @@ export function PeopleScreen() {
   const nav = useNavigate();
   const [sel, setSel] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
+  useHotkey('n', () => setAdding(true), !adding);
   const selected = q.data?.find((p) => p.id === sel) || q.data?.[0];
   const phone = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 699px)').matches;
 
