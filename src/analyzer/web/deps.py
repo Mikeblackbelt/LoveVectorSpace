@@ -96,12 +96,13 @@ def app_principal(p: Principal = Depends(any_principal)) -> Principal:
 
 
 def session_principal(p: Principal = Depends(any_principal)) -> Principal:
+    """Interactive session JWT only: credential and account management never accepts api/extension tokens."""
     if p.kind != "session":
         raise ApiError(403, "forbidden", "This route needs a signed-in session.")
     return p
 
 
-def admin_principal(p: Principal = Depends(app_principal)) -> Principal:
+def admin_principal(p: Principal = Depends(session_principal)) -> Principal:
     if p.user.role != "admin":
         raise ApiError(403, "forbidden", "Admins only.")
     return p

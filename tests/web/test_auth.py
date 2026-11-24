@@ -207,16 +207,15 @@ def test_sessions_list_and_revoke(h, client, alice):
 def test_admin_email_bootstrap_needs_verification(tmp_path):
     h = Harness(tmp_path)
     with h.client() as c:
-        r = c.post("/api/auth/signup", json={"email": "admin@example.com", "password": PASSWORD},
-                   headers={"X-Client": "native"})
+        # password sign-ups for ADMIN_EMAIL need an invite like everyone else
+        assert c.post("/api/auth/signup", json={"email": "admin@example.com", "password": PASSWORD}).status_code == 403
+        r = c.post("/api/auth/signup", json={"email": "admin@example.com", "password": PASSWORD,
+                                             "invite_code": h.invite()}, headers={"X-Client": "native"})
         assert r.status_code == 201 and r.json()["user"]["role"] == "user"
         token = h.mailer.token_for("admin@example.com", "verify")
         assert c.post("/api/auth/verify-email", json={"token": token}).status_code == 204
         me = c.get("/api/auth/me", headers=auth(r.json()["access_token"])).json()
         assert me["role"] == "admin"
-        # once an admin exists, the bootstrap path no longer bypasses invites
-        r = c.post("/api/auth/signup", json={"email": "admin2@example.com", "password": PASSWORD})
-        assert r.status_code == 403
 
 
 def test_admin_only_invites(h, client, alice):

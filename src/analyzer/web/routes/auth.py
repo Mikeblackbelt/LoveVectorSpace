@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from analyzer.accounts.crypto import consteq
 from analyzer.accounts.service import AccountError, Principal
 
-from ..deps import (RT_COOKIE, accounts, app_principal, auth_result, clear_session_cookies,
+from ..deps import (RT_COOKIE, accounts, app_principal, session_principal, auth_result, clear_session_cookies,
                     client_ip, device_label, is_native, require_csrf, set_session_cookies)
 
 router = APIRouter(prefix="/api/auth")
@@ -54,6 +54,7 @@ class SocialIn(BaseModel):
     id_token: str = Field(max_length=8192)
     invite_code: str | None = Field(default=None, max_length=128)
     name: str | None = Field(default=None, max_length=80)
+    nonce: str | None = Field(default=None, max_length=256)
 
 
 @router.post("/signup", status_code=201)
@@ -129,7 +130,7 @@ def reset(body: ResetIn, request: Request):
 
 
 @router.post("/password/change", status_code=204)
-def change(body: ChangeIn, request: Request, p: Principal = Depends(app_principal)):
+def change(body: ChangeIn, request: Request, p: Principal = Depends(session_principal)):
     accounts(request).change_password(p, body.current_password, body.new_password)
     return Response(status_code=204)
 
@@ -140,7 +141,8 @@ OAUTH_COOKIE = "lvs_oauth"
 
 
 def _safe_redirect(path: str | None) -> str:
-    if not path or not path.startswith("/") or path.startswith("//") or "\\" in path:
+    if (not path or not path.startswith("/") or path.startswith("//") or "\\" in path
+            or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in path) or len(path) > 512):
         return "/people"
     return path
 
@@ -176,7 +178,7 @@ def google_callback(request: Request, code: str | None = None, state: str | None
 @router.post("/google/token")
 def google_token(body: SocialIn, request: Request, response: Response):
     acc = accounts(request)
-    ident = acc.verify_google(body.id_token)
+    ident = acc.verify_google(body.id_token, body.nonce)
     user, tokens = acc.social_login(ident, body.invite_code, None, client_ip(request), device_label(request))
     return auth_result(request, response, user, tokens)
 
@@ -184,7 +186,7 @@ def google_token(body: SocialIn, request: Request, response: Response):
 @router.post("/apple/token")
 def apple_token(body: SocialIn, request: Request, response: Response):
     acc = accounts(request)
-    ident = acc.verify_apple(body.id_token)
+    ident = acc.verify_apple(body.id_token, body.nonce)
     user, tokens = acc.social_login(ident, body.invite_code, body.name, client_ip(request), device_label(request))
     return auth_result(request, response, user, tokens)
 
@@ -192,12 +194,12 @@ def apple_token(body: SocialIn, request: Request, response: Response):
 # ---- sessions ----
 
 @router.get("/sessions")
-def sessions(request: Request, p: Principal = Depends(app_principal)):
+def sessions(request: Request, p: Principal = Depends(session_principal)):
     return accounts(request).sessions(p)
 
 
 @router.delete("/sessions/{sid}", status_code=204)
-def revoke_session(sid: str, request: Request, p: Principal = Depends(app_principal)):
+def revoke_session(sid: str, request: Request, p: Principal = Depends(session_principal)):
     accounts(request).revoke_session(p, sid)
     return Response(status_code=204)
 
