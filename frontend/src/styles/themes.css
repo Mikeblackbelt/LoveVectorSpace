@@ -1,0 +1,143 @@
+
+[data-theme] {
+  /* shared shape */
+  --radius: 0px;
+  --rule-w: 1px;
+}
+
+/* 1 · SIGNAL — default. Swiss-print terminal: ink, paper, vermilion, cobalt, saffron. */
+[data-theme="signal"] {
+  --bg: #101114;            /* ink */
+  --panel: #17181c;
+  --rule: #34363d;
+  --text: #ece6d9;          /* warm paper */
+  --text-dim: #a29c90;      /* ≥4.5:1 on --bg */
+  --me: #ff4b2b;            /* vermilion */
+  --them: #5b8cff;          /* cobalt */
+  --link: #f2b705;          /* saffron: resultant / connection / live marker */
+  --ok: #7bc96f;
+  --concern-bg: #ece6d9; --concern-fg: #101114;   /* reverse video */
+  --urgent-bg: #ff3b3b;  --urgent-fg: #101114;
+  --focus: #f2b705;
+  --font-ui: 'IBM Plex Mono', monospace;
+  --font-data: 'IBM Plex Mono', monospace;
+  --font-display: 'Instrument Serif', serif;     /* headline numerals: tall editorial serif, italic for the % sign */
+  --glow-me: none; --glow-them: none;             /* print look: no bloom */
+  --texture: none;                                 /* optional: 0.03 opacity paper grain */
+  --effect: "print";
+  /* text-safe accents (>=4.5:1 as text) and ink on a --me fill */
+  --me-t: var(--me); --them-t: var(--them); --link-t: var(--link); --ok-t: var(--ok); --on-me: var(--bg);
+}
+
+/* 2 · RISO — playful, light. Risograph zine: cream paper, pink + teal inks, misregistration offsets. */
+[data-theme="riso"] {
+  --bg: #f6efe0;            /* cream paper */
+  --panel: #fffaf0;
+  --rule: #1d1a17;
+  --rule-w: 2px;
+  --text: #1d1a17;
+  --text-dim: #5e564c;
+  --me: #ff3e8e;            /* fluorescent pink ink */
+  --them: #0094a8;          /* teal ink */
+  --link: #ffd23f;          /* yellow ink */
+  --ok: #2e9e4f;
+  --concern-bg: #1d1a17; --concern-fg: #f6efe0;
+  --urgent-bg: #c8231d;  --urgent-fg: #fffaf0;
+  --focus: #1d1a17;
+  --font-ui: 'Space Mono', monospace;
+  --font-data: 'Space Mono', monospace;
+  --font-display: 'Bricolage Grotesque', sans-serif;  /* chunky, wide, friendly */
+  --glow-me: none; --glow-them: none;
+  --misregister: 2px 2px 0 var(--them);           /* text/box offset shadow in the second ink */
+  --effect: "riso";                                /* halftone dots on fills, stickers for tags, slight -1.5deg tilt on badges */
+  /* text-safe accents: pink/teal/green inks are too light as text on cream, so text uses darker inks; yellow is fill-only */
+  --me-t: #b8105a; --them-t: #006f80; --link-t: var(--text); --ok-t: #1a6e33; --on-me: var(--text);
+}
+
+/* 3 · BLUEPRINT — technical. Engineering drawing on blueprint navy. */
+[data-theme="blueprint"] {
+  --bg: #0b2545;            /* blueprint navy */
+  --panel: #0e2c52;
+  --rule: #3f6a9a;
+  --text: #e8f1ff;          /* white ink */
+  --text-dim: #9fbbe0;
+  --me: #ffe066;            /* highlighter yellow */
+  --them: #8fd3ff;          /* sky */
+  --link: #ff8a5b;          /* safety orange for resultants / markers */
+  --ok: #8be3a5;
+  --concern-bg: #e8f1ff; --concern-fg: #0b2545;
+  --urgent-bg: #ff5d5d;  --urgent-fg: #0b2545;
+  --focus: #ffe066;
+  --font-ui: 'IBM Plex Sans Condensed', sans-serif;
+  --font-data: 'IBM Plex Mono', monospace;
+  --font-display: 'IBM Plex Mono', monospace;
+  --glow-me: none; --glow-them: none;
+  --grid: linear-gradient(var(--rule) 1px, transparent 1px) 0 0/24px 24px, linear-gradient(90deg, var(--rule) 1px, transparent 1px) 0 0/24px 24px;
+  --effect: "blueprint";                           /* 24px grid at ~25% opacity, dimension lines with tick ends on charts, callout leaders, title-block footer */
+  /* text-safe accents (>=4.5:1 as text) and ink on a --me fill */
+  --me-t: var(--me); --them-t: var(--them); --link-t: var(--link); --ok-t: var(--ok); --on-me: var(--bg);
+}
+
+/* 4 · CRT — retro amber phosphor (optional legacy look). */
+[data-theme="crt"] {
+  --bg: #0b0a08; --panel: #13110d; --rule: #3a3226;
+  --text: #f2e6d0; --text-dim: #a8977a;
+  --me: #ffb000; --them: #a8d8ff; --link: #ff5470; --ok: #9bd17a;
+  --concern-bg: #f2e6d0; --concern-fg: #0b0a08;
+  --urgent-bg: #ff3b3b;  --urgent-fg: #0b0a08;
+  --focus: #ffb000;
+  --font-ui: 'IBM Plex Mono', monospace; --font-data: 'IBM Plex Mono', monospace; --font-display: 'VT323', monospace;
+  --glow-me: 0 0 6px rgba(255,176,0,.55); --glow-them: 0 0 6px rgba(168,216,255,.45);
+  --effect: "crt";                                 /* scanlines, vignette, flicker, bloom */
+  /* text-safe accents (>=4.5:1 as text) and ink on a --me fill */
+  --me-t: var(--me); --them-t: var(--them); --link-t: var(--link); --ok-t: var(--ok); --on-me: var(--bg);
+}
+
+/* 5 · JOURNAL — non-technical. A warm paper notebook: friendly type, soft corners, no terminal jargon.
+   Hides keyboard hints and box-drawing glyphs; uses plain-language labels where data-plain is provided. */
+[data-theme="journal"] {
+  --radius: 12px;
+  --rule-w: 1px;
+  --bg: #fbf6ef;            /* notebook paper */
+  --panel: #ffffff;
+  --rule: #e4d9cb;
+  --text: #2b2622;
+  --text-dim: #6b6157;      /* ≥4.5:1 on --bg */
+  --me: #c8553d;            /* terracotta */
+  --them: #5f8a6e;          /* sage */
+  --link: #d9a441;          /* mustard (fills only) */
+  --ok: #4f8a5b;
+  --me-t: #a8432e; --them-t: #47705a; --link-t: #8a6416; --ok-t: #3d6f48; --on-me: #ffffff;
+  --concern-bg: #fff1d6; --concern-fg: #5a3d00;
+  --urgent-bg: #fde2df;  --urgent-fg: #8a1c12;
+  --focus: #2b2622;
+  --font-ui: 'DM Sans', system-ui, sans-serif;
+  --font-data: 'DM Sans', system-ui, sans-serif;   /* tabular-nums for numbers */
+  --font-display: 'Fraunces', Georgia, serif;
+  --glow-me: none; --glow-them: none;
+  --shadow: 0 1px 2px rgba(43,38,34,.06), 0 8px 24px rgba(43,38,34,.06);
+  --effect: "journal";      /* soft cards, rounded corners, no scanlines/grid, hide .key-hint and .glyph, gentle 200ms ease transitions */
+}
+
+/* 6 · PULSE — pink. Neon night: plum-black, hot pink leads, electric cyan, acid lime sparks. */
+[data-theme="pulse"] {
+  --bg: #120a10;            /* plum black */
+  --panel: #1b1018;
+  --rule: #3d2436;
+  --text: #fbe9f3;
+  --text-dim: #c39bb4;      /* ≥4.5:1 on --bg */
+  --me: #ff3d8b;            /* hot pink */
+  --them: #38bdf8;          /* electric cyan */
+  --link: #d4ff00;          /* acid lime: resultant / live marker */
+  --ok: #4ade80;
+  --me-t: #ff6fa8; --them-t: #67cdfb; --link-t: #d4ff00; --ok-t: #4ade80; --on-me: #120a10;
+  --concern-bg: #fbe9f3; --concern-fg: #120a10;
+  --urgent-bg: #ff3b3b;  --urgent-fg: #120a10;
+  --focus: #d4ff00;
+  --font-ui: 'JetBrains Mono', monospace;
+  --font-data: 'JetBrains Mono', monospace;
+  --font-display: 'Unbounded', sans-serif;   /* wide, bold, glossy headline numerals */
+  --glow-me: 0 0 10px rgba(255,61,139,.6), 0 0 28px rgba(255,61,139,.25);
+  --glow-them: 0 0 10px rgba(56,189,248,.5);
+  --effect: "pulse";        /* neon bloom on --me, slow chromatic shimmer on headline, faint 3D vector-field background, pink edge-highlight on panel tops */
+}
