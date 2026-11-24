@@ -141,7 +141,9 @@ PersonOverview = { "person": Person, "mode": str, "generated_at": str, "success"
                    "metrics": [Metric], "interaction_metrics": [Metric],
                    "scales": [{"scale_id","name","status","subscales":{},"bands":{},"cutoff_flags":{},"notes":[]}],
                    "weekly": [{"week": "YYYY-MM-DD", "me": int|null, "them": int|null, "covered": bool}],
-                   "coverage_ratio": float, "skipped_non_english": int, "next_steps": [NextStep] }
+                   "coverage_ratio": float, "skipped_non_english": int,
+                   "scoring": {"scored": int, "total": int, "complete": bool} | null /* model scoring of the recent window; large imports are scored up to 1,000 messages per run with follow-up runs until complete; null when no model is installed */,
+                   "next_steps": [NextStep] }
 Job = { "id": int, "kind": str, "status": "queued"|"running"|"done"|"error", "error": str|null, "created_at": str, "finished_at": str|null }
 MetricInfo = { "id": str, "measures": str, "evidence": str, "caveats": str, "citation": str }
 ```

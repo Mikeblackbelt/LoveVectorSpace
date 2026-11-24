@@ -107,13 +107,13 @@ def test_eviction_while_job_in_flight(env, monkeypatch):
     svc.import_file(p["id"], "c.txt", wa_export(3), "UTC", ["Alex"])
     assert f.wait_idle(20)
     started, gate = threading.Event(), threading.Event()
-    real = analysis.compute_overview
+    real = analysis.build_overview
 
     def slow(*a, **kw):
         started.set()
         gate.wait(5)
         return real(*a, **kw)
-    monkeypatch.setattr(analysis, "compute_overview", slow)
+    monkeypatch.setattr(analysis, "build_overview", slow)
     job_id = svc.start_analysis(p["id"])
     assert started.wait(30)
     threading.Timer(0.2, gate.set).start()

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from analyzer.ml.emotion import MODEL_KEY as EMOTION_KEY, emotion_metrics
 from analyzer.ml.toxicity import MODEL_KEY as TOXICITY_KEY, toxicity_metric, toxicity_scores
@@ -165,18 +166,49 @@ def _partial_note(n_scored: int, n_window: int) -> str:
     return f"{SCORING_NOTE}; {n_scored:,} of {n_window:,} scored so far, the rest are queued"
 
 
-def compute_overview(conn, pid: int, scales: dict, classifiers, now: datetime | None = None,
-                     score_missing: bool = True) -> dict:
-    """classifiers: object with .emotion and .toxicity attributes (either may be None).
+class _CachedScores:
+    """Read-only stand-in for store.scores.Scores over prefetched vectors (no DB access)."""
 
-    score_missing=False: model metrics use only messages that already have cached scores, so no model
-    runs here (see `scoring_plan` / `run_scoring` / `store_scores`)."""
-    person = People(conn).get(pid)
+    def __init__(self, by_model: dict[str, dict[int, list[float]]]):
+        self.by_model = by_model
+
+    def get(self, message_ids, model: str) -> dict[int, list[float]]:
+        have = self.by_model.get(model, {})
+        return {i: have[i] for i in message_ids if i in have}
+
+    def put(self, model: str, mapping) -> None:   # only reached if a vector was missing (score_missing path)
+        self.by_model.setdefault(model, {}).update(mapping)
+
+
+def load_inputs(conn, pid: int, classifiers) -> SimpleNamespace:
+    """Lock held: everything `build_overview` needs, read from the DB (cached model scores included)."""
     store = MessageStore(conn)
     msgs = store.messages(pid)
-    coverage = store.coverage(pid)
-    facts = Facts(conn).list(pid)
-    inter = Interactions(conn).list(pid)
+    window_ids = [m.id for m in _scoring_window(msgs)]
+    scores = Scores(conn)
+    cache = {key: scores.get(window_ids, key) for name, key in MODELS
+             if getattr(classifiers, name, None) is not None}
+    return SimpleNamespace(person=People(conn).get(pid), msgs=msgs, coverage=store.coverage(pid),
+                           facts=Facts(conn).list(pid), inter=Interactions(conn).list(pid),
+                           scale_snaps=scale_snapshots(conn, pid), cache=cache,
+                           skipped=Settings(conn).get(f"skipped_non_english:{pid}", 0) or 0)
+
+
+def compute_overview(conn, pid: int, scales: dict, classifiers, now: datetime | None = None,
+                     score_missing: bool = True) -> dict:
+    """Lock held throughout. score_missing=True first scores every unscored window message (synchronously).
+    `analyze_now` instead uses scoring_plan/run_scoring/store_scores and load_inputs/build_overview so the
+    lock is free while models and the (CPU-heavy) metrics run."""
+    if score_missing:
+        plan = scoring_plan(conn, pid, classifiers, cap=MAX_SCORED)
+        store_scores(conn, run_scoring(plan, classifiers))
+    return build_overview(load_inputs(conn, pid, classifiers), scales, classifiers, now)
+
+
+def build_overview(inp: SimpleNamespace, scales: dict, classifiers, now: datetime | None = None) -> dict:
+    """No DB access (call WITHOUT the lock): the PersonOverview dict from `load_inputs` output. Model metrics
+    use only messages with cached scores (never runs a model)."""
+    person, msgs, coverage, facts, inter = inp.person, inp.msgs, inp.coverage, inp.facts, inp.inter
     now = now or datetime.now(timezone.utc)
     end = msgs[-1].ts if msgs else now
     window = (end - timedelta(days=WINDOW_DAYS), end)
@@ -185,17 +217,17 @@ def compute_overview(conn, pid: int, scales: dict, classifiers, now: datetime | 
     chat = core_report(msgs, coverage or None, window)
     metrics = [metric_dict(m) for m in chat]
     scored = _scoring_window(msgs)
-    scores = Scores(conn)
+    scores = _CachedScores(inp.cache)
     emo, tox = getattr(classifiers, "emotion", None), getattr(classifiers, "toxicity", None)
 
     def cached(key):
-        if score_missing:
-            return scored
-        have = scores.ids([m.id for m in scored], key)
+        have = inp.cache.get(key, {})
         return [m for m in scored if m.id in have]
     tox_by_id: dict[int, float] = {}
+    counts: list[int] = []   # scored window messages per loaded model
     if emo is not None:
         sub = cached(EMOTION_KEY)
+        counts.append(len(sub))
         note = _partial_note(len(sub), len(scored))
         metrics += [metric_dict(m, note) for m in emotion_metrics(sub, emo, scores)]
     else:
@@ -203,6 +235,7 @@ def compute_overview(conn, pid: int, scales: dict, classifiers, now: datetime | 
                                                 "emotion model not installed; metric skipped")))
     if tox is not None:
         sub = cached(TOXICITY_KEY)
+        counts.append(len(sub))
         metrics.append(metric_dict(toxicity_metric(sub, tox, scores), _partial_note(len(sub), len(scored))))
         tox_by_id = {m.id: s for m, s in zip(sub, toxicity_scores(sub, tox, scores))}
     else:
@@ -214,7 +247,7 @@ def compute_overview(conn, pid: int, scales: dict, classifiers, now: datetime | 
     imetric_dicts = [metric_dict(m) for m in imetrics]
 
     latest: dict[str, dict] = {}
-    for s in scale_snapshots(conn, pid):
+    for s in inp.scale_snaps:
         latest.setdefault(s["scale_id"], s)
     scale_rows = []
     for sid, s in latest.items():
@@ -257,7 +290,10 @@ def compute_overview(conn, pid: int, scales: dict, classifiers, now: datetime | 
         "success": success, "safety": safety, "reciprocity": recip, "metrics": metrics,
         "interaction_metrics": imetric_dicts, "scales": scale_rows,
         "weekly": weekly(msgs, coverage), "coverage_ratio": round(cov_ratio, 3),
-        "skipped_non_english": Settings(conn).get(f"skipped_non_english:{pid}", 0) or 0,
+        "skipped_non_english": inp.skipped,
+        # model-scoring progress over the recent window (null when no model is installed)
+        "scoring": ({"scored": min(counts), "total": len(scored), "complete": min(counts) >= len(scored)}
+                    if counts else None),
         "_internal": {"bands": bands, "change_points": cps},
     }
 

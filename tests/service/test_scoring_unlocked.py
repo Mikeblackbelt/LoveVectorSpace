@@ -121,3 +121,31 @@ def test_scoring_is_capped_per_run_and_backlog_follows_up(factory, svc, person, 
     assert all(c <= cap for c in clf.calls) and sum(clf.calls) == 40
     assert svc.conn.execute("SELECT COUNT(*) FROM message_scores").fetchone()[0] == 40
     assert "queued" not in next(m for m in svc.overview(pid)["metrics"] if m["id"] == "toxicity_rate")["note"]
+
+
+def test_5000_message_export_never_freezes_the_account(factory, svc, person):
+    import time
+    pid = _imported(svc, factory, person, n_days=84, per_day=60)   # 5,040 messages
+    clf = GateClf()
+    factory._clf = SimpleNamespace(emotion=None, toxicity=clf)
+    svc.start_analysis(pid)
+    assert clf.started.wait(20)
+    t0 = time.monotonic()
+    assert [p["id"] for p in svc.list_people()] == [pid]           # the account stays usable mid-scoring
+    svc.overview(pid)
+    svc.list_units(pid)
+    assert time.monotonic() - t0 < 5
+    clf.gate.set()
+    assert factory.wait_idle(120)
+    assert clf.calls and max(clf.calls) <= analysis.MAX_SYNC_SCORED and sum(clf.calls) == analysis.MAX_SCORED
+    assert len(clf.calls) == analysis.MAX_SCORED // analysis.MAX_SYNC_SCORED
+    prog = svc.overview(pid)["scoring"]
+    assert prog == {"scored": analysis.MAX_SCORED, "total": analysis.MAX_SCORED, "complete": True}
+
+
+def test_partial_progress_is_reported(factory, svc, person, monkeypatch):
+    pid = _imported(svc, factory, person, n_days=10, per_day=4)
+    monkeypatch.setattr(analysis, "MAX_SYNC_SCORED", 15)
+    factory._clf = SimpleNamespace(emotion=None, toxicity=GateClf(block=False))
+    data = svc.analyze_now(pid)
+    assert data["scoring"] == {"scored": 15, "total": 40, "complete": False}

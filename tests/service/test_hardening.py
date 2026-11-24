@@ -116,7 +116,7 @@ def test_no_private_text_in_logs(make_factory, conn, events, caplog, monkeypatch
 
     def boom(*a, **k):
         raise RuntimeError("sounds good to me and we can talk ZEBRA-FACT-VALUE")
-    monkeypatch.setattr(analysis, "compute_overview", boom)
+    monkeypatch.setattr(analysis, "build_overview", boom)
     svc.start_analysis(pid)
     assert f.wait_idle(20)
     for s in SECRETS:

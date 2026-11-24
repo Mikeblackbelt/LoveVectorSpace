@@ -261,6 +261,8 @@ export interface PersonOverview {
   weekly: WeekPoint[];
   coverage_ratio: number;
   skipped_non_english: number;
+  /** model-scoring progress of the recent window; null/absent when no model is installed */
+  scoring?: { scored: number; total: number; complete: boolean } | null;
   next_steps: NextStep[];
 }
 
