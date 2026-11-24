@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.local
+.env.local
+.env.*.local
+# native build outputs (the android/ and ios/ projects themselves are committed)
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+ios/App/Pods/
+ios/App/build/
+ios/DerivedData/

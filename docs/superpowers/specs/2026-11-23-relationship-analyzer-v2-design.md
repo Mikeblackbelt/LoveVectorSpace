@@ -234,3 +234,44 @@ Additional agent tools (also exposed via `/mcp`):
 - Exact selectors (they will need maintenance).
 - Popup layout.
 - SSE vs WebSocket details (SSE preferred).
+
+## 7b. Product focus and safety scope (owner directive, 2026-11-23)
+
+The main purpose is helping the owner **establish and maintain a healthy relationship** and **read reciprocation** (is interest or effort mutual?). Unhealthy-dynamics handling is limited to **warnings**, to keep the owner's liability low.
+
+1. **Safety output = warnings only.** The safety block shows flags, severity, evidence and a list of resources. That is the whole intervention.
+   - No safety plans, no step-by-step advice on handling abuse, no risk scoring of the other person, no diagnosis ("abusive", "narcissist"), and no follow-up prompts that push the owner to act.
+   - Resources are **suggestions only** (`action: suggestion_only`). There are no `tel:` links and no auto-dial, and neither the app nor the agent contacts anyone. 911 appears only as "If you are in immediate danger, you can call 911 yourself."
+2. **Agent.** The agent focuses on reciprocity, communication and healthy-relationship skills.
+   - When the safety block has flags, it mentions them once in neutral words ("the app flagged some messages as possibly controlling; see the warning on your dashboard"). It points to the resources and suggests talking to someone the owner trusts or a professional, then returns to the owner's goals.
+   - It does not counsel on abuse, does not help plan a confrontation or an exit, and does not escalate.
+   - It never claims to be a therapist or crisis service.
+3. **Next steps.** The `safety` card kind is removed. Kinds are `talk`, `plan`, `reflect` and `pause`.
+4. **Interview.** The optional CDAQ-style safety questions are removed from the intake interview (§5.5). The `cdaq_items` questionnaire stays available as an optional form on the Questionnaires page, and only feeds the warning block.
+5. **Disclaimer.** A fixed line appears in the app footer, on the Settings page and under the safety block: "This tool offers reflection and pattern warnings. It is not therapy, counselling, or a crisis service."
+6. **Emphasis.** Dashboard ordering after the safety block: reciprocity signals first, then the rest:
+   - initiation share, message share, question rate, disclosure balance, LSM, meetup initiation share, plan follow-through;
+   - then the other signals.
+
+   The potential-mode dashboard leads with a "Reciprocity at a glance" panel of those signals with their evidence tags. It shows no single score and no probability.
+
+## 7c. Headline "chance of success" (owner decision, 2026-11-23)
+
+The owner chose a headline outcome metric, overriding v1 §2's "no outcome probability" non-goal for this one place. It is shown as **two numbers**:
+
+1. **Uncalibrated estimate (available now).**
+   - A logistic combination of reciprocity signals with hand-set weights whose directions come from the literature: LSM, initiation balance, message balance, question rate, disclosure balance, meetup initiation share, plan follow-through, closeness trend, and the owner's interview context.
+   - Output: a percentage with a wide range (± at least 15 points, wider with less data or coverage). It is always tagged "uncalibrated estimate: hand-set weights, not fitted to outcomes", and it lists the top 3 contributing signals.
+   - `insufficient_data` when the core reciprocity signals are insufficient.
+2. **Calibrated estimate (phase 2).**
+   - Fitted with sigmoid calibration on the owner's labelled past outcomes (phase-2 labelled-history import).
+   - Until at least 20 labelled outcomes exist, it shows "not available yet: needs N more labelled outcomes".
+   - Once available, it shows the percentage, a confidence interval, and the number of outcomes it was fitted on.
+
+**Definition of success per mode:**
+- Potential: "interest is mutual and moves toward dating".
+- Established: "still together and satisfied in 3 months".
+
+The headline appears first on the dashboard, right under the safety warning, with the supporting metrics (the reciprocity panel) beneath it. It is never shown without its tag and range. The agent may quote it only together with its tag and range.
+
+The research caveat is shown as a one-line info tooltip on the headline: real outcomes are only weakly predictable from chats; LLMs reading real speed dates reached r ≈ 0.12–0.23.

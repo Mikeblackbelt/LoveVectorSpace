@@ -1,0 +1,10 @@
+- {id: control-01, role: them, text: "You're not allowed to go to that party"}
+- {id: control-02, role: them, text: "I don't let you wear that outside"}
+- {id: control-03, role: them, text: "You need my permission before you make plans"}
+- {id: control-04, role: me, text: "Ask me first before you buy anything"}
+- {id: control-05, role: them, text: "Just do what I tell you and there won't be a problem"}
+- {id: control-06, role: them, text: "Delete his number from your phone now"}
+- {id: control-07, role: them, text: "Who said you could post that photo?"}
+- {id: control-08, role: me, text: "I forbid you from working late"}
+- {id: control-09, role: them, text: "You don't get to decide who comes over"}
+- {id: control-10, role: them, text: "I decide what you do on weekends"}

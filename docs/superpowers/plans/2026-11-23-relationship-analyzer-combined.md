@@ -43,6 +43,10 @@
   - `self-report heuristic` for interaction metrics.
 - Un-normed metrics show "no reference band".
 - The safety block is never softened by the LLM. Snippets may reach the LLM (owner override).
+- Product focus (v2 §7b): healthy relationships and reciprocity. Unhealthy dynamics get **warnings only**:
+  - no safety plans, no abuse counselling, no diagnosis of the other person;
+  - resources are `action: suggestion_only`, with no `tel:` links, no auto-dial and no contact initiated by the app or agent;
+  - the fixed disclaimer "This tool offers reflection and pattern warnings. It is not therapy, counselling, or a crisis service." appears in the footer, in Settings and under the safety block.
 - "Agent may read message text" setting defaults on; when off, `search_messages` is not offered to the model.
 - Groq:
   - `GROQ_API_KEY` and `GROQ_MODEL` come from env;
@@ -222,6 +226,40 @@ v1 plan Task 7, plus these deltas:
 - [ ] **Step 4: Run** the same command. Expected: PASS.
 - [ ] **Step 5: Commit:** `feat: interaction signals`
 
+### Task 8b: Uncalibrated "chance of success" estimate (v2 §7c)
+
+**Files:**
+- Create: `src/analyzer/signals/success.py`, `src/analyzer/signals/success_weights.yaml`
+- Test: `tests/signals/test_success.py`
+
+**Interfaces:**
+- Consumes: `Metric` lists from Task 5 (`core_report`), Task 8 (`interaction_metrics`), and `Fact` (Task 2b)
+- Produces:
+  - `SuccessEstimate(mode, status: Literal["ok","insufficient_data"], percent: float | None, low: float | None, high: float | None, tag: str, top_contributors: list[tuple[str, float]], definition: str, calibrated: CalibratedSlot)`
+  - `CalibratedSlot(status: Literal["not_available","ok"], percent, low, high, n_outcomes, needed: int)`
+  - `uncalibrated_success(mode, chat_metrics, interaction_metrics, facts) -> SuccessEstimate`
+- Rules:
+  - Weights and intercept per mode live in YAML, with a comment per weight citing the direction source.
+  - Each signal is standardised to [-1, 1] around "balanced" (e.g. initiation share 0.5 → 0). Missing or insufficient signals drop out, and the range widens by 5 points per missing core signal.
+  - The base range is ±15 points.
+  - `insufficient_data` if fewer than 3 core signals (lsm, initiation_share, message_share, question_rate, meetup_initiation_share) are ok.
+  - The tag text is exactly "uncalibrated estimate: hand-set weights, not fitted to outcomes".
+  - `calibrated` is always `not_available` with `needed=20` in v1.
+  - The definitions are exactly v2 §7c's.
+
+- [ ] **Step 1: Write failing tests:**
+  - `test_balanced_signals_near_intercept`;
+  - `test_one_sided_initiation_lowers_estimate`;
+  - `test_missing_signals_widen_range`;
+  - `test_insufficient_when_few_core_signals`;
+  - `test_tag_and_definition_exact`;
+  - `test_calibrated_slot_not_available`;
+  - `test_percent_within_0_100`.
+- [ ] **Step 2: Run** `python -m uv run pytest tests/signals/test_success.py -v`. Expected: FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** the same command. Expected: PASS.
+- [ ] **Step 5: Commit:** `feat: uncalibrated success estimate`
+
 ### Task 9: Service layer, ingest, re-analysis jobs, material change, events
 
 **Files:**
@@ -231,7 +269,7 @@ v1 plan Task 7, plus these deltas:
 **Interfaces:**
 - Consumes: Tasks 2a–8
 - Produces:
-  - `Analyzer` (v1 plan Task 8 API, with roles and coverage), plus `overview(person_id) -> PersonOverview(mode, sources, metrics, interaction_metrics, scales, safety, coverage)`
+  - `Analyzer` (v1 plan Task 8 API, with roles and coverage), plus `overview(person_id) -> PersonOverview(mode, sources, metrics, interaction_metrics, scales, safety, coverage, success: SuccessEstimate)`
   - `IngestService.ingest_capture(person_id, batch: CaptureBatch) -> IngestResult`
     - Converts local→UTC with `batch.tz` and sets roles from `direction`.
     - Unit id: `capture:<platform>:<YYYY-MM-DD UTC>`.
@@ -343,7 +381,8 @@ v1 plan Task 10, plus these deltas:
     - At most 8 tool rounds per turn.
     - Tool errors return `{"error": ...}` to the model.
     - Persists all messages.
-  - `SYSTEM_PROMPT` (in `prompts.py`) encodes v1 §6.5 and v2 §5.4 rules, and `INTERVIEW_RULES` encodes v2 §5.5 question rules: one question per turn, skippable, behaviour before interpretation, no leading questions, sensitive topics opt-in, no covert information-gathering.
+  - `SYSTEM_PROMPT` (in `prompts.py`) encodes v1 §6.5, v2 §5.4 and v2 §7b rules. When the safety block has flags, the agent mentions them once in neutral words, points to the dashboard warning and resources, and suggests talking to someone trusted or a professional. It never counsels on abuse, plans confrontations or exits, escalates, or claims to be a therapist or crisis service. Its focus is reciprocity, communication and healthy-relationship skills.
+  - `INTERVIEW_RULES` encodes v2 §5.5 question rules: one question per turn, skippable, behaviour before interpretation, no leading questions, sensitive topics opt-in, no covert information-gathering.
   - Routes:
     - `POST /api/people/{id}/agent/threads {kind}`
     - `POST /api/agent/threads/{tid}/messages {text}`, which streams SSE `AgentEvent`s
@@ -359,7 +398,7 @@ v1 plan Task 10, plus these deltas:
   - `test_tool_error_returned_to_model`;
   - `test_messages_persisted`;
   - `test_agent_disabled_without_key_404`;
-  - `test_system_prompt_contains_rules`: asserts the key phrases are present.
+  - `test_system_prompt_contains_rules`: asserts the key phrases are present, including the §7b warnings-only rule and the disclaimer.
 - [ ] **Step 2: Run** `uv run pytest tests/agent -v`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** the same command. Expected: PASS.
@@ -379,7 +418,8 @@ v1 plan Task 10, plus these deltas:
     - Runs the agent in a background mode that may only call read tools plus `propose_next_step`.
     - Drops cards for which `NextSteps.recent_similar(...)` is true.
     - Publishes a `next_steps` event.
-  - `INTERVIEW_TOPICS: dict[mode, list[TopicId]]` (v2 §5.5 lists).
+  - `INTERVIEW_TOPICS: dict[mode, list[TopicId]]` (v2 §5.5 lists, **excluding** the safety questions removed by v2 §7b).
+  - Next-step card kinds are only `talk`, `plan`, `reflect` and `pause` (no `safety` kind, v2 §7b). A proposed card of any other kind is rejected.
     - `interview_progress(person_id) -> {covered, open}`, judged from fact keys prefixed with a topic id, e.g. `met.how`.
     - `POST /api/people/{id}/interview` creates an `interview` thread whose first agent turn asks the first open topic.
   - `start_hangout_checkin(person_id) -> thread_id`: a `checkin` thread. The agent asks the §5.5 follow-up questions, then calls `log_interaction` with structured fields.
@@ -392,7 +432,9 @@ v1 plan Task 10, plus these deltas:
   - `test_background_mode_cannot_write_facts`;
   - `test_interview_resumes_at_first_open_topic`;
   - `test_hangout_checkin_logs_interaction_fields`;
-  - `test_checkin_trigger_after_10_days`.
+  - `test_checkin_trigger_after_10_days`;
+  - `test_no_safety_kind_cards`;
+  - `test_interview_has_no_safety_topics`.
 - [ ] **Step 2: Run** `uv run pytest tests/agent -v`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** the same command. Expected: PASS.
@@ -417,6 +459,7 @@ v1 plan Task 10, plus these deltas:
   - agent on/off; "Agent may read message text"; catch-up on/off;
   - create or revoke the extension token, shown once with a copy button;
   - a link to the Groq Data Controls with a ZDR reminder;
+  - the v2 §7b disclaimer (also in a global footer);
   - Delete everything, behind a typed confirmation.
 
 - [ ] **Step 1: Write failing tests:**
@@ -438,6 +481,9 @@ v1 plan Task 10, plus these deltas:
 - Consumes: `GET /overview`, `/history`, `/next-steps`; `useEvents()`
 - Rules:
   - `SafetyBlock` renders first and is never collapsed when `concern` or `urgent`.
+    - Resources are shown as plain text (name, number, text code, website). No `tel:`/`sms:` links and no action buttons.
+    - The disclaimer sits under the block.
+  - A "Reciprocity at a glance" panel comes next. It shows initiation share, message share, question rate, disclosure balance, LSM, meetup initiation share and plan follow-through, with evidence tags, no single score and no probability (v2 §7b.6). In potential mode it is the lead panel.
   - `WeeklyChart` shows messages per week by me and them, with uncovered weeks shaded.
   - `SignalTable` shows value, evidence tag, band or "no reference band", and the "can't tell you" note.
   - `NextStepCards` shows each card with links to its evidence refs (`metric:`, `scale:`, `fact:`, `interaction:`) and Done / Dismiss / Discuss buttons. Discuss opens a chat seeded with the card.
@@ -445,6 +491,8 @@ v1 plan Task 10, plus these deltas:
 
 - [ ] **Steps 1–5:** Write the tests first:
   - `safety block first`;
+  - `resources have no tel or sms links`;
+  - `reciprocity panel second`;
   - `uncovered weeks shaded`;
   - `no reference band text`;
   - `card evidence links`;
@@ -567,7 +615,7 @@ v1 plan Task 12, plus these deltas:
 
 ## Execution order and parallelism
 
-Order: 1 → 2a → 2b → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 12 → 11 → 13 → 14 → 15 → 16 → 17 → 18 → 19.
+Order: 1 → 2a → 2b → 3 → 4 → 5 → 6 → 7 → 8 → 8b → 9 → 10 → 12 → 11 → 13 → 14 → 15 → 16 → 17 → 18 → 19.
 
 Once Task 10's route shapes are committed, the frontend (14–16) and the extension (17–18) touch only their own folders. They may run in parallel with Tasks 12–13, in separate worktrees.
 

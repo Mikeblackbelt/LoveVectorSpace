@@ -1,0 +1,17 @@
+{
+  "shell": "#root, #app",
+  "chatTitle": "[data-lvs='grindr-chat-title'], main header h1, main header h2",
+  "messageList": "[data-lvs='grindr-messages'], [aria-label='Conversation']",
+  "scroller": "[data-lvs='grindr-messages'], [aria-label='Conversation']",
+  "row": "[data-lvs='grindr-row'], [role='row']",
+  "timeSeparator": "[data-lvs='grindr-timestamp'], [class*='timestamp-separator']",
+  "bubble": "[data-lvs='grindr-bubble'], [class*='bubble']",
+  "outgoing": "[data-lvs='grindr-bubble'][data-outgoing='true'], [class*='bubble'][class*='sent']",
+  "text": "[data-lvs='grindr-text'], span[class*='text']",
+  "login": "form[action*='login'], [data-testid='login']",
+  "captcha": "iframe[src*='captcha'], iframe[src*='recaptcha'], [class*='captcha']",
+  "errorBanner": "[data-testid='error-banner']",
+  "errorContainer": "[role='alert']",
+  "errorPattern": "something went wrong|could(n't| not) (load|send)|connection (lost|error)|try again later|network error",
+  "directionMarker": "[data-lvs='grindr-bubble'][data-outgoing], [class*='bubble'][class*='sent'], [class*='bubble'][class*='received']"
+}

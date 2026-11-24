@@ -1,0 +1,10 @@
+- {id: hostility-01, role: them, text: "You're worthless and everyone knows it"}
+- {id: hostility-02, role: them, text: "You are so pathetic"}
+- {id: hostility-03, role: them, text: "Nobody could ever love you"}
+- {id: hostility-04, role: me, text: "I hate you so much right now"}
+- {id: hostility-05, role: them, text: "You ruin everything you touch"}
+- {id: hostility-06, role: them, text: "You make me sick"}
+- {id: hostility-07, role: them, text: "No wonder nobody wants to be around you"}
+- {id: hostility-08, role: them, text: "You're such a loser"}
+- {id: hostility-09, role: them, text: "What is wrong with you, honestly"}
+- {id: hostility-10, role: them, text: "I regret meeting you"}

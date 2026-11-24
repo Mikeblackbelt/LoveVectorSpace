@@ -1,0 +1,24 @@
+/* Phone capture: screenshot review + settings. Uses the theme tokens from styles/themes.css. */
+.lvs .cap-pick{display:inline-flex;align-items:center;cursor:pointer;margin:8px 0}
+.lvs .cap-settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:0 16px}
+.lvs .cap-settings>p{grid-column:1/-1;margin:4px 0}
+.lvs .cap-review{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.lvs .cap-bubble{display:grid;grid-template-columns:auto 1fr auto;grid-template-areas:"side text drop" "side meta drop";gap:2px 8px;align-items:start;padding:6px;border:var(--rule-w) solid var(--rule);border-radius:var(--radius);max-width:92%}
+.lvs .cap-bubble.them{align-self:flex-start;border-left:3px solid var(--them)}
+.lvs .cap-bubble.me{align-self:flex-end;border-right:3px solid var(--me)}
+.lvs .cap-bubble.dropped{opacity:.45}
+.lvs .cap-bubble.dropped .cap-text{text-decoration:line-through}
+.lvs .cap-side{grid-area:side;min-width:6ch;min-height:44px}
+.lvs .cap-drop{grid-area:drop;min-height:44px}
+.lvs .cap-text{grid-area:text;width:100%;min-width:0;resize:vertical;background:transparent;border:0;border-bottom:var(--rule-w) dashed var(--rule);color:var(--text);font-family:var(--font-data,inherit);font-size:14px;padding:4px 0}
+.lvs .cap-text:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.lvs .cap-meta{grid-area:meta}
+.lvs .cap-method{padding:12px 0;border-top:var(--rule-w) dashed var(--rule)}
+.lvs .cap-method h3{margin:0 0 4px;font-size:1em}
+.lvs .cap-method ul{margin:4px 0;padding-left:1.2em}
+.lvs .cap-state{font-family:var(--font-data,inherit);font-size:12px;letter-spacing:.06em}
+.lvs .cap-links{list-style:none;margin:8px 0 0;padding:0}
+.lvs .cap-links li{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:6px 0;border-top:var(--rule-w) dotted var(--rule)}
+.lvs .cap-links li>span{flex:1 1 12ch;min-width:0;overflow-wrap:anywhere}
+.lvs .cap-addlink{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr));gap:0 12px;align-items:end}
+@media (max-width:420px){.lvs .cap-bubble{max-width:100%}}

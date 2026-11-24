@@ -1,0 +1,41 @@
+- {id: benign-01, role: them, text: "Ugh this traffic is fucking insane today"}
+- {id: benign-02, role: me, text: "That meeting was bullshit, total waste of time"}
+- {id: benign-03, role: them, text: "Shut up, that is hilarious"}
+- {id: benign-04, role: me, text: "Damn it, I burned the toast again"}
+- {id: benign-05, role: them, text: "lol you absolute goblin, give me back my hoodie"}
+- {id: benign-06, role: me, text: "Holy shit that game last night was wild"}
+- {id: benign-07, role: them, text: "I'm so tired I could sleep for a week"}
+- {id: benign-08, role: me, text: "Where are you going for lunch?"}
+- {id: benign-09, role: them, text: "Dude, that movie was shit but I loved it"}
+- {id: benign-10, role: me, text: "You're an idiot, but you're my idiot, haha"}
+- {id: benign-11, role: them, text: "My boss is such an asshole today"}
+- {id: benign-12, role: me, text: "Can you send me the address for dinner?"}
+- {id: benign-13, role: them, text: "Hell yes, count me in for Friday"}
+- {id: benign-14, role: me, text: "That exam was killing me, I need coffee"}
+- {id: benign-15, role: them, text: "Oh my god I'm dead, that meme is too good"}
+- {id: benign-16, role: me, text: "Lets get tacos, I'm starving"}
+- {id: benign-17, role: them, text: "Fuck, I forgot my keys again"}
+- {id: benign-18, role: me, text: "Bro you cooked with that playlist"}
+- {id: benign-19, role: them, text: "Stop it, you're making me laugh too hard"}
+- {id: benign-20, role: me, text: "I hate Mondays so much"}
+- {id: benign-21, role: them, text: "This printer is a piece of crap"}
+- {id: benign-22, role: me, text: "Did you see the new episode? Insane plot twist"}
+- {id: benign-23, role: them, text: "Haha you suck at mario kart, give up"}
+- {id: benign-24, role: me, text: "Sorry I'm late, the bus was a nightmare"}
+- {id: benign-25, role: them, text: "Damn, that is a great photo of the dog"}
+- {id: benign-26, role: me, text: "Want to call tonight or just text?"}
+- {id: benign-27, role: them, text: "My brother is being annoying as hell"}
+- {id: benign-28, role: me, text: "Happy birthday! Love you, you legend"}
+- {id: benign-29, role: them, text: "Shit, it's raining and I have no umbrella"}
+- {id: benign-30, role: me, text: "Can you hit me up when you get home?"}
+- {id: benign-31, role: them, text: "You beat me at chess again, you menace"}
+- {id: benign-32, role: me, text: "I'm gonna destroy this pizza"}
+- {id: benign-33, role: them, text: "Ugh, work is so dumb this week"}
+- {id: benign-34, role: me, text: "Mom says hi and asks when you're visiting"}
+- {id: benign-35, role: them, text: "We should totally go hiking this weekend"}
+- {id: benign-36, role: them, text: "We ended things last year and we are on good terms now"}
+- {id: benign-37, role: me, text: "I want to end things with him, it just isn't working"}
+- {id: benign-38, role: me, text: "I can totally beat you at mario kart"}
+- {id: benign-39, role: them, text: "I'm gonna beat you in this one, watch me"}
+- {id: benign-40, role: me, text: "I can beat you at chess any day"}
+- {id: benign-41, role: them, text: "I'll destroy you in fifa tonight"}

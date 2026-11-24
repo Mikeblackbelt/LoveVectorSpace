@@ -4,3 +4,10 @@ uploads/
 .env
 __pycache__/
 .venv/
+.superpowers/
+
+# downloaded/exported model files (models/PROVENANCE.md is committed)
+models/*/
+.superdesign/tmp/
+.superdesign/resume.json
+.worktrees/

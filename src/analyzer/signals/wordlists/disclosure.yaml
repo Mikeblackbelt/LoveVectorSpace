@@ -1,0 +1,67 @@
+# Hand-built open lexicon of self-disclosure cues (first-person feelings, fears,
+# needs, personal history, close relationships). Written for this project from
+# general psychology-of-disclosure concepts; NOT derived from LIWC (proprietary)
+# or any other licensed dictionary. Entries are case-insensitive words or
+# phrases matched on word boundaries; this is a coarse lexicon, not a classifier.
+terms:
+  - i feel
+  - i felt
+  - i'm feeling
+  - i am feeling
+  - i'm scared
+  - i am scared
+  - i'm afraid
+  - i am afraid
+  - i'm worried
+  - i worry
+  - i'm anxious
+  - i'm nervous
+  - i'm sad
+  - i'm lonely
+  - i'm ashamed
+  - i'm embarrassed
+  - i'm happy
+  - i'm excited
+  - i'm stressed
+  - i'm overwhelmed
+  - i'm insecure
+  - i'm proud
+  - i miss
+  - i wish
+  - i hope
+  - i need
+  - i love
+  - i hate
+  - i trust
+  - i regret
+  - i'm sorry
+  - i admit
+  - i confess
+  - honestly
+  - to be honest
+  - to tell the truth
+  - my family
+  - my mom
+  - my dad
+  - my parents
+  - my childhood
+  - my therapist
+  - my anxiety
+  - my depression
+  - my fear
+  - my fears
+  - my dream
+  - my dreams
+  - my past
+  - my ex
+  - anxious
+  - ashamed
+  - lonely
+  - afraid
+  - insecure
+  - vulnerable
+  - depressed
+  - overwhelmed
+  - heartbroken
+  - grateful
+  - secret

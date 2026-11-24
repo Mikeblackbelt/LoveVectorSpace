@@ -1,0 +1,15 @@
+{
+  "shell": "#app-mount",
+  "chatTitle": "[class*='chat'] section[aria-label] h1, [class*='chat'] [class*='title'] h1",
+  "messageList": "ol[data-list-id='chat-messages']",
+  "scroller": "[class*='scroller'][data-jump-section='global'], [class*='messagesWrapper'] [class*='scroller']",
+  "row": "li[id^='chat-messages-']",
+  "author": "h3 [class*='username']",
+  "time": "time[datetime]",
+  "text": "[id^='message-content-']",
+  "system": "[class*='systemMessage']",
+  "selfName": "section[class*='panels'] [class*='nameTag'] [class*='title']",
+  "login": "form[class*='authBox'], input[name='email'][type='text']",
+  "captcha": "iframe[src*='hcaptcha'], iframe[src*='captcha'], [class*='captcha']",
+  "errorBanner": "[class*='errorPage'], [class*='noticeRegion'] [class*='notice-error']"
+}

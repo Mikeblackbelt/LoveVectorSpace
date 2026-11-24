@@ -1,0 +1,10 @@
+- {id: isolation-01, role: them, text: "Stop talking to your friends, they are bad for you"}
+- {id: isolation-02, role: them, text: "Don't talk to your sister anymore"}
+- {id: isolation-03, role: me, text: "You don't need anyone but me"}
+- {id: isolation-04, role: them, text: "Your family is toxic, cut them off"}
+- {id: isolation-05, role: them, text: "It's me or your friends, choose"}
+- {id: isolation-06, role: them, text: "Your friends are against us"}
+- {id: isolation-07, role: me, text: "I don't want you seeing your cousins anymore"}
+- {id: isolation-08, role: them, text: "They're just trying to keep you away from me"}
+- {id: isolation-09, role: them, text: "Quit hanging out with your coworkers"}
+- {id: isolation-10, role: them, text: "You only need me, nobody else cares about you"}

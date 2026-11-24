@@ -1,0 +1,35 @@
+id: csi16
+name: Couples Satisfaction Index (CSI-16)
+mode: [established]
+item_text: local_overlay
+response: {min: 0, max: 5}
+items:
+  - {id: csi16_01, min: 0, max: 6}
+  - {id: csi16_02}
+  - {id: csi16_03}
+  - {id: csi16_04}
+  - {id: csi16_05}
+  - {id: csi16_06}
+  - {id: csi16_07}
+  - {id: csi16_08}
+  - {id: csi16_09}
+  - {id: csi16_10}
+  - {id: csi16_11}
+  - {id: csi16_12}
+  - {id: csi16_13}
+  - {id: csi16_14}
+  - {id: csi16_15}
+  - {id: csi16_16}
+subscales:
+  total: {items: [csi16_01, csi16_02, csi16_03, csi16_04, csi16_05, csi16_06, csi16_07, csi16_08, csi16_09, csi16_10, csi16_11, csi16_12, csi16_13, csi16_14, csi16_15, csi16_16], aggregate: sum}
+cutoffs:
+  - {subscale: total, value: 51.5, direction: below, label: distress}
+source:
+  citation: "Funk, J. L., & Rogge, R. D. (2007). Testing the ruler with item response theory. Journal of Family Psychology, 21(4), 572-583."
+  url: "https://www.courses.rochester.edu/surveys/funk/main.htm"
+  terms: "Scales developed and validated in the lab and freely available for use."
+verified: true
+custom: false
+owner_approved: false
+measures: "Global relationship satisfaction (total 0-81). Higher is more satisfied; scored as the sum of the printed response values, with no reverse keying."
+does_not_measure: "Predictors of future satisfaction, commitment, or partner behaviour. The 51.5 cut-off is a research threshold from one mostly female online sample, not a diagnosis. Commercial use is not addressed by the authors."

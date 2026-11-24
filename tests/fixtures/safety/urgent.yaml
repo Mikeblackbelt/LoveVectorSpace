@@ -1,0 +1,10 @@
+- {id: urgent-01, role: them, text: "If you talk to him again I will hurt you"}
+- {id: urgent-02, role: them, text: "I swear I'll kill you"}
+- {id: urgent-03, role: me, text: "I'm gonna beat you up if you do that again"}
+- {id: urgent-04, role: them, text: "You'll pay for this, trust me"}
+- {id: urgent-05, role: them, text: "Tell me you love me or I will kill myself"}
+- {id: urgent-06, role: me, text: "I feel unsafe at home tonight"}
+- {id: urgent-07, role: them, text: "He punched me and I don't know what to do"}
+- {id: urgent-08, role: them, text: "I am going to end it all tonight"}
+- {id: urgent-09, role: them, text: "I'm afraid of you"}
+- {id: urgent-10, role: me, text: "I want to die"}

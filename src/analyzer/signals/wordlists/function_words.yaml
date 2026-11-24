@@ -1,0 +1,31 @@
+# Hand-built open English function-word lists for language style matching.
+# Written from general English grammar knowledge (standard closed-class word
+# categories). NOT derived from or copied from LIWC, which is proprietary.
+# Nine categories follow the LSM literature (Ireland & Pennebaker 2010).
+personal_pronouns: [i, me, my, mine, myself, we, us, our, ours, ourselves, you, your, yours,
+  yourself, yourselves, he, him, his, himself, she, her, hers, herself, they, them, their,
+  theirs, themselves, i'm, i've, i'll, i'd, we're, we've, we'll, you're, you've, you'll,
+  he's, she's, they're, they've, they'll]
+impersonal_pronouns: [it, its, itself, it's, this, that, these, those, there, there's, that's,
+  what, which, who, whom, whose, something, anything, everything, nothing, someone, anyone,
+  everyone, somebody, anybody, everybody, one]
+articles: [a, an, the]
+conjunctions: [and, but, or, nor, so, yet, because, although, though, while, whereas, if,
+  unless, until, since, as, than, whether, however, also, plus]
+prepositions: [in, "on", at, to, for, of, with, by, from, about, into, onto, over, under,
+  after, before, between, through, during, without, within, against, among, around, behind,
+  beside, beyond, down, up, "off", out, near, toward, towards, across, along, upon, like]
+auxiliary_verbs: [am, is, are, was, were, be, been, being, have, has, had, having, do, does,
+  did, will, would, shall, should, can, could, may, might, must,
+  isn't, aren't, wasn't, weren't, haven't, hasn't, hadn't, don't, doesn't, didn't, won't,
+  wouldn't, can't, couldn't, shouldn't]
+adverbs: [very, really, just, so, too, quite, rather, almost, already, always, never, often,
+  sometimes, usually, still, even, again, ever, now, then, here, maybe, perhaps, probably,
+  actually, basically, honestly, totally, pretty, much, well, soon, today, tomorrow,
+  tonight, away, back, together, only, simply, absolutely]
+negations: ["no", not, never, none, nobody, nothing, nowhere, neither, nor, cannot, n't,
+  isn't, aren't, wasn't, weren't, haven't, hasn't, hadn't, don't, doesn't, didn't, won't,
+  wouldn't, can't, couldn't, shouldn't, ain't, without]
+quantifiers: [all, some, any, many, much, more, most, few, fewer, less, least, several, both,
+  each, every, enough, lot, lots, plenty, little, whole, half, another, other, others, such,
+  one, two, three, four, five, ten, hundred, thousand]

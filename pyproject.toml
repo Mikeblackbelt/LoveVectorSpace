@@ -1,0 +1,56 @@
+[project]
+name = "analyzer"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "argon2-cffi>=25.1.0",
+    "cryptography>=50.0.2",
+    "fastapi>=0.165.0",
+    "httpx>=0.28.1",
+    "mcp>=2.3.0",
+    "groq>=1.7.0",
+    "numpy>=1.26",
+    "onnxruntime>=1.18",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "pyjwt[crypto]>=2.15.1",
+    "python-multipart>=0.0.34",
+    "PyYAML>=6.0",
+    "sqlcipher3-wheels>=0.5.7",
+    "sse-starlette>=3.7.1",
+    "tokenizers>=0.19",
+    "tzdata>=2024.1",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.optional-dependencies]
+# plain model download (emotion model only), no torch
+fetch = ["huggingface_hub>=0.23"]
+# build-time ONNX export of the toxicity model; never installed in the runtime image.
+# The Docker build installs the exact pins in scripts/export-requirements.txt (CPU torch index).
+export = [
+    "huggingface_hub==0.36.2",
+    "torch==2.9.1",
+    "transformers==4.57.6",
+    "optimum==2.1.0",
+    "optimum-onnx[onnxruntime]==0.1.0",
+    "onnx==1.20.1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/analyzer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests/support"]
+markers = [
+    "models: needs the downloaded ONNX models in models/ (skipped when absent)",
+    "slow: long-running benchmark / large-upload tests",
+]
