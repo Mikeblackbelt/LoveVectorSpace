@@ -11,6 +11,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { FxLayers } from './FxLayers';
 import { lastPerson, rememberPerson, say, usePromptLine } from './prompt';
 import { ThemePopover } from './ThemePopover';
+import { CaptureFlusher } from '../features/capture';
 import { ago, hhmm } from '../lib/format';
 import { useHotkey } from '../lib/hotkeys';
 
@@ -278,6 +279,7 @@ export function Shell() {
         )}
         {session.user && !session.user.email_verified && <VerifyBanner />}
 
+        <CaptureFlusher />
         <Outlet context={{ pid, person, analyze }} />
 
         <PromptLine path={path} />

@@ -11,6 +11,7 @@ import { n as fmtN, timezoneGuess, ymd } from '../lib/format';
 import { haptic } from '../native/native';
 import { L } from '../theme/Plain';
 import { checkSharedFile } from './SharedImport';
+import { ScreenshotImportKey } from '../features/capture';
 import { useHotkey } from '../lib/hotkeys';
 
 const CELLS = 28;
@@ -128,6 +129,7 @@ export function SourcesPanel({ pid, compact, shared }: { pid: number; compact?: 
       <ErrorLine error={del.error} />
       <div className="row-actions">
         <Key k="I" variant="pri" tech="IMPORT CHAT" plain="Import chat" onClick={() => setImporting(true)} id="btn-import-open" />
+        <ScreenshotImportKey pid={pid} />
       </div>
       {importing && <ImportDialog pid={pid} initial={shared} onClose={() => setImporting(false)} />}
     </div>

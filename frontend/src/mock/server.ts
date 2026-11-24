@@ -8,6 +8,8 @@ type Handler = (ctx: { params: string[]; body: unknown; url: URL; init: RequestI
 const SESSION_KEY = 'lvs.mock.session';
 let settings: Settings = { ...D.defaultSettings };
 let nextId = 1000;
+/** messages added through POST /imports/messages, per person */
+const captured: Record<number, { me: number; them: number }> = {};
 const id = () => ++nextId;
 const nowIso = () => new Date().toISOString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -313,11 +315,32 @@ const routes: [string, RegExp, Handler][] = [
     const pid = +params[0];
     const b = body as { source?: string; messages?: { role: string }[] };
     if (!b?.source || !/^(screenshot_import|android_sms|android_notify_\w+|android_a11y_\w+)$/.test(b.source)) return err(400, 'invalid_input', 'Unknown capture source.', 'source');
-    const n = b.messages?.length || 0;
-    const unit = { unit_id: `capture:${b.source}:${nowIso().slice(0, 10)}`, source: b.source, created_at: nowIso(), message_count: n, start_ts: nowIso(), end_ts: nowIso() };
-    (D.units[pid] ||= []).unshift(unit);
+    if (!person(pid)) return err(404, 'not_found', 'Person not found.');
+    const msgs = b.messages || [];
+    const n = msgs.length;
     const oneSided = b.source.startsWith('android_notify_');
-    return json({ unit_id: unit.unit_id, added: n, merged: 0, skipped_non_english: 0, one_sided: oneSided, job_id: id() }, 201);
+    // notification readers only see incoming messages: the server forces them to "them"
+    const me = oneSided ? 0 : msgs.filter((m) => m.role === 'me').length;
+    const c = (captured[pid] ||= { me: 0, them: 0 });
+    c.me += me;
+    c.them += n - me;
+    const unitId = `capture:${b.source}:${nowIso().slice(0, 10)}`;
+    const list = (D.units[pid] ||= []);
+    const existing = list.find((u) => u.unit_id === unitId);
+    if (existing) {
+      existing.message_count += n;
+      existing.end_ts = nowIso();
+    } else list.unshift({ unit_id: unitId, source: b.source, created_at: nowIso(), message_count: n, start_ts: nowIso(), end_ts: nowIso() });
+    const p = person(pid)!;
+    const src = p.sources.find((x) => x.source === b.source);
+    if (src) src.last_sync = nowIso();
+    else p.sources.push({ source: b.source, last_sync: nowIso(), health: 'ok' });
+    p.updated_at = nowIso();
+    setTimeout(() => {
+      pushEvent({ type: 'ingest', person_id: pid, added: n });
+      pushEvent({ type: 'snapshot', person_id: pid });
+    }, 200);
+    return json({ unit_id: unitId, added: n, merged: 0, skipped_non_english: 0, one_sided: oneSided && p.sources.length === 1, job_id: id() }, 201);
   }],
   ['GET', /^\/api\/people\/(\d+)\/units$/, ({ params }) => json(D.units[+params[0]] || [])],
   ['DELETE', /^\/api\/units\/([^/]+)$/, ({ params }) => {
@@ -343,6 +366,15 @@ const routes: [string, RegExp, Handler][] = [
     if (pid > 3) return err(404, 'not_found', 'No analysis yet.');
     const o = D.overviewFor(pid);
     o.next_steps = (D.nextSteps[pid] || []).filter((s) => s.status === 'open');
+    // phone-captured messages land in the latest week so the dashboard visibly updates
+    const c = captured[pid];
+    const last = o.weekly[o.weekly.length - 1];
+    if (c && last) {
+      last.me = (last.me ?? 0) + c.me;
+      last.them = (last.them ?? 0) + c.them;
+      last.covered = true;
+    }
+    o.generated_at = person(pid)?.updated_at || o.generated_at;
     return json(o);
   }],
   ['POST', /^\/api\/people\/(\d+)\/analyze$/, ({ params }) => {
