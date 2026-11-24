@@ -463,6 +463,7 @@ class AccountService:
         user = self.users.get(row[0]) if row else None
         if user is None:
             raise AccountError(400, "invalid_input", "This link is invalid or has expired.", "token")
+        self._check_demo_lock(user)
         problem = password_problem(new_password or "", user.email)
         if problem:
             raise AccountError(422, "validation_error", problem, "new_password")
@@ -494,8 +495,15 @@ class AccountService:
         self._maybe_promote(self.users.get(user.id))
         self.audit.log(user.id, "password_reset")
 
+    def _check_demo_lock(self, user: UserRow) -> None:
+        """With SEED_DEMO on, the shared seeded accounts cannot be locked or wiped by one of their users."""
+        if getattr(self.s, "seed_demo", False) and user.email in DEMO_EMAILS:
+            raise AccountError(403, "demo_locked", "This is a shared sample account: password, sessions, "
+                               "tokens and deletion cannot be changed. Create your own account for that.")
+
     def change_password(self, p: Principal, current: str | None, new: str) -> None:
         user = p.user
+        self._check_demo_lock(user)
         if user.password_hash and not self.passwords.verify(user.password_hash, current or ""):
             raise AccountError(403, "forbidden", "Current password is incorrect.", "current_password")
         if not user.password_hash:
@@ -643,6 +651,7 @@ class AccountService:
         return raw, info
 
     def revoke_api_token(self, user: UserRow, token_id: str) -> None:
+        self._check_demo_lock(user)
         if not self.api_tokens.owned(user.id, token_id):
             raise AccountError(404, "not_found", "Token not found.")
         self.api_tokens.revoke(user.id, token_id)
@@ -655,6 +664,8 @@ class AccountService:
     def revoke_session(self, p: Principal, family_id: str) -> None:
         if self.refresh_tokens.family_owner(family_id) != p.user.id:
             raise AccountError(404, "not_found", "Session not found.")
+        if family_id != p.sid:
+            self._check_demo_lock(p.user)       # signing out of one's own session stays possible
         self.refresh_tokens.revoke_family(family_id)
         self.audit.log(p.user.id, "session_revoked")
 
@@ -666,6 +677,7 @@ class AccountService:
 
     # ---------- deletion / demo ----------
     def delete_account(self, user: UserRow, confirm: str, password: str | None) -> None:
+        self._check_demo_lock(user)
         if confirm != DELETE_PHRASE:
             raise AccountError(400, "invalid_input", f'Type "{DELETE_PHRASE}" to confirm.', "confirm")
         if user.password_hash and not self.passwords.verify(user.password_hash, password or ""):

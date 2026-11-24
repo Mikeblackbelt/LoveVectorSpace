@@ -5,7 +5,7 @@ This is the binding contract between the backend (FastAPI), the frontend (React/
 **Errors** use `{"error": {"code": "<snake_case>", "message": "<human text>", "field": "<optional field name>"}}` with the matching HTTP status. Codes used:
 - 400 `invalid_input`;
 - 401 `unauthenticated`;
-- 403 `forbidden` / `invite_required` / `reauth_required`;
+- 403 `forbidden` / `invite_required` / `reauth_required` / `demo_locked` (only with `SEED_DEMO`: the shared sample accounts cannot change password, delete the account or revoke other sessions/tokens);
 - 404 `not_found`;
 - 409 `conflict` / `chat_not_linked`;
 - 413 `too_large`;

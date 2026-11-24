@@ -2,7 +2,7 @@ import json
 
 from fastapi.routing import APIRoute
 
-from .conftest import PASSWORD, Harness, auth
+from .conftest import FAST_PW, PASSWORD, Harness, auth
 
 M = "ALICE_MARKER"
 
@@ -361,3 +361,41 @@ def test_seed_demo_repairs_user_without_db_and_rotated_password(tmp_path):
         r = c.post("/api/auth/login", json={"email": "judge1@demo.lvs", "password": "a-new-demo-password-123"})
         assert r.status_code == 200
         assert [p["pseudonym"] for p in c.get("/api/people", headers=auth(r.json()["access_token"])).json()] ==             ["Yu Cheng"]
+
+
+def test_demo_accounts_are_locked_only_with_seed_demo(tmp_path):
+    h = Harness(tmp_path, seed_demo=True, demo_password="demo-password-for-judges")
+    with h.client() as c:
+        assert h.app.state.seed_done.wait(10)
+        login = {"email": "judge1@demo.lvs", "password": "demo-password-for-judges"}
+        s1 = c.post("/api/auth/login", json=login, headers={"X-Client": "native"}).json()
+        s2 = c.post("/api/auth/login", json=login, headers={"X-Client": "native"}).json()
+        a = auth(s1["access_token"])
+        r = c.post("/api/auth/password/change", json={"current_password": login["password"],
+                                                       "new_password": "Another-Long-Password-9"}, headers=a)
+        assert r.status_code == 403 and r.json()["error"]["code"] == "demo_locked"
+        assert c.request("DELETE", "/api/account", json={"confirm": "DELETE MY ACCOUNT",
+                                                         "password": login["password"]},
+                         headers=a).json()["error"]["code"] == "demo_locked"
+        tok = c.post("/api/tokens", json={"kind": "api"}, headers=a).json()["info"]["id"]
+        assert c.delete(f"/api/tokens/{tok}", headers=a).json()["error"]["code"] == "demo_locked"
+        sessions = c.get("/api/auth/sessions", headers=a).json()
+        other = next(s["id"] for s in sessions if not s["current"])
+        assert c.delete(f"/api/auth/sessions/{other}", headers=a).json()["error"]["code"] == "demo_locked"
+        mine = next(s["id"] for s in sessions if s["current"])
+        assert c.delete(f"/api/auth/sessions/{mine}", headers=a).status_code == 204   # own sign-out works
+        assert s2["access_token"]
+
+
+def test_demo_lock_off_without_seed_demo(h, client):
+    import secrets
+    from analyzer.accounts import crypto
+    uid = secrets.token_hex(16)
+    h.accounts.users.create(email="judge1@demo.lvs", wrapped_dek=crypto.wrap_dek(h.settings.master_key,
+                            crypto.new_dek(), uid), user_id=uid, password_hash=FAST_PW.hash(PASSWORD),
+                            email_verified=True)
+    h.accounts._create_db(uid)
+    r = client.post("/api/auth/login", json={"email": "judge1@demo.lvs", "password": PASSWORD})
+    a = auth(r.json()["access_token"])
+    tok = client.post("/api/tokens", json={"kind": "api"}, headers=a).json()["info"]["id"]
+    assert client.delete(f"/api/tokens/{tok}", headers=a).status_code == 204
