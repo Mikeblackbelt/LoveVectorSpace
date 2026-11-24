@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Accessibility chat reader. packageNames is the allowlist: Android delivers events from these
+     apps only (WhatsApp, WhatsApp Business, Instagram, Tinder, Hinge, Grindr, Bumble, Discord,
+     Google Messages). Keep in sync with CaptureApps.java and src/features/capture/apps.ts. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/lvs_a11y_description"
+    android:packageNames="com.whatsapp,com.whatsapp.w4b,com.instagram.android,com.tinder,co.hinge.app,com.grindrapp.android,com.bumble.app,com.discord,com.google.android.apps.messaging"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewScrolled"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagIncludeNotImportantViews|flagReportViewIds"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="500"
+    android:isAccessibilityTool="false" />

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="lvs_notify_label">LoveVectorSpace message notifications</string>
+    <string name="lvs_a11y_label">LoveVectorSpace chat reader</string>
+    <string name="lvs_a11y_description">Reads the messages on screen in WhatsApp, Instagram, Tinder, Hinge, Grindr, Bumble, Discord and Google Messages, only while a chat you linked to a person in LoveVectorSpace is open. It never reads password fields or what you type. Messages are parsed on this phone, kept encrypted, and uploaded to your LoveVectorSpace account. It pauses itself after 30 minutes without a linked chat, and you can pause it from its notification at any time.</string>
+</resources>

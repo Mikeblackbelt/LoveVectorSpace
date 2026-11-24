@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sideload flavour only (merged over src/main/AndroidManifest.xml). Adds the phone-capture
+     readers: notification listener, accessibility chat reader and SMS. The store flavour has none
+     of this. See docs/mobile-capture.md. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <!-- The persistent "capturing" notification on Android 13+. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!-- Bound by the system only after the user grants Notification access. -->
+        <service
+            android:name="app.lovevectorspace.demo.capture.LvsNotificationListener"
+            android:label="@string/lvs_notify_label"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Bound by the system only after the user switches it on in Accessibility settings.
+             packageNames in the config restricts events to the allowlisted chat apps. -->
+        <service
+            android:name="app.lovevectorspace.demo.capture.LvsAccessibilityService"
+            android:label="@string/lvs_a11y_label"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/lvs_accessibility_config" />
+        </service>
+
+        <!-- Pause/Resume action of the "capturing" notification (explicit intents only). -->
+        <receiver
+            android:name="app.lovevectorspace.demo.capture.CaptureControlReceiver"
+            android:exported="false" />
+    </application>
+</manifest>

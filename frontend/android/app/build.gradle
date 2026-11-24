@@ -16,6 +16,21 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Capture flavours (docs/mobile-capture.md):
+    //   store    - screenshot OCR + share/file import only. No notification/SMS/accessibility
+    //              permissions or services in its manifest (Play-compatible).
+    //   sideload - adds the notification, SMS and accessibility readers (src/sideload/).
+    // Same applicationId on purpose: sign-in client IDs and the share target are keyed to it.
+    flavorDimensions = ["capture"]
+    productFlavors {
+        store {
+            dimension "capture"
+        }
+        sideload {
+            dimension "capture"
+            versionNameSuffix "-sideload"
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
@@ -36,6 +51,8 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    // On-device OCR for screenshot import (bundled Latin model: works offline, no image upload).
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
