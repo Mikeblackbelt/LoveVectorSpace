@@ -56,6 +56,8 @@ const deps: PopupDeps = {
     runs: await getRuns(),
     queueLength: (await getKey<QueueItem[]>("queue", [])).length,
     queueFull: await getKey<boolean>("queue_full", false),
+    storageError: await getKey<boolean>("storage_error", false),
+    rejected: await getKey<number>("rejected_count", 0),
     lastFlush: await getKey<{ at: number; sent: number; error?: string } | null>("last_flush", null),
   }),
   savePrefs: setPrefs,

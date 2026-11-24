@@ -203,9 +203,11 @@ CORS allows only `chrome-extension://$EXTENSION_ID`.
 | GET | `/api/ext/summary?platform=&chat_key=` | — | `{linked, person: {id, pseudonym}|null, total, today, last7d, my_share_30d, last_captured_ts, last_captured_ids: [≤20]}` (counts only, never message text) |
 | POST | `/api/ingest` | `CaptureBatch` (≤2 MB, ≤10k msgs/min) | `{added, merged, skipped}`. Returns 409 `chat_not_linked` if the chat isn't linked. |
 
-`CaptureBatch` is `{platform: "whatsapp"|"discord"|"instagram"|"tinder"|"grindr"|"bumble", chat_key, tz, unit_id?, messages: [{platform_msg_id?, ts_local?|ts_utc?, ts_precision: "second"|"minute"|"approx", direction: "outgoing"|"incoming", speaker_raw, text}]}`.
+`CaptureBatch` is `{platform: "whatsapp"|"discord"|"instagram"|"tinder"|"grindr"|"bumble", chat_key, tz, unit_id?, direction_uncertain?, messages: [{platform_msg_id?, ts_local?|ts_utc?, ts_precision: "second"|"minute"|"approx", direction: "outgoing"|"incoming", speaker_raw, text}]}`.
 
 `unit_id` is optional. The popup's "Import this page" sets it to `capture:<platform>:<chat_key>:<YYYY-MM-DD>` on every batch of one import, so the server groups them as one import unit. Live-capture batches omit it.
+
+`direction_uncertain` is optional. The extension sets it to `true` when at least 10 message rows were loaded and all pointed the same way. That is normal for a one-sided chat, but could also mean a changed direction marker. Capture continues; the server keeps the data and may mark the unit one-sided or direction-uncertain.
 
 ## MCP
 

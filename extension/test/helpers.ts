@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach } from "vitest";
-import type { Anomaly, CapturedMessage, MessageSink, Platform, SiteAdapter } from "../src/adapters/types";
+import type { Anomaly, BatchMeta, CapturedMessage, MessageSink, Platform, SiteAdapter } from "../src/adapters/types";
 
 export const store: Record<string, unknown> = {};
 
@@ -33,7 +33,9 @@ export function loadFixture(platform: Platform, name = "chat"): void {
 
 export class CollectSink implements MessageSink {
   items: { platform: Platform; chat_key: string; tz: string; msg: CapturedMessage }[] = [];
-  enqueue(platform: Platform, chat_key: string, tz: string, msgs: CapturedMessage[]): boolean {
+  metas: (BatchMeta | undefined)[] = [];
+  enqueue(platform: Platform, chat_key: string, tz: string, msgs: CapturedMessage[], meta?: BatchMeta): boolean {
+    this.metas.push(meta);
     for (const msg of msgs) this.items.push({ platform, chat_key, tz, msg });
     return true;
   }
@@ -46,6 +48,8 @@ export function fakeAdapter(pages: CapturedMessage[][], infinite?: () => Capture
   let next = 0;
   let scrolls = 0;
   let anomaly: Anomaly | null = null;
+  let chat = "k";
+  let onScroll: (() => void) | null = null;
   const reveal = (msgs: CapturedMessage[]) => {
     const els = msgs.map((m) => {
       const el = document.createElement("div");
@@ -55,15 +59,16 @@ export function fakeAdapter(pages: CapturedMessage[][], infinite?: () => Capture
     rows = [...els, ...rows];
   };
   reveal(pages[next++]);
-  const adapter: SiteAdapter & { scrolls: () => number; setAnomaly: (a: Anomaly | null) => void } = {
+  const adapter: SiteAdapter & { scrolls: () => number; setAnomaly: (a: Anomaly | null) => void; setChat: (k: string) => void; onScroll: (f: () => void) => void } = {
     platform: "whatsapp",
     matches: () => true,
-    currentChat: () => ({ chat_key: "k", title: "t" }),
+    currentChat: () => ({ chat_key: chat, title: "t" }),
     findMessageList: () => document.body,
     rows: () => rows,
     extract: (n) => map.get(n) ?? null,
     async scrollStep() {
       scrolls++;
+      onScroll?.();
       if (next < pages.length) {
         reveal(pages[next++]);
         return true;
@@ -77,6 +82,8 @@ export function fakeAdapter(pages: CapturedMessage[][], infinite?: () => Capture
     healthCheck: () => ({ ok: true }),
     anomaly: () => anomaly,
     scrolls: () => scrolls,
+    setChat: (k) => void (chat = k),
+    onScroll: (f) => void (onScroll = f),
     setAnomaly: (a) => {
       anomaly = a;
     },

@@ -61,7 +61,11 @@ export function parseLooseTimestamp(text: string, now: Date): string | null {
   const mon = /([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?/.exec(word);
   if (mon && MONTHS.includes(mon[1])) {
     const mo = MONTHS.indexOf(mon[1]) + 1;
-    return localIso(mon[3] ? Number(mon[3]) : base.getFullYear(), mo, Number(mon[2]), clock.h, clock.mi);
+    if (mon[3]) return localIso(Number(mon[3]), mo, Number(mon[2]), clock.h, clock.mi);
+    // No year shown: assume this year, but a date later than now (+1 day) must be last year ("Nov 22" seen in January).
+    let year = base.getFullYear();
+    if (new Date(year, mo - 1, Number(mon[2]), clock.h, clock.mi).getTime() > now.getTime() + 86_400_000) year -= 1;
+    return localIso(year, mo, Number(mon[2]), clock.h, clock.mi);
   }
   let day = base;
   if (word.startsWith("yesterday")) day = new Date(base.getFullYear(), base.getMonth(), base.getDate() - 1);

@@ -4,7 +4,7 @@ import { mountPopup, type PopupDeps, type PopupState } from "../src/popup/view";
 import type { ExtSummary } from "../src/api";
 
 HTMLCanvasElement.prototype.getContext = () => null; // jsdom has no canvas
-const state: PopupState = { prefs: DEFAULT_PREFS, health: {}, runs: {}, queueLength: 2, queueFull: false, lastFlush: null };
+const state: PopupState = { prefs: DEFAULT_PREFS, health: {}, runs: {}, queueLength: 2, queueFull: false, storageError: false, rejected: 0, lastFlush: null };
 const chat = { platform: "whatsapp" as const, chat_key: "Yu Cheng", title: "Yu Cheng", health: { ok: true }, cooldown_left_ms: 0 };
 const base: ExtSummary = { linked: true, person: { id: 1, pseudonym: "Yu Cheng" }, total: 4812, today: 23, last7d: 184, my_share_30d: 0.66, last_captured_ts: null, last_captured_ids: [] };
 
@@ -79,6 +79,23 @@ describe("popup", () => {
     expect(root.querySelector("canvas")).not.toBeNull();
     (root.querySelector("#import-stop") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(root.querySelector("#import-stop")).not.toBeNull());
+  });
+
+  it("surfaces rejected messages and storage errors", async () => {
+    const root = document.createElement("div");
+    await mountPopup(root, deps({ state: async () => ({ ...state, rejected: 3, storageError: true }) }));
+    expect(root.textContent).toContain("3 message(s) were rejected");
+    expect(root.textContent).toContain("storage is full");
+  });
+
+  it("warns when only one side is detected", async () => {
+    const root = document.createElement("div");
+    await mountPopup(root, deps({ chat: async () => ({ ...chat, direction_uncertain: true }) }));
+    expect(root.textContent).toContain("Only one side detected");
+    expect(root.textContent).toContain("SELECTORS.md");
+    const clean = document.createElement("div");
+    await mountPopup(clean, deps());
+    expect(clean.textContent).not.toContain("Only one side detected");
   });
 
   it("warns about selectors and a full queue", async () => {

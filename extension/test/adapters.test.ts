@@ -4,6 +4,7 @@ import { createInstagramAdapter } from "../src/adapters/instagram";
 import { createBumbleAdapter } from "../src/adapters/bumble";
 import { createGrindrAdapter } from "../src/adapters/grindr";
 import { createTinderAdapter } from "../src/adapters/tinder";
+import { SEEN_CAP, SeenSet, seenKeys } from "../src/capture/seen";
 import { runImport } from "../src/capture/import";
 import { createWhatsAppAdapter } from "../src/adapters/whatsapp";
 import { parseLooseTimestamp, parseWhatsAppMeta } from "../src/adapters/time";
@@ -17,6 +18,7 @@ import { resolve } from "node:path";
 import { CollectSink, fakeAdapter, loadFixture, msg } from "./helpers";
 
 const fast = () => new RateLimiter(2000, 4000, async () => undefined);
+const d = (sink = new CollectSink()) => ({ sink, tz: "UTC", chatKey: "k", isLinked: () => true });
 const mk: Partial<Record<Platform, () => SiteAdapter>> & Record<"whatsapp" | "discord" | "instagram", () => SiteAdapter> = {
   whatsapp: () => createWhatsAppAdapter({ doc: document, url: () => "https://web.whatsapp.com/", loadWaitMs: 60 }),
   discord: () => createDiscordAdapter({ doc: document, url: () => "https://discord.com/channels/@me/900", loadWaitMs: 60 }),
@@ -123,6 +125,68 @@ describe("error banner detection", () => {
   });
 });
 
+describe("direction marker", () => {
+  const grow = (p: Platform) => {
+    const rowSel = { whatsapp: "[role='row']:has(.message-in)", discord: "", instagram: "[role='row']:has([data-testid='message-bubble'])", tinder: "[data-lvs='tinder-row']:has([data-lvs='tinder-bubble'])", grindr: "[data-lvs='grindr-row']:has([data-lvs='grindr-bubble'])", bumble: "[data-lvs='bumble-row']:has([data-lvs='bumble-bubble'])" }[p];
+    const first = document.querySelector(rowSel)!;
+    for (let i = 0; i < 12; i++) first.parentElement!.append(first.cloneNode(true));
+  };
+  const P = ["whatsapp", "instagram", "tinder", "grindr", "bumble"] as Platform[];
+
+  it.each(P)("%s: a one-sided chat keeps capturing, flags the batch and warns", async (p) => {
+    loadFixture(p);
+    grow(p);
+    // nothing outgoing, but the marker still exists in the markup (incoming rows carry its other state)
+    document.body.innerHTML = document.body.innerHTML.replaceAll(' data-outgoing="true"', ' data-outgoing="false"').replaceAll("message-out", "message-in");
+    const a = mk[p]!();
+    expect(a.healthCheck()).toEqual({ ok: true });
+    expect(a.directionUncertain!()).toBe(true);
+    const sink = new CollectSink();
+    const live = startLiveCapture(a, sink, { tz: "UTC", isLinked: () => true, isAllowed: () => "ok" as const, pollMs: 60_000 });
+    await live.scan();
+    live.stop();
+    expect(sink.items.length).toBeGreaterThan(10);
+    expect(sink.items.every((i) => i.msg.direction === "incoming")).toBe(true);
+    expect(sink.metas.every((m) => m?.direction_uncertain === true)).toBe(true);
+  });
+
+  it.each(P)("%s: a two-sided chat is not flagged", (p) => {
+    loadFixture(p);
+    grow(p);
+    expect(mk[p]!().directionUncertain!()).toBe(false);
+  });
+
+  it.each(P)("%s: marker missing from the markup fails health and queues nothing", async (p) => {
+    loadFixture(p);
+    grow(p);
+    // markup change: the marker (either state) is gone everywhere
+    document.body.innerHTML = document.body.innerHTML.replaceAll(/ data-outgoing="(true|false)"/g, "").replaceAll("message-out", "m-o").replaceAll("message-in", "m-i");
+    const a = mk[p]!();
+    expect(a.healthCheck()).toEqual({ ok: false, reason: "direction_marker_missing" });
+    const sink = new CollectSink();
+    const live = startLiveCapture(a, sink, { tz: "UTC", isLinked: () => true, isAllowed: () => "ok" as const, pollMs: 60_000 });
+    await live.scan();
+    live.stop();
+    expect(sink.items).toEqual([]);
+  });
+
+  it("small chats are not flagged", () => {
+    loadFixture("instagram");
+    expect(mk.instagram().directionUncertain!()).toBe(false);
+  });
+});
+
+describe("year-less dates", () => {
+  it("roll back a year when they would land in the future", () => {
+    const jan = new Date(2027, 0, 5, 12);
+    expect(parseLooseTimestamp("Nov 22, 3:45 PM", jan)).toBe("2026-11-22T15:45");
+    expect(parseLooseTimestamp("Jan 4, 3:45 PM", jan)).toBe("2027-01-04T15:45");
+    expect(parseLooseTimestamp("Jan 6, 9:00 AM", jan)).toBe("2027-01-06T09:00"); // within the 1-day tolerance
+    expect(parseLooseTimestamp("Nov 22, 2026, 3:45 PM", jan)).toBe("2026-11-22T15:45");
+    expect(parseLooseTimestamp("Jan 20, 3:45 PM", jan)).toBe("2026-01-20T15:45");
+  });
+});
+
 describe("whatsapp date format setting", () => {
   it("auto / month-first / day-first change ambiguous dates", () => {
     expect(parseWhatsAppMeta("[3:45 PM, 05/06/2026] A: ")?.ts_local).toBe("2026-05-06T15:45");
@@ -138,11 +202,11 @@ describe("whatsapp date format setting", () => {
 });
 
 describe("import this page", () => {
-  const dep = { tz: "UTC" };
+  const dep = { tz: "UTC", chatKey: "k", isLinked: () => true };
   it("reads what is on screen and uploads once", async () => {
     loadFixture("whatsapp");
     const up = vi.fn(async () => undefined);
-    const r = await runImport(mk.whatsapp(), null, fast(), new RunGuard(300, 0), dep, up);
+    const r = await runImport(mk.whatsapp(), null, fast(), new RunGuard(300, 0), { ...dep, chatKey: "Sam Example" }, up);
     expect(r).toEqual({ reason: "done", count: 4 });
     expect(up).toHaveBeenCalledTimes(1);
   });
@@ -157,7 +221,7 @@ describe("import this page", () => {
   });
   it("reports upload failure", async () => {
     loadFixture("tinder");
-    const r = await runImport(mk.tinder!(), null, fast(), new RunGuard(300, 0), dep, async () => {
+    const r = await runImport(mk.tinder!(), null, fast(), new RunGuard(300, 0), { ...dep, chatKey: "abc123" }, async () => {
       throw new Error("x");
     });
     expect(r.reason).toBe("upload_failed");
@@ -165,7 +229,7 @@ describe("import this page", () => {
   it("does not modify the page", async () => {
     loadFixture("grindr");
     const before = document.documentElement.outerHTML;
-    await runImport(mk.grindr!(), new Date("2020-01-01"), fast(), new RunGuard(300, 0), dep, async () => undefined);
+    await runImport(mk.grindr!(), new Date("2020-01-01"), fast(), new RunGuard(300, 0), { ...dep, chatKey: "u77" }, async () => undefined);
     expect(document.documentElement.outerHTML).toBe(before);
   });
 });
@@ -208,7 +272,7 @@ describe("health check and selector drift", () => {
     expect(h.ok).toBe(false);
     const sink = new CollectSink();
     const onHealth = vi.fn();
-    const live = startLiveCapture(a, sink, { tz: "UTC", isLinked: () => true, isAllowed: () => true, onHealth, pollMs: 60_000 });
+    const live = startLiveCapture(a, sink, { tz: "UTC", isLinked: () => true, isAllowed: () => "ok" as const, onHealth, pollMs: 60_000 });
     await live.scan();
     live.stop();
     expect(onHealth).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
@@ -222,7 +286,7 @@ describe("live capture", () => {
     const a = mk.whatsapp();
     const extract = vi.spyOn(a, "extract");
     const sink = new CollectSink();
-    const live = startLiveCapture(a, sink, { tz: "UTC", isLinked: () => false, isAllowed: () => true, pollMs: 60_000 });
+    const live = startLiveCapture(a, sink, { tz: "UTC", isLinked: () => false, isAllowed: () => "ok" as const, pollMs: 60_000 });
     await live.scan();
     live.stop();
     expect(extract).not.toHaveBeenCalled();
@@ -232,7 +296,7 @@ describe("live capture", () => {
   it("captures visible and newly added messages once each, with the browser tz", async () => {
     loadFixture("discord");
     const sink = new CollectSink();
-    const live = startLiveCapture(mk.discord(), sink, { tz: "America/New_York", isLinked: () => true, isAllowed: () => true, debounceMs: 0, pollMs: 60_000 });
+    const live = startLiveCapture(mk.discord(), sink, { tz: "America/New_York", isLinked: () => true, isAllowed: () => "ok" as const, debounceMs: 0, pollMs: 60_000 });
     await live.scan();
     expect(sink.items).toHaveLength(3);
     document.querySelector("ol")!.insertAdjacentHTML(
@@ -250,7 +314,7 @@ describe("live capture", () => {
   it("does not capture while paused", async () => {
     loadFixture("whatsapp");
     const sink = new CollectSink();
-    const live = startLiveCapture(mk.whatsapp(), sink, { tz: "UTC", isLinked: () => true, isAllowed: () => false, pollMs: 60_000 });
+    const live = startLiveCapture(mk.whatsapp(), sink, { tz: "UTC", isLinked: () => true, isAllowed: () => "paused" as const, pollMs: 60_000 });
     await live.scan();
     live.stop();
     expect(sink.items).toEqual([]);
@@ -258,7 +322,6 @@ describe("live capture", () => {
 });
 
 describe("backfill", () => {
-  const d = (sink = new CollectSink()) => ({ sink, tz: "UTC" });
 
   it("backfill stops at untilDate", async () => {
     const a = fakeAdapter([
@@ -322,7 +385,7 @@ describe("backfill", () => {
     const a = fakeAdapter([[msg("1", "2026-11-20T00:00:00Z")]], () => [msg("x", "2026-11-19T00:00:00Z")]);
     expect(await runBackfill(a, new Date("2020-01-01"), fast(), new RunGuard(300, 0), { ...d(), shouldStop: () => true })).toBe("stopped");
     const full = { enqueue: () => false };
-    expect(await runBackfill(a, new Date("2020-01-01"), fast(), new RunGuard(300, 0), { sink: full, tz: "UTC" })).toBe("queue_full");
+    expect(await runBackfill(a, new Date("2020-01-01"), fast(), new RunGuard(300, 0), { ...d(), sink: full })).toBe("queue_full");
   });
 });
 
@@ -335,7 +398,7 @@ describe("catchup", () => {
       [msg("5", "2026-11-19T00:00:00Z")],
     ]);
     const sink = new CollectSink();
-    const r = await runCatchup(a, ["10", "9"], fast(), { sink, tz: "UTC" });
+    const r = await runCatchup(a, ["10", "9"], fast(), { ...d(sink) });
     expect(r).toBe("anchor_found");
     expect(a.scrolls()).toBe(2);
     expect(sink.items.map((i) => i.msg.platform_msg_id)).toEqual(["30", "20", "10"]);
@@ -344,9 +407,9 @@ describe("catchup", () => {
   it("catchup is bounded at 50 steps, and does nothing without anchors", async () => {
     let n = 0;
     const a = fakeAdapter([[msg("0", "2026-11-20T00:00:00Z")]], () => [msg(String(++n), "2026-11-19T00:00:00Z")]);
-    expect(await runCatchup(a, ["nope"], fast(), { sink: new CollectSink(), tz: "UTC" })).toBe("max_steps");
+    expect(await runCatchup(a, ["nope"], fast(), d())).toBe("max_steps");
     expect(a.scrolls()).toBe(50);
-    expect(await runCatchup(a, [], fast(), { sink: new CollectSink(), tz: "UTC" })).toBe("no_anchor");
+    expect(await runCatchup(a, [], fast(), d())).toBe("no_anchor");
   });
 });
 
@@ -356,11 +419,126 @@ describe("no DOM mutation by extension", () => {
     const before = document.documentElement.outerHTML;
     const a = mk[p]!();
     const sink = new CollectSink();
-    const live = startLiveCapture(a, sink, { tz: "UTC", isLinked: () => true, isAllowed: () => true, pollMs: 60_000 });
+    const live = startLiveCapture(a, sink, { tz: "UTC", isLinked: () => true, isAllowed: () => "ok" as const, pollMs: 60_000 });
     await live.scan();
-    await runBackfill(a, new Date("2020-01-01"), fast(), new RunGuard(300, 0), { sink, tz: "UTC" });
+    await runBackfill(a, new Date("2020-01-01"), fast(), new RunGuard(300, 0), { sink, tz: "UTC", chatKey: a.currentChat()!.chat_key, isLinked: () => true });
     live.stop();
     expect(sink.items.length).toBeGreaterThan(0);
     expect(document.documentElement.outerHTML).toBe(before); // scroll position is not part of the markup
+  });
+});
+
+describe("chat switch and link re-check (privacy)", () => {
+  const pages = () => [[msg("30", "2026-11-22T00:00:00Z")], [msg("20", "2026-11-21T00:00:00Z")], [msg("10", "2026-11-20T00:00:00Z")]];
+
+  it("backfill stops with chat_changed after a switch and reads nothing from the other chat", async () => {
+    const a = fakeAdapter(pages());
+    const sink = new CollectSink();
+    a.onScroll(() => a.setChat("someone-else")); // the new rows now belong to another chat
+    const r = await runBackfill(a, new Date("2020-01-01"), fast(), new RunGuard(300, 0), d(sink));
+    expect(r).toBe("chat_changed");
+    expect(sink.items.map((i) => i.msg.platform_msg_id)).toEqual(["30"]);
+    expect(sink.items.every((i) => i.chat_key === "k")).toBe(true);
+  });
+
+  it("does not even scroll when the chat changes during the wait", async () => {
+    const a = fakeAdapter(pages());
+    const limiter = new RateLimiter(2000, 4000, async () => a.setChat("other"));
+    const r = await runBackfill(a, new Date("2020-01-01"), limiter, new RunGuard(300, 0), d());
+    expect(r).toBe("chat_changed");
+    expect(a.scrolls()).toBe(0);
+  });
+
+  it("import stops with chat_changed and uploads only the original chat's rows", async () => {
+    const a = fakeAdapter(pages());
+    a.onScroll(() => a.setChat("other"));
+    const up = vi.fn(async (_m: unknown[]) => undefined);
+    const { sink: _s, ...base } = d();
+    const r = await runImport(a, new Date("2020-01-01"), fast(), new RunGuard(300, 0), base, up);
+    expect(r).toEqual({ reason: "chat_changed", count: 1 });
+    expect(up.mock.calls[0][0]).toHaveLength(1);
+  });
+
+  it("catch-up stops with chat_changed", async () => {
+    const a = fakeAdapter(pages());
+    a.onScroll(() => a.setChat("other"));
+    const sink = new CollectSink();
+    expect(await runCatchup(a, ["nope"], fast(), d(sink))).toBe("chat_changed");
+    expect(sink.items).toHaveLength(1);
+  });
+
+  it("stops with not_linked and reads nothing once the chat is unlinked mid-run", async () => {
+    const a = fakeAdapter(pages());
+    let linked = true;
+    a.onScroll(() => (linked = false));
+    const sink = new CollectSink();
+    const r = await runBackfill(a, new Date("2020-01-01"), fast(), new RunGuard(300, 0), { ...d(sink), isLinked: () => linked });
+    expect(r).toBe("not_linked");
+    expect(sink.items).toHaveLength(1);
+  });
+});
+
+describe("whole-batch accept and persistent seen-set", () => {
+  it("a rejected batch is not marked seen, so the rows are read again later", async () => {
+    loadFixture("whatsapp");
+    const a = mk.whatsapp();
+    let accept = false;
+    const sink = { items: [] as unknown[], enqueue(_p: string, _k: string, _t: string, m: unknown[]) { if (accept) this.items.push(...m); return accept; } };
+    const live = startLiveCapture(a, sink as never, { tz: "UTC", isLinked: () => true, isAllowed: () => "ok" as const, pollMs: 60_000 });
+    await live.scan();
+    expect(sink.items).toHaveLength(0);
+    accept = true;
+    await live.scan();
+    live.stop();
+    expect(sink.items).toHaveLength(4);
+  });
+
+  it("queue full pauses without marking rows seen", async () => {
+    loadFixture("whatsapp");
+    const sink = new CollectSink();
+    let state: "full" | "ok" = "full";
+    const live = startLiveCapture(mk.whatsapp(), sink, { tz: "UTC", isLinked: () => true, isAllowed: () => state, pollMs: 60_000 });
+    await live.scan();
+    expect(sink.items).toHaveLength(0);
+    state = "ok";
+    await live.scan();
+    live.stop();
+    expect(sink.items).toHaveLength(4);
+  });
+
+  it("recycled nodes and chat switches do not re-enqueue id-less messages, duplicates in one minute stay two", async () => {
+    const seen = new SeenSet(null);
+    const mkKey = () => seenKeys([
+      { ts_local: "2026-11-22T15:48", ts_precision: "minute", direction: "outgoing", speaker_raw: "Me", text: "ok" },
+      { ts_local: "2026-11-22T15:48", ts_precision: "minute", direction: "outgoing", speaker_raw: "Me", text: " OK " },
+    ]);
+    const k1 = mkKey();
+    expect(new Set(k1).size).toBe(2);
+    seen.stage(k1);
+    await seen.commit();
+    expect(mkKey().every((k) => seen.has(k))).toBe(true);
+
+    loadFixture("whatsapp");
+    const sink = new CollectSink();
+    const shared = new SeenSet(null);
+    for (let i = 0; i < 2; i++) {
+      loadFixture("whatsapp"); // new nodes each time, new Harvester each time (as on a chat switch)
+      const live = startLiveCapture(mk.whatsapp(), sink, { tz: "UTC", isLinked: () => true, isAllowed: () => "ok" as const, seenFor: () => shared, pollMs: 60_000 });
+      await live.scan();
+      live.stop();
+    }
+    expect(sink.items).toHaveLength(4);
+  });
+
+  it("the seen-set is bounded and persisted by chat", async () => {
+    const mem: Record<string, unknown> = {};
+    const store = { get: async (k: string) => (k in mem ? { [k]: mem[k] } : {}), set: async (o: Record<string, unknown>) => void Object.assign(mem, o) };
+    const s = await SeenSet.forChat("whatsapp", "X", store);
+    s.stage(Array.from({ length: SEEN_CAP + 50 }, (_, i) => String(i)));
+    await s.commit();
+    expect((mem["seen:whatsapp:X"] as string[]).length).toBe(SEEN_CAP);
+    const again = await SeenSet.forChat("whatsapp", "X", store);
+    expect(again.has(String(SEEN_CAP + 49))).toBe(true);
+    expect(again.has("0")).toBe(false);
   });
 });

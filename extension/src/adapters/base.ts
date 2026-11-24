@@ -50,3 +50,18 @@ export async function scrollUpAndWait(scroller: Element | null, countRows: () =>
   }
   return false;
 }
+
+/** Fewer message rows than this are too few to call a chat one-sided. */
+export const ONE_SIDED_MIN_ROWS = 10;
+
+/** True when enough rows are loaded and every one points the same way. Only a warning: one-sided chats are real. */
+export const oneSided = (total: number, outgoing: number): boolean => total >= ONE_SIDED_MIN_ROWS && (outgoing === 0 || outgoing === total);
+
+/**
+ * Markup-level check, independent of message content: rows exist but the direction marker (in either state)
+ * appears nowhere in the document, so the site markup must have changed.
+ */
+export function directionMarkerHealth(doc: Document, sel: Selectors, messageRows: number): Health {
+  if (messageRows > 0 && !qs(doc, sel.directionMarker)) return { ok: false, reason: "direction_marker_missing" };
+  return { ok: true };
+}

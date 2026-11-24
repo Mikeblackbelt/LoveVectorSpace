@@ -12,5 +12,6 @@
   "captcha": "iframe[src*='captcha'], iframe[src*='recaptcha'], [class*='captcha']",
   "errorBanner": "[data-testid='error-banner']",
   "errorContainer": "[role='alert']",
-  "errorPattern": "something went wrong|could(n't| not) (load|send)|connection (lost|error)|try again later|network error"
+  "errorPattern": "something went wrong|could(n't| not) (load|send)|connection (lost|error)|try again later|network error",
+  "directionMarker": "[data-lvs='grindr-bubble'][data-outgoing], [class*='bubble'][class*='sent'], [class*='bubble'][class*='received']"
 }

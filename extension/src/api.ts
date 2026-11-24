@@ -30,6 +30,7 @@ export interface CaptureBatch {
   chat_key: string;
   tz: string;
   unit_id?: string;
+  direction_uncertain?: boolean;
   messages: CapturedMessage[];
 }
 

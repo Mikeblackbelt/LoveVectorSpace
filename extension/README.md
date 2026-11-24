@@ -26,6 +26,10 @@ npm run lint      # tsc + eslint
 6. Open the extension's Options page. Enter the API base URL (the server's origin), paste the token, pick a theme, and Save. Chrome asks permission to reach that origin.
 7. **Verify selectors before relying on capture:** follow `SELECTORS.md`. The selectors are written against synthetic fixtures and are "not yet verified" against the real sites.
 
+## Permissions
+
+The manifest grants host access only to the supported sites. Access to your API server is an **optional host permission**: Chrome asks for it when you press Save in Options (the origin of the API base URL), and you can revoke it later on `chrome://extensions` > Details > Site access. Extension pages run under an explicit CSP (`script-src 'self'`).
+
 ## Use
 
 Open a 1:1 chat on a supported site, click the extension icon, choose the person, and "Link this chat".

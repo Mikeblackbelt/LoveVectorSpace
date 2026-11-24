@@ -6,22 +6,31 @@ import { createBumbleAdapter } from "../adapters/bumble";
 import { createGrindrAdapter } from "../adapters/grindr";
 import type { DateFormat } from "../adapters/time";
 import type { MessageSink, SiteAdapter } from "../adapters/types";
+import { catchupDecision, scrollRunBlocked } from "../decisions";
 import { runImport } from "../capture/import";
 import { runBackfill, BACKFILL_COOLDOWN_MS, BACKFILL_MAX_STEPS } from "../capture/backfill";
 import { runCatchup } from "../capture/catchup";
+import { SeenSet } from "../capture/seen";
 import type { LoopDeps, StopReason } from "../capture/common";
 import { startLiveCapture } from "../capture/live";
 import type { BgRequest, BgResponse, TabRequest, TabResponse } from "../messages";
 import { RateLimiter, RunGuard } from "../ratelimit";
-import { browserTz, getKey, getLinks, getPrefs, getSettings, linkKey, setHealth, setKey, setLink, setRun } from "../storage";
+import { browserTz, getKey, getLinks, getPrefs, linkKey, setHealth, setKey, setLink, setRun } from "../storage";
 
 
+const send = (r: BgRequest) => chrome.runtime.sendMessage(r) as Promise<BgResponse>;
+
+// The content script never reads the settings object (it holds the token); the background relays what is needed.
 let waDateFormat: DateFormat = "auto";
-void getSettings().then((st) => (waDateFormat = st.waDateFormat));
-chrome.storage.onChanged.addListener((c) => {
-  const n = c.settings?.newValue as { waDateFormat?: DateFormat } | undefined;
-  if (n) waDateFormat = n.waDateFormat ?? "auto";
-});
+async function refreshConfig(): Promise<void> {
+  try {
+    const r = await send({ type: "config" });
+    if (r.ok && r.waDateFormat) waDateFormat = r.waDateFormat;
+  } catch {
+    /* background asleep: keep the last value */
+  }
+}
+void refreshConfig();
 
 function pickAdapter(): SiteAdapter | null {
   const host = location.hostname;
@@ -34,8 +43,6 @@ function pickAdapter(): SiteAdapter | null {
   return null;
 }
 
-const send = (r: BgRequest) => chrome.runtime.sendMessage(r) as Promise<BgResponse>;
-
 const adapter = pickAdapter();
 if (adapter) boot(adapter);
 
@@ -43,8 +50,8 @@ function boot(adapter: SiteAdapter) {
   const platform = adapter.platform;
   const tz = browserTz();
   const sink: MessageSink = {
-    async enqueue(p, chat_key, tzv, msgs) {
-      const r = await send({ type: "enqueue", platform: p, chat_key, tz: tzv, msgs });
+    async enqueue(p, chat_key, tzv, msgs, meta) {
+      const r = await send({ type: "enqueue", platform: p, chat_key, tz: tzv, msgs, direction_uncertain: meta?.direction_uncertain });
       return r.ok ? r.accepted !== false : false;
     },
   };
@@ -52,17 +59,20 @@ function boot(adapter: SiteAdapter) {
   let running = false;
   let guard: RunGuard | null = null;
 
-  async function allowed(): Promise<boolean> {
+  async function allowed(): Promise<"ok" | "paused" | "full"> {
     const prefs = await getPrefs();
-    if (!prefs.enabled[platform] || prefs.paused) return false;
-    return !(await getKey<boolean>("queue_full", false));
+    if (!prefs.enabled[platform] || prefs.paused) return "paused";
+    const full = (await getKey<boolean>("queue_full", false)) || (await getKey<boolean>("storage_error", false));
+    return full ? "full" : "ok";
   }
+  const seenFor = (chat_key: string) => SeenSet.forChat(platform, chat_key);
   const linked = async (chat_key: string) => linkKey(platform, chat_key) in (await getLinks());
 
   startLiveCapture(adapter, sink, {
     tz,
     isLinked: linked,
     isAllowed: allowed,
+    seenFor,
     onHealth: (h) => void setHealth(platform, { ok: h.ok, reason: h.ok ? undefined : h.reason, at: Date.now() }),
   });
 
@@ -72,10 +82,13 @@ function boot(adapter: SiteAdapter) {
     return guard;
   }
 
-  function deps(kind: "backfill" | "catchup" | "import", maxSteps: number): LoopDeps {
+  async function deps(kind: "backfill" | "catchup" | "import", maxSteps: number, chatKey: string): Promise<LoopDeps> {
     return {
       sink,
       tz,
+      chatKey,
+      isLinked: linked,
+      seen: await seenFor(chatKey),
       isHidden: () => document.visibilityState === "hidden",
       shouldStop: () => stopRequested,
       onStep: (step) => void setRun(platform, { kind, status: "running", step, maxSteps, at: Date.now() }),
@@ -91,16 +104,21 @@ function boot(adapter: SiteAdapter) {
     if (!chat || !(await linked(chat.chat_key))) return { started: false, reason: "not_linked" };
     if (running) return { started: false, reason: "already_running" };
     const g = await getGuard();
-    if (!g.canStart()) return { started: false, reason: "cooldown" };
+    if (scrollRunBlocked(true, g)) return { started: false, reason: "cooldown" };
     const until = new Date(`${untilIso}T00:00:00`);
     if (Number.isNaN(until.getTime())) return { started: false, reason: "bad_date" };
     running = true;
     stopRequested = false;
     void (async () => {
-      const reason = await runBackfill(adapter, until, new RateLimiter(), g, deps("backfill", BACKFILL_MAX_STEPS));
-      await setKey(`run_end:${platform}`, g.lastEnd);
-      await finish("backfill", BACKFILL_MAX_STEPS, g.stepCount, reason);
-      running = false;
+      try {
+        // Persist the cool-down start now, so reloading the page mid-run does not skip it.
+        await setKey(`run_end:${platform}`, Date.now());
+        const reason = await runBackfill(adapter, until, new RateLimiter(), g, await deps("backfill", BACKFILL_MAX_STEPS, chat.chat_key));
+        await setKey(`run_end:${platform}`, g.lastEnd);
+        await finish("backfill", BACKFILL_MAX_STEPS, g.stepCount, reason);
+      } finally {
+        running = false;
+      }
     })();
     return { started: true };
   }
@@ -115,22 +133,41 @@ function boot(adapter: SiteAdapter) {
     stopRequested = false;
     const day = new Date();
     const unit_id = `capture:${platform}:${chat.chat_key}:${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
-    void (async () => {
-      const g = new RunGuard(BACKFILL_MAX_STEPS, 0);
-      const { sink: _s, ...base } = deps("import", BACKFILL_MAX_STEPS);
-      const res = await runImport(adapter, until, new RateLimiter(), g, base, async (msgs) => {
-        const r = await send({ type: "import", platform, chat_key: chat.chat_key, tz, unit_id, msgs });
-        if (!r.ok) throw new Error(r.error);
-      });
-      await setRun(platform, { kind: "import", status: "stopped", step: g.stepCount, maxSteps: BACKFILL_MAX_STEPS, reason: res.reason, imported: res.count, at: Date.now() });
+    const g = await getGuard();
+    if (scrollRunBlocked(until !== null, g)) {
       running = false;
+      return { started: false, reason: "cooldown" };
+    }
+    void (async () => {
+      try {
+        if (until) await setKey(`run_end:${platform}`, Date.now());
+        const { sink: _s, ...base } = await deps("import", BACKFILL_MAX_STEPS, chat.chat_key);
+        const res = await runImport(adapter, until, new RateLimiter(), g, base, async (msgs, meta) => {
+          const r = await send({ type: "import", platform, chat_key: chat.chat_key, tz, unit_id, msgs, direction_uncertain: meta.direction_uncertain });
+          if (!r.ok) throw new Error(r.error);
+        });
+        if (until) await setKey(`run_end:${platform}`, g.lastEnd ?? Date.now());
+        await setRun(platform, { kind: "import", status: "stopped", step: g.stepCount, maxSteps: BACKFILL_MAX_STEPS, reason: res.reason, imported: res.count, at: Date.now() });
+      } finally {
+        running = false;
+      }
     })();
     return { started: true };
   }
 
   async function catchupFor(chat_key: string) {
-    const prefs = await getPrefs();
-    if (!prefs.catchup || !(await allowed()) || running) return;
+    // Only chats already linked locally are ever sent to the server.
+    const cdKey = `catchup_at:${platform}:${chat_key}`;
+    const decision = catchupDecision({
+      linkedLocally: await linked(chat_key),
+      catchupEnabled: (await getPrefs()).catchup,
+      allowed: await allowed(),
+      running,
+      lastAt: await getKey<number>(cdKey, 0),
+      now: Date.now(),
+    });
+    if (decision !== "go") return;
+    await setKey(cdKey, Date.now());
     const r = await send({ type: "summary", platform, chat_key });
     if (!r.ok || !r.summary) return;
     if (!r.summary.linked) {
@@ -140,9 +177,12 @@ function boot(adapter: SiteAdapter) {
     if (r.summary.person) await setLink(platform, chat_key, { person_id: r.summary.person.id, pseudonym: r.summary.person.pseudonym });
     running = true;
     stopRequested = false;
-    const reason = await runCatchup(adapter, r.summary.last_captured_ids, new RateLimiter(), deps("catchup", 50));
-    if (reason !== "no_anchor") await finish("catchup", 50, 0, reason);
-    running = false;
+    try {
+      const reason = await runCatchup(adapter, r.summary.last_captured_ids, new RateLimiter(), await deps("catchup", 50, chat_key));
+      if (reason !== "no_anchor") await finish("catchup", 50, 0, reason);
+    } finally {
+      running = false;
+    }
   }
 
   // Catch-up once each time a chat is opened.
@@ -152,7 +192,10 @@ function boot(adapter: SiteAdapter) {
     const key = chat?.chat_key ?? null;
     if (key !== lastChat) {
       lastChat = key;
-      if (key) void catchupFor(key);
+      if (key) {
+        void refreshConfig();
+        void catchupFor(key);
+      }
     }
   }, 2000);
 
@@ -170,6 +213,7 @@ function boot(adapter: SiteAdapter) {
             title: chat?.title ?? null,
             health: h.ok ? { ok: true } : { ok: false, reason: h.reason },
             cooldown_left_ms: g.cooldownLeftMs(),
+            direction_uncertain: adapter.directionUncertain?.() ?? false,
           },
         });
       } else if (req.type === "startBackfill") {

@@ -1,5 +1,5 @@
 import sel from "./whatsapp.selectors.json";
-import { anomalyOf, defaultCtx, missing, qs, scrollUpAndWait, textOf, type PageCtx } from "./base";
+import { anomalyOf, directionMarkerHealth, oneSided, defaultCtx, missing, qs, scrollUpAndWait, textOf, type PageCtx } from "./base";
 import { parseWhatsAppMeta } from "./time";
 import type { CapturedMessage, Health, SiteAdapter } from "./types";
 
@@ -7,6 +7,7 @@ export function createWhatsAppAdapter(ctx: PageCtx = defaultCtx()): SiteAdapter 
   const list = () => qs(ctx.doc, sel.messageList);
   const rows = () => (list() ? Array.from(list()!.querySelectorAll(sel.row)) : []);
 
+  const msgRows = () => rows().filter((r) => r.querySelector(sel.meta));
   return {
     platform: "whatsapp",
     matches: (url) => {
@@ -46,8 +47,12 @@ export function createWhatsAppAdapter(ctx: PageCtx = defaultCtx()): SiteAdapter 
       if (!qs(ctx.doc, sel.shell)) return missing("shell");
       if (qs(ctx.doc, sel.login)) return { ok: true }; // logged out is an anomaly, not drift
       if (qs(ctx.doc, sel.chatTitle) && !list()) return missing("messageList");
-      return { ok: true };
+      return directionMarkerHealth(ctx.doc, sel, msgRows().length);
     },
     anomaly: () => anomalyOf(ctx.doc, sel),
+    directionUncertain() {
+      const m = msgRows();
+      return oneSided(m.length, m.filter((r) => r.querySelector(sel.outgoing)).length);
+    },
   };
 }

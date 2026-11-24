@@ -12,5 +12,6 @@
   "captcha": "iframe[src*='captcha'], [data-testid='challenge'], form[action*='challenge']",
   "errorBanner": "[data-testid='error-banner']",
   "errorContainer": "[role='alert']",
-  "errorPattern": "something went wrong|could(n't| not) (load|send)|connection (lost|error)|try again later|network error"
+  "errorPattern": "something went wrong|could(n't| not) (load|send)|connection (lost|error)|try again later|network error",
+  "directionMarker": "[data-testid='message-bubble'][data-outgoing]"
 }

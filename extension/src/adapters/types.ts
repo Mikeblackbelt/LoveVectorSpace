@@ -29,6 +29,8 @@ export interface SiteAdapter {
   healthCheck(): Health;
   /** Login / captcha / challenge / error banner present, or null. */
   anomaly(): Anomaly | null;
+  /** Enough rows are loaded and all point one way: capture continues but the batch is flagged. */
+  directionUncertain?(): boolean;
 }
 
 export interface QueueItem {
@@ -37,11 +39,16 @@ export interface QueueItem {
   chat_key: string;
   tz: string;
   msg: CapturedMessage;
+  uncertain?: boolean;
 }
 
 /** Anything that accepts captured messages (the background queue, or a test double). */
+export interface BatchMeta {
+  direction_uncertain?: boolean;
+}
+
 export interface MessageSink {
-  enqueue(platform: Platform, chat_key: string, tz: string, msgs: CapturedMessage[]): Promise<boolean> | boolean;
+  enqueue(platform: Platform, chat_key: string, tz: string, msgs: CapturedMessage[], meta?: BatchMeta): Promise<boolean> | boolean;
 }
 
 export type Selectors = Record<string, string>;
