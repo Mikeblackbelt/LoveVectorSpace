@@ -26,6 +26,13 @@ export interface AuthResult {
   user: User;
 }
 
+/** GET /api/auth/providers: sign-in options this server offers. */
+export interface AuthProviders {
+  google: boolean;
+  apple: boolean;
+  registration: 'open' | 'invite';
+}
+
 export interface SessionInfo {
   id: string;
   device: string;

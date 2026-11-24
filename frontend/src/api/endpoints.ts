@@ -1,7 +1,7 @@
 import { acceptAuth, api, clearSession, nativeMode, rawRequest, request, streamAgent } from './client';
 import { refreshStore } from './tokens';
 import type {
-  AgentEvent, AgentMessage, AgentThread, AuthResult, CoverageSpan, Fact, ImportPreview, ImportResult,
+  AgentEvent, AgentMessage, AgentThread, AuthProviders, AuthResult, CoverageSpan, Fact, ImportPreview, ImportResult,
   ImportMessagesBody, Interaction, InteractionFields, InterviewProgress, Invite, Job, MetricInfo, NextStep, Person,
   PersonOverview, PersonSummary, QuestionnaireRecord, ScaleDef, ScaleResult, SessionInfo, Settings,
   SpeakerMapping, TokenInfo, Unit, User,
@@ -17,12 +17,13 @@ async function authCall(path: string, json: unknown): Promise<AuthResult> {
 
 export const auth = {
   login: (email: string, password: string) => authCall('/api/auth/login', { email, password }),
-  signup: (b: { email: string; password: string; invite_code: string; display_name?: string }) =>
+  signup: (b: { email: string; password: string; invite_code?: string; display_name?: string }) =>
     authCall('/api/auth/signup', b),
   googleToken: (id_token: string, invite_code?: string, nonce?: string) => authCall('/api/auth/google/token', { id_token, invite_code, nonce }),
   appleToken: (id_token: string, invite_code?: string, name?: string, nonce?: string) =>
     authCall('/api/auth/apple/token', { id_token, invite_code, name, nonce }),
   me: () => api.get<User>('/api/auth/me'),
+  providers: () => api.get<AuthProviders>('/api/auth/providers', noRetry),
   async logout() {
     try {
       const body = nativeMode() ? { refresh_token: await refreshStore()?.get() } : undefined;

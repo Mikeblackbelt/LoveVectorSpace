@@ -85,3 +85,32 @@ describe('503 unavailable', () => {
     expect(n).toBe(1);
   });
 });
+
+describe('sign-in providers', () => {
+  it('shows social buttons only when the server offers them (web); native keeps both', async () => {
+    const { socialButtons } = await import('./Auth');
+    expect(socialButtons(undefined, false, 'id')).toEqual({ google: false, apple: false });
+    expect(socialButtons({ google: false, apple: false }, false, 'id')).toEqual({ google: false, apple: false });
+    expect(socialButtons({ google: true, apple: true }, false, undefined)).toEqual({ google: true, apple: false });
+    expect(socialButtons({ google: true, apple: true }, false, 'web.client')).toEqual({ google: true, apple: true });
+    expect(socialButtons({ google: false, apple: false }, true, undefined)).toEqual({ google: true, apple: true });
+  });
+
+  it('open registration hides the invite field; invite mode shows it', async () => {
+    const { AuthScreen } = await import('./Auth');
+    setTransport(async (url, init) =>
+      url.endsWith('/api/auth/providers') ? json({ google: false, apple: false, registration: 'open' }) : mockFetch(url, init));
+    const a = renderAt(<AuthScreen tab="signup" />, { route: '/auth/signup' });
+    await waitFor(() => expect(a.container.textContent).toContain('auth --signup'));
+    expect(a.container.querySelector('#s-code')).toBeNull();
+    expect(screen.queryByText(/Continue with Google/)).toBeNull();
+    a.unmount();
+    setTransport(async (url, init) =>
+      url.endsWith('/api/auth/providers') ? json({ google: true, apple: false, registration: 'invite' }) : mockFetch(url, init));
+    const b = renderAt(<AuthScreen tab="signup" />, { route: '/auth/signup' });
+    await waitFor(() => expect(b.container.querySelectorAll('button').length).toBeGreaterThan(0));
+    expect(b.container.querySelector('#s-code')).not.toBeNull();
+    expect((await screen.findAllByText(/Continue with Google/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Continue with Apple/)).toBeNull();
+  });
+});

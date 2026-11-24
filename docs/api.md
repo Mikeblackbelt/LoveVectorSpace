@@ -31,7 +31,8 @@ There are four ways to authenticate:
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/api/auth/signup` | `{email, password, invite_code, display_name?}` | 201 `AuthResult`. Sends a verification email. The account works before it is verified, but a banner prompts the user. |
+| GET | `/api/auth/providers` | — | `{google: bool, apple: bool, registration: "open" \| "invite"}`. `google` is true when the web flow is configured (client id and secret); `apple` when Apple audiences are set. Clients show only the offered buttons and hide the invite field when `registration` is `open`. |
+| POST | `/api/auth/signup` | `{email, password, invite_code?, display_name?}` | 201 `AuthResult`. Sends a verification email. The account works before it is verified, but a banner prompts the user. |
 | POST | `/api/auth/login` | `{email, password}` | 200 `AuthResult` or 401 |
 | POST | `/api/auth/refresh` | web: none (cookie); native: `{refresh_token}` | 200 `AuthResult` (rotated) or 401 |
 | POST | `/api/auth/logout` | native: `{refresh_token}` | 204; revokes the token family and clears cookies |
@@ -41,7 +42,7 @@ There are four ways to authenticate:
 | POST | `/api/auth/password/forgot` | `{email}` | 204, always, so email existence isn't leaked |
 | POST | `/api/auth/password/reset` | `{token, new_password}` | 204; revokes all sessions |
 | POST | `/api/auth/password/change` | `{current_password, new_password}` | 204 |
-| GET | `/api/auth/google/start?redirect=/people&invite=<code>` | — | 302 to Google (PKCE, state). `invite` is optional and is used if the Google account is new. `redirect` must be a same-site path. |
+| GET | `/api/auth/google/start?redirect=/people&invite=<code>` | — | 302 to Google (PKCE, state). `invite` is optional and is used if the Google account is new. `redirect` must be a same-site path. If Google is not configured: 302 to `{APP_ORIGIN}/auth/complete#error=not_configured`. |
 | GET | `/api/auth/google/callback` | — | 302 to the SPA `/auth/complete#ok` with the refresh cookie set, or `#error=<code>` |
 | POST | `/api/auth/nonce` | — | `{nonce, expires_in: 600}`. Issues a single-use nonce for an ID-token sign-in. Rate-limited per IP (429). |
 | POST | `/api/auth/google/token` | `{id_token, invite_code?}` (native) | `AuthResult`. The token's `nonce` claim must be a nonce from `/api/auth/nonce`, passed to Google as-is. |
@@ -51,10 +52,10 @@ There are four ways to authenticate:
 
 - **Interactive session only.** These routes need a session access JWT; api and extension tokens get 403 `forbidden`: `POST/DELETE /api/tokens`, `GET/DELETE /api/auth/sessions*`, `POST /api/auth/password/change`, `POST /api/account/export`, `DELETE /api/account`, and `/api/invites*`.
 - `POST /api/auth/password/change` on an account without a password (social-only) returns 403 `reauth_required` unless the session's sign-in happened in the last 10 minutes. The client should sign in again, then retry.
-- Password sign-ups always need an invite. `ADMIN_EMAIL` becomes admin once its email is verified; it can skip the invite only through a Google or Apple sign-in with a provider-verified email.
+- **Registration** (`REGISTRATION`, default `open`): in `open` mode anyone can sign up with email and password, or with Google/Apple when configured; no invite is needed (a valid one sent anyway is consumed). In `invite` mode password sign-ups need an invite, and `ADMIN_EMAIL` can skip it only through a Google or Apple sign-in with a provider-verified email. In both modes `ADMIN_EMAIL` becomes admin once its email is verified, and sign-ups are rate limited per IP.
 - **ID-token nonces.** The issued nonce is valid for 10 minutes and works only once, as the raw value (Google) or its sha256 hex (Apple). A missing, unknown, expired or reused nonce returns 401. A `nonce` sent in the request body is ignored. The server can drop the "nonce must be present" requirement with `NATIVE_NONCE_REQUIRED=0`, but a nonce that is present is always checked.
 - A password reset, or a Google/Apple sign-in that claims an unverified account with the same email, revokes all refresh sessions **and** api/extension tokens. If the account was never verified, its data is **set aside, not deleted**: the database moves to quarantine and the owner starts with a fresh, empty one. An admin can restore it for 30 days with `scripts/restore_quarantine.py <user_id>`; after that it is purged. If the data can't be moved, the request returns 503 `unavailable` and nothing changes.
-- A social sign-in for a new user without a valid invite returns 403 `invite_required` (with `field: "invite_code"`).
+- In `invite` mode, a social sign-in for a new user without a valid invite returns 403 `invite_required` (with `field: "invite_code"`).
 
 ```
 AuthResult = { "access_token": str, "expires_in": 900, "refresh_token"?: str /* native only */, "user": User }
@@ -221,7 +222,7 @@ CORS allows only `chrome-extension://$EXTENSION_ID`.
 
 ## Health
 
-`GET /healthz` returns `{ok: true, version}` and requires no authentication.
+`GET /healthz` returns `{ok: true, version, seeding}` and requires no authentication. It answers as soon as the port is open; `seeding` is true while the optional demo seeding (`SEED_DEMO`) is still running in the background.
 
 ## Service lifetime (API layer contract)
 

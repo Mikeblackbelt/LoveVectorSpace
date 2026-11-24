@@ -147,9 +147,21 @@ def _safe_redirect(path: str | None) -> str:
     return path
 
 
+@router.get("/providers")
+def providers(request: Request):
+    """Which sign-in options this server offers: {google, apple, registration: "open" | "invite"}."""
+    return accounts(request).providers()
+
+
 @router.get("/google/start")
 def google_start(request: Request, redirect: str | None = None, invite: str | None = None):
-    url, state = accounts(request).google_start(_safe_redirect(redirect), invite)
+    try:
+        url, state = accounts(request).google_start(_safe_redirect(redirect), invite)
+    except AccountError as e:
+        if e.code != "not_configured":
+            raise
+        origin = request.app.state.settings.app_origin.rstrip("/")   # a browser navigation: land on the SPA
+        return RedirectResponse(f"{origin}/auth/complete#error=not_configured", status_code=302)
     r = RedirectResponse(url, status_code=302)
     r.set_cookie(OAUTH_COOKIE, state, max_age=600, path="/api/auth/google", httponly=True,
                  secure=request.app.state.settings.cookie_secure, samesite="lax")
