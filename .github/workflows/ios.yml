@@ -18,6 +18,9 @@ on:
     branches: [main]
     paths: ['frontend/**', '.github/workflows/ios.yml']
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: macos-15

@@ -98,6 +98,7 @@ export function ChatScreen() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
   const [checkin, setCheckin] = useState(!!loc.state?.checkin);
+  const [announce, setAnnounce] = useState('');
   const [railOpen, setRailOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -146,12 +147,16 @@ export function ChatScreen() {
       setLines((l) => [...l, { id: 'u' + Date.now(), role: 'user', text: msg, at: now, tools: [] }, { id: replyId, role: 'assistant', text: '', at: now, tools: [], streaming: true }]);
       setText('');
       const patch = (f: (x: Line) => Line) => setLines((l) => l.map((x) => (x.id === replyId ? f(x) : x)));
+      let full = '';
       abortRef.current = new AbortController();
       await agentApi.send(
         id,
         msg,
         (e: AgentEvent) => {
-          if (e.type === 'token') patch((x) => ({ ...x, text: x.text + e.text }));
+          if (e.type === 'token') {
+            full += e.text;
+            patch((x) => ({ ...x, text: x.text + e.text }));
+          }
           else if (e.type === 'tool_call') patch((x) => ({ ...x, tools: [...x.tools, { name: e.name, args: e.args }] }));
           else if (e.type === 'tool_result')
             patch((x) => {
@@ -161,7 +166,10 @@ export function ChatScreen() {
               else tools.push({ name: e.name, ok: e.ok, summary: e.summary });
               return { ...x, tools };
             });
-          else if (e.type === 'done') patch((x) => ({ ...x, streaming: false, id: 'm' + e.message_id }));
+          else if (e.type === 'done') {
+            patch((x) => ({ ...x, streaming: false, id: 'm' + e.message_id }));
+            setAnnounce(`Reply: ${full.slice(0, 400)}`);
+          }
           else if (e.type === 'error') patch((x) => ({ ...x, streaming: false, role: 'error', text: x.text || e.message }));
         },
         abortRef.current.signal,
@@ -203,7 +211,9 @@ export function ChatScreen() {
         <button className="rail-toggle key ghost" type="button" aria-expanded={railOpen} aria-controls="rail" onClick={() => setRailOpen(!railOpen)}>
           <L t="INTERVIEW · HANGOUT" p="Interview and hangouts" />
         </button>
-        <div className="log" ref={logRef} tabIndex={0} aria-label="Transcript" aria-live="polite" data-testid="transcript">
+        {/* the transcript is not live while tokens stream (it would read every fragment); finished replies are announced here */}
+        <div className="sr" role="status" aria-live="polite" data-testid="chat-announce">{announce}</div>
+        <div className="log" ref={logRef} tabIndex={0} aria-label="Transcript" aria-live={busy ? 'off' : 'polite'} aria-busy={busy} data-testid="transcript">
           {(threads.isLoading || thread.isLoading) && <Loading what="conversation" />}
           {isUnavailable && (
             <div className="unavail" role="status" data-testid="agent-unavailable">

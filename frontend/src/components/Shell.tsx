@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { analysisApi, auth, peopleApi } from '../api/endpoints';
 import { subscribeEvents } from '../api/events';
-import { useSession } from '../api/session';
+import { useOffline, useSession } from '../api/session';
 import type { PersonSummary } from '../api/types';
 import { haptic } from '../native/native';
 import { L } from '../theme/Plain';
@@ -98,6 +98,7 @@ export function Shell() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const session = useSession();
+  const offline = useOffline();
   const { popoverOpen, setPopoverOpen } = useTheme();
   const routePid = params.pid ? Number(params.pid) : null;
   const [pid, setPid] = useState<number | null>(() => routePid ?? lastPerson());
@@ -269,6 +270,12 @@ export function Shell() {
 
         <ThemePopover />
 
+        {offline && (
+          <div className="banner" role="status">
+            <span className="glyph">[ OFFLINE ] </span>
+            <L t="can't reach the server · you're still signed in · retrying on your next action" p="Can't reach the server right now. You're still signed in." />
+          </div>
+        )}
         {session.user && !session.user.email_verified && <VerifyBanner />}
 
         <Outlet context={{ pid, person, analyze }} />

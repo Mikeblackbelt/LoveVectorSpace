@@ -10,3 +10,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** true when built with VITE_API_MODE=mock (vite.config.ts define) */
+declare const __LVS_MOCK__: boolean;

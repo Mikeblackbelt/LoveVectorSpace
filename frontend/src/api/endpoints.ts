@@ -19,9 +19,9 @@ export const auth = {
   login: (email: string, password: string) => authCall('/api/auth/login', { email, password }),
   signup: (b: { email: string; password: string; invite_code: string; display_name?: string }) =>
     authCall('/api/auth/signup', b),
-  googleToken: (id_token: string, invite_code?: string) => authCall('/api/auth/google/token', { id_token, invite_code }),
-  appleToken: (id_token: string, invite_code?: string, name?: string) =>
-    authCall('/api/auth/apple/token', { id_token, invite_code, name }),
+  googleToken: (id_token: string, invite_code?: string, nonce?: string) => authCall('/api/auth/google/token', { id_token, invite_code, nonce }),
+  appleToken: (id_token: string, invite_code?: string, name?: string, nonce?: string) =>
+    authCall('/api/auth/apple/token', { id_token, invite_code, name, nonce }),
   me: () => api.get<User>('/api/auth/me'),
   async logout() {
     try {

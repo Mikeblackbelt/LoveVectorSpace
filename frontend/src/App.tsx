@@ -1,13 +1,13 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, type Location } from 'react-router-dom';
-import { ApiError } from './api/client';
-import { bootstrapSession, useSession } from './api/session';
+import { ApiError, onSession } from './api/client';
+import { bootstrapSession, retryBootstrap, useSession } from './api/session';
 import { Shell } from './components/Shell';
 import { say } from './components/prompt';
 import { BootIntro } from './intro/BootIntro';
 import { hideSplash, listenForSharedFiles, type SharedChatFile } from './native/native';
-import { AuthComplete, AuthScreen, ResetScreen, VerifyScreen } from './screens/Auth';
+import { AuthComplete, AuthScreen, ResetScreen, VerifyScreen, allowedNext } from './screens/Auth';
 import { ChatScreen } from './screens/Chat';
 import { ContextScreen } from './screens/Context';
 import { DashboardScreen } from './screens/Dashboard';
@@ -15,7 +15,7 @@ import { FormsScreen } from './screens/Forms';
 import { PeopleScreen } from './screens/People';
 import { PrivacyScreen } from './screens/Privacy';
 import { SettingsScreen } from './screens/Settings';
-import { SharedImportScreen, setPendingShare } from './screens/SharedImport';
+import { SharedImportScreen, clearPendingShare, setPendingShare } from './screens/SharedImport';
 import { SourcesScreen } from './screens/Sources';
 import { ThemesScreen } from './screens/Themes';
 import { ThemeProvider, useRootAttrs, useTheme } from './theme/ThemeProvider';
@@ -36,6 +36,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const s = useSession();
   const loc = useLocation();
   if (s.status === 'unknown') return null;
+  if (s.status === 'offline') return <OfflineScreen />;
   if (s.status === 'anon') {
     const next = encodeURIComponent(loc.pathname + loc.search);
     return <Navigate to={`/auth/login?next=${next}`} replace />;
@@ -48,9 +49,41 @@ function PublicOnly({ children }: { children: ReactNode }) {
   const loc = useLocation() as Location;
   if (s.status === 'authed') {
     const next = new URLSearchParams(loc.search).get('next');
-    return <Navigate to={next && next.startsWith('/') && !next.startsWith('//') ? next : '/people'} replace />;
+    return <Navigate to={allowedNext(next)} replace />;
   }
   return <>{children}</>;
+}
+
+/** Cold start could not reach the server: keep the stored session and offer a retry (never a logout). */
+function OfflineScreen() {
+  return (
+    <main className="screen offline-screen" role="alert">
+      <section className="pane">
+        <h2 className="ttl"><span className="glyph">─[ </span><b>OFFLINE</b><span className="glyph"> ]─</span></h2>
+        <p>Can't reach LoveVectorSpace right now. You're still signed in; check your connection and try again.</p>
+        <div className="keys">
+          <button className="key pri" type="button" onClick={() => void retryBootstrap()}>Try again</button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+/** Per-user caches go when the session ends (logout, account deletion, rejected refresh). Theme prefs stay. */
+function SessionCacheGuard() {
+  const qc = useQueryClient();
+  useEffect(
+    () =>
+      onSession((e) => {
+        if (e.type === 'logged_out') {
+          qc.cancelQueries();
+          qc.clear();
+          clearPendingShare();
+        }
+      }),
+    [qc],
+  );
+  return null;
 }
 
 /** Global keys that work on every screen: T cycles the theme. */
@@ -109,6 +142,7 @@ function Root({ skipIntro }: { skipIntro?: boolean }) {
     <div className="lvs" {...attrs}>
       <GlobalKeys />
       <ShareListener />
+      <SessionCacheGuard />
       {!introDone ? (
         <BootIntro loading={session.status === 'unknown'} onDone={() => setIntroDone(true)} />
       ) : (

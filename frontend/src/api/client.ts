@@ -34,7 +34,13 @@ export function nativeMode(): boolean {
 }
 
 // ---------- session events ----------
-type SessionListener = (e: { type: 'authed'; user: User } | { type: 'logged_out' }) => void;
+export type SessionEvent =
+  | { type: 'authed'; user: User }
+  | { type: 'logged_out' }
+  /** the server could not be reached (network error / 5xx during refresh); the session is kept */
+  | { type: 'offline' }
+  | { type: 'online' };
+type SessionListener = (e: SessionEvent) => void;
 const listeners = new Set<SessionListener>();
 export function onSession(l: SessionListener): () => void {
   listeners.add(l);
@@ -88,13 +94,28 @@ async function toError(res: Response): Promise<ApiError> {
 }
 
 // ---------- refresh (single flight) ----------
-let refreshing: Promise<AuthResult | null> | null = null;
+/**
+ * ok: new access token · denied: the server rejected the refresh credential (401/403) ·
+ * offline: network error or 5xx — the credential is KEPT and the user stays signed in.
+ */
+export type RefreshOutcome = { kind: 'ok'; result: AuthResult } | { kind: 'denied' } | { kind: 'offline' };
+let refreshing: Promise<RefreshOutcome> | null = null;
+let offline = false;
+
+function setOffline(v: boolean) {
+  if (offline === v) return;
+  offline = v;
+  emit({ type: v ? 'offline' : 'online' });
+}
+export function isOffline(): boolean {
+  return offline;
+}
 
 /**
  * Exchange the refresh credential for a new access token. Refresh tokens rotate
  * and reuse revokes the whole family, so concurrent callers share one request.
  */
-export function refreshOnce(): Promise<AuthResult | null> {
+export function refreshOutcome(): Promise<RefreshOutcome> {
   if (!refreshing) {
     refreshing = doRefresh().finally(() => {
       refreshing = null;
@@ -103,13 +124,24 @@ export function refreshOnce(): Promise<AuthResult | null> {
   return refreshing;
 }
 
-async function doRefresh(): Promise<AuthResult | null> {
+/** Back-compat helper: the AuthResult, or null for denied/offline. */
+export async function refreshOnce(): Promise<AuthResult | null> {
+  const o = await refreshOutcome();
+  return o.kind === 'ok' ? o.result : null;
+}
+
+async function doRefresh(): Promise<RefreshOutcome> {
   const native = nativeMode();
   let body: string | undefined;
   const headers = new Headers();
   if (native) {
-    const rt = await refreshStore()?.get();
-    if (!rt) return null;
+    let rt: string | null | undefined;
+    try {
+      rt = await refreshStore()?.get();
+    } catch {
+      return { kind: 'offline' }; // keychain hiccup: keep the session, try later
+    }
+    if (!rt) return { kind: 'denied' };
     body = JSON.stringify({ refresh_token: rt });
     headers.set('Content-Type', 'application/json');
     headers.set('X-Client', 'native');
@@ -121,16 +153,24 @@ async function doRefresh(): Promise<AuthResult | null> {
   try {
     res = await transport(apiUrl('/api/auth/refresh'), { method: 'POST', headers, body, credentials: native ? 'omit' : 'include' });
   } catch {
-    return null;
+    setOffline(true);
+    return { kind: 'offline' };
+  }
+  if (res.status === 401 || res.status === 403) {
+    // only an explicit rejection ends the session (and drops the native refresh token)
+    setAccessToken(null);
+    if (native) await refreshStore()?.clear();
+    setOffline(false);
+    return { kind: 'denied' };
   }
   if (!res.ok) {
-    setAccessToken(null);
-    if (native && res.status === 401) await refreshStore()?.clear();
-    return null;
+    setOffline(true);
+    return { kind: 'offline' };
   }
   const result = (await res.json()) as AuthResult;
+  setOffline(false);
   await acceptAuth(result);
-  return result;
+  return { kind: 'ok', result };
 }
 
 /** Store tokens from any AuthResult (login, signup, refresh, social). */
@@ -169,7 +209,14 @@ export async function rawRequest(path: string, opts: ReqOpts = {}): Promise<Resp
     }
     return transport(apiUrl(path), { method, headers, body, credentials: nativeMode() ? 'omit' : 'include', signal: opts.signal });
   };
-  let res = await send();
+  let res: Response;
+  try {
+    res = await send();
+  } catch (e) {
+    if ((e as Error)?.name !== 'AbortError') setOffline(true);
+    throw e;
+  }
+  if (res.status < 500) setOffline(false);
   // 503 `unavailable` (not `agent_unavailable`): wait Retry-After (capped) and retry once
   if (res.status === 503 && opts.retry !== false && (await errorCode(res)) === 'unavailable') {
     const ra = Number(res.headers.get('Retry-After'));
@@ -177,9 +224,10 @@ export async function rawRequest(path: string, opts: ReqOpts = {}): Promise<Resp
     res = await send();
   }
   if (res.status === 401 && opts.retry !== false) {
-    const r = await refreshOnce();
-    if (r) res = await send();
-    else await clearSession();
+    const o = await refreshOutcome();
+    if (o.kind === 'ok') res = await send();
+    else if (o.kind === 'denied') await clearSession();
+    // offline: keep the session; the caller sees the 401 and the app shows an offline banner
   }
   return res;
 }

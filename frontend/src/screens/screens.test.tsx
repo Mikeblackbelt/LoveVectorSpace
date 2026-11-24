@@ -26,10 +26,13 @@ describe('dashboard', () => {
   it('puts the safety block first, with plain-text resources and no tel:/sms: links', async () => {
     const { container } = renderAt(<DashRoute />, { route: '/p/2' });
     const block = await screen.findByTestId('safety-block');
-    const main = container.querySelector('main.grid')!;
-    expect(main.firstElementChild).toContainElement(block);
-    // nothing in the main grid comes before the warning
-    expect(main.firstElementChild!.querySelector('[data-testid="safety-block"]')).toBe(block);
+    // first thing after the command bar: before the session chips, the ticker and the whole grid
+    for (const sel of ['.session', '.ticker', 'main.grid']) {
+      const el = container.querySelector(sel)!;
+      expect(block.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    const header = container.querySelector('header.cmdbar')!;
+    expect(header.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const res = within(block).getByTestId('safety-resources');
     expect(res.textContent).toContain('1-800-799-7233');
     expect(res.querySelectorAll('a')).toHaveLength(0);
@@ -124,10 +127,13 @@ describe('agent chat', () => {
     await act(async () => fireEvent.submit(screen.getByLabelText('Message').closest('form')!));
     await screen.findByText(/Ask them/);
     expect(screen.getByTestId('transcript').textContent).not.toContain('about Saturday.');
+    expect(screen.getByTestId('transcript')).toHaveAttribute('aria-live', 'off');
     const chips = screen.getAllByTestId('tool-chips');
     expect(chips[chips.length - 1].textContent).toContain('get_person_overview');
     await act(async () => release());
-    await screen.findByText(/Ask them about Saturday\./);
+    await waitFor(() => expect(screen.getByTestId('transcript').textContent).toContain('Ask them about Saturday.'));
+    // finished replies are announced through the separate status node; the transcript is not live while streaming
+    await waitFor(() => expect(screen.getByTestId('chat-announce').textContent).toContain('Ask them about Saturday.'));
   });
 
   it('keeps the first streamed reply when the thread is created on send (no thread yet)', async () => {
