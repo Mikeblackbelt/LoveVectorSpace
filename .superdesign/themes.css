@@ -1,7 +1,8 @@
 /* LoveVectorSpace theme tokens — paste into every screen's <style>; set data-theme on the root <div>.
    Components must use ONLY these variables (no raw hex in component CSS).
-   Themes: signal (default) · riso (playful) · blueprint (technical) · journal (non-technical) · pulse (pink, neon) · crt (retro, optional) */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;600&family=Space+Mono:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=VT323&family=Instrument+Serif:ital@0;1&family=Fraunces:opsz,wght@9..144,400;9..144,600&family=DM+Sans:opsz,wght@9..40,400;9..40,600&family=Unbounded:wght@500;800&family=JetBrains+Mono:wght@400;600&display=swap');
+   Themes: signal (default) · riso (playful) · blueprint (technical) · journal (non-technical) · pulse (pink, neon) · inkwell (high-contrast, accessible) · matcha (calm, light) · midnight (navy + gold) · crt (retro, optional)
+   Cycle order: signal → pulse → riso → blueprint → journal → matcha → midnight → inkwell → crt */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;600&family=Space+Mono:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=VT323&family=Instrument+Serif:ital@0;1&family=Fraunces:opsz,wght@9..144,400;9..144,600&family=DM+Sans:opsz,wght@9..40,400;9..40,600&family=Unbounded:wght@500;800&family=JetBrains+Mono:wght@400;600&family=Atkinson+Hyperlegible:wght@400;700&family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Outfit:wght@400;600;800&family=Cormorant+Garamond:wght@500;700&family=Manrope:wght@400;600&display=swap');
 
 [data-theme] {
   /* shared shape */
@@ -107,7 +108,7 @@
   --rule: #e4d9cb;
   --text: #2b2622;
   --text-dim: #6b6157;      /* ≥4.5:1 on --bg */
-  --me: #c8553d;            /* terracotta */
+  --me: #b0442e;            /* terracotta */
   --them: #5f8a6e;          /* sage */
   --link: #d9a441;          /* mustard (fills only) */
   --ok: #4f8a5b;
@@ -144,4 +145,63 @@
   --glow-me: 0 0 10px rgba(255,61,139,.6), 0 0 28px rgba(255,61,139,.25);
   --glow-them: 0 0 10px rgba(56,189,248,.5);
   --effect: "pulse";        /* neon bloom on --me, slow chromatic shimmer on headline, faint 3D vector-field background, pink edge-highlight on panel tops */
+}
+
+/* 7 · INKWELL — high-contrast monochrome (e-ink). Doubles as the accessibility theme: 7:1+ text, thick focus, no motion effects. */
+[data-theme="inkwell"] {
+  --radius: 0px; --rule-w: 2px;
+  --bg: #ffffff; --panel: #ffffff; --rule: #000000;
+  --text: #000000; --text-dim: #3d3d3d;
+  --me: #000000; --them: #6b6b6b; --link: #000000; --ok: #000000;
+  --me-t: #000000; --them-t: #4a4a4a; --link-t: #000000; --ok-t: #000000; --on-me: #ffffff;
+  --concern-bg: #000000; --concern-fg: #ffffff;
+  --urgent-bg: #000000;  --urgent-fg: #ffffff;   /* urgency carried by label text + thick border, not colour */
+  --focus: #000000;
+  --font-ui: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --font-data: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --font-display: 'Newsreader', Georgia, serif;
+  --glow-me: none; --glow-them: none;
+  --pattern-them: repeating-linear-gradient(45deg, #000 0 2px, transparent 2px 6px);  /* THEM series uses hatching so charts never rely on colour */
+  --effect: "inkwell";   /* ME solid black, THEM hatched/dashed; 3px focus outline + offset; no animation except essential; underline links */
+}
+
+/* 8 · MATCHA — calm, light. Tea-house paper: soft greens, clay, lots of air. */
+[data-theme="matcha"] {
+  --radius: 8px; --rule-w: 1px;
+  --bg: #f3f1e8; --panel: #fbfaf4; --rule: #d6d2c0;
+  --text: #22301f; --text-dim: #4f5a46;
+  --me: #4f7030;            /* matcha green */
+  --them: #b5654a;          /* clay */
+  --link: #c9a227;          /* honey (fills only) */
+  --ok: #4f7f3a;
+  --me-t: #4e6d2c; --them-t: #94492f; --link-t: #7d6210; --ok-t: #3d6a2c; --on-me: #ffffff;
+  --concern-bg: #f6ead0; --concern-fg: #4f3a00;
+  --urgent-bg: #f6dcd6;  --urgent-fg: #7d1d10;
+  --focus: #22301f;
+  --font-ui: 'Manrope', system-ui, sans-serif;
+  --font-data: 'Manrope', system-ui, sans-serif;
+  --font-display: 'Newsreader', Georgia, serif;
+  --glow-me: none; --glow-them: none;
+  --shadow: 0 1px 2px rgba(34,48,31,.05), 0 6px 18px rgba(34,48,31,.05);
+  --effect: "matcha";       /* soft cards, paper fibre texture at 3%, leaf-like rounded radar, unhurried 240ms ease */
+}
+
+/* 9 · MIDNIGHT — refined dark. Deep navy, gold leaf, ivory. */
+[data-theme="midnight"] {
+  --radius: 4px; --rule-w: 1px;
+  --bg: #0c1426; --panel: #111c33; --rule: #2a3a5c;
+  --text: #f1ead8; --text-dim: #a9b2c8;
+  --me: #e3b65c;            /* gold */
+  --them: #8fb3ff;          /* moonlight blue */
+  --link: #f08aa8;          /* rose quartz: resultant / live marker */
+  --ok: #7fd1a8;
+  --me-t: #e8c070; --them-t: #a3c1ff; --link-t: #f39cb6; --ok-t: #8ad8b1; --on-me: #0c1426;
+  --concern-bg: #f1ead8; --concern-fg: #0c1426;
+  --urgent-bg: #ff6b6b;  --urgent-fg: #0c1426;
+  --focus: #e3b65c;
+  --font-ui: 'Outfit', system-ui, sans-serif;
+  --font-data: 'JetBrains Mono', monospace;
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --glow-me: 0 0 12px rgba(227,182,92,.35); --glow-them: none;
+  --effect: "midnight";     /* thin gold hairlines, star-field dots at 4% opacity, serif headline with gold underline, slow 300ms fades */
 }

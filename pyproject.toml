@@ -3,6 +3,7 @@ name = "analyzer"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
+    "groq>=1.7.0",
     "numpy>=1.26",
     "onnxruntime>=1.18",
     "pydantic>=2.7",
@@ -35,7 +36,7 @@ packages = ["src/analyzer"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "tests/support"]
 markers = [
     "models: needs the downloaded ONNX models in models/ (skipped when absent)",
     "slow: long-running benchmark / large-upload tests",

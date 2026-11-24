@@ -51,8 +51,10 @@ class UserService(Protocol):
     def get_person(self, pid: int) -> Json: ...                    # Person
     def update_person(self, pid: int, **fields: Any) -> Json: ...  # Person
     def delete_person(self, pid: int) -> None: ...
-    def preview_import(self, filename: str, raw: bytes) -> Json: ...   # {format, speakers, lines, one_sided}
-    def import_file(self, pid: int, filename: str, raw: bytes, tz: str, me_names: list[str]) -> Json: ...  # ImportResult
+    def preview_import(self, filename: str, raw: bytes) -> Json: ...   # chat: {format, speakers, lines, one_sided}; dating (tinder|hinge|grindr|bumble): {format, matches: [MatchInfo], one_sided}
+    def import_file(self, pid: int, filename: str, raw: bytes, tz: str, me_names: list[str],
+                    match_id: str | None = None) -> Json: ...  # ImportResult; match_id required for dating formats (InvalidInput field "match_id")
+    def import_messages(self, pid: int, source: str, tz: str, messages: list[Json]) -> Json: ...  # ImportResult; pre-parsed [{ts_local?|ts_utc?, ts_precision, role, text}]
     def list_units(self, pid: int) -> list[Json]: ...              # [Unit]
     def delete_unit(self, unit_id: str) -> Json: ...               # {removed_messages}
     def get_speakers(self, pid: int) -> list[Json]: ...
