@@ -3,8 +3,11 @@
 //   Google native -> Capacitor plugin id_token -> POST /api/auth/google/token
 //   Apple web     -> Sign in with Apple JS (popup) id_token -> POST /api/auth/apple/token
 //   Apple native  -> Capacitor plugin id_token -> POST /api/auth/apple/token
+// Every ID-token sign-in first gets a single-use nonce from POST /api/auth/nonce. Google receives it raw,
+// Apple receives its sha256 hex; the server accepts the token only if its `nonce` claim matches an issued,
+// unexpired, unused nonce (raw or hashed), so a captured token can't be replayed.
 import { apiUrl } from './config';
-import { nativeMode } from './client';
+import { api, nativeMode } from './client';
 import { auth } from './endpoints';
 import type { AuthResult } from './types';
 
@@ -16,15 +19,21 @@ export function googleStartUrl(redirect: string, invite?: string): string {
   return apiUrl(`/api/auth/google/start?${q.toString()}`);
 }
 
-/** One-time nonce bound into the ID token, so a captured token can't be replayed against the token endpoints. */
-export function makeNonce(): string {
-  const a = new Uint8Array(16);
-  crypto.getRandomValues(a);
-  return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
+/** A fresh single-use nonce issued by the server (10-minute lifetime). */
+export async function serverNonce(): Promise<string> {
+  const r = await api.post<{ nonce: string; expires_in: number }>('/api/auth/nonce', undefined, { retry: false });
+  return r.nonce;
+}
+
+/** Lower-case hex sha256 of a string (what Apple expects as `nonce`). */
+export async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 let socialInit: Promise<void> | null = null;
-/** Native sign-in through @capgo/capacitor-social-login, with a fresh nonce per attempt. */
+/** Native sign-in through @capgo/capacitor-social-login. `nonce` is what the provider puts in the token
+ *  (Google: the raw server nonce; Apple: its sha256 hex). */
 export async function nativeIdToken(provider: 'google' | 'apple', nonce: string): Promise<{ idToken: string; name?: string }> {
   const { SocialLogin } = await import('@capgo/capacitor-social-login');
   if (!socialInit) {
@@ -53,9 +62,9 @@ export async function nativeIdToken(provider: 'google' | 'apple', nonce: string)
 
 export async function signInWithGoogle(redirect: string, inviteCode?: string): Promise<AuthResult | null> {
   if (nativeMode()) {
-    const nonce = makeNonce();
+    const nonce = await serverNonce();
     const { idToken } = await nativeIdToken('google', nonce);
-    return auth.googleToken(idToken, inviteCode || undefined, nonce);
+    return auth.googleToken(idToken, inviteCode || undefined);
   }
   window.location.assign(googleStartUrl(redirect, inviteCode || undefined));
   return null;
@@ -90,14 +99,13 @@ function loadAppleJs(): Promise<AppleIDGlobal> {
 
 export async function signInWithApple(inviteCode?: string): Promise<AuthResult> {
   if (nativeMode()) {
-    const nonce = makeNonce();
-    const r = await nativeIdToken('apple', nonce);
-    return auth.appleToken(r.idToken, inviteCode || undefined, r.name, nonce);
+    const r = await nativeIdToken('apple', await sha256Hex(await serverNonce()));
+    return auth.appleToken(r.idToken, inviteCode || undefined, r.name);
   }
   const clientId = import.meta.env.VITE_APPLE_CLIENT_ID;
   if (!clientId) throw new Error('Sign in with Apple is not configured for this site.');
   const AppleID = await loadAppleJs();
-  const nonce = makeNonce();
+  const nonce = await sha256Hex(await serverNonce());
   AppleID.auth.init({
     nonce,
     clientId,
@@ -108,5 +116,5 @@ export async function signInWithApple(inviteCode?: string): Promise<AuthResult> 
   const res = await AppleID.auth.signIn();
   const n = res.user?.name;
   const name = n ? [n.firstName, n.lastName].filter(Boolean).join(' ') : undefined;
-  return auth.appleToken(res.authorization.id_token, inviteCode || undefined, name || undefined, nonce);
+  return auth.appleToken(res.authorization.id_token, inviteCode || undefined, name || undefined);
 }
