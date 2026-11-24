@@ -1229,11 +1229,17 @@ class UserServiceImpl:
             store = MessageStore(self.conn)
             by_unit: dict[str, list[Message]] = {}
             for m in sorted(msgs, key=lambda x: x.ts):
-                key = given_unit or f"capture:{platform}:{m.ts.strftime('%Y-%m-%d')}"
+                day = m.ts.astimezone(timezone.utc).strftime("%Y-%m-%d")
+                key = given_unit or f"capture:{platform}:{chat_key}:{day}"
                 by_unit.setdefault(key, []).append(m)
             for unit, ms in by_unit.items():
                 for chunk in self._chunks(ms):
-                    r = store.ingest(pid, chunk, unit)
+                    try:
+                        r = store.ingest(pid, chunk, unit)
+                    except ValueError as e:
+                        if "another person" in str(e):
+                            raise InvalidInput("unit_id belongs to another person", "unit_id") from e
+                        raise
                     added, merged, skipped = added + r.added, merged + r.merged, skipped + r.skipped
             sm = SpeakerMap(self.conn)
             for src, speaker, role in {(m.source, m.speaker_raw, m.role) for m in msgs}:

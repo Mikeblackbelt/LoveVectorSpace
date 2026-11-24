@@ -117,3 +117,27 @@ def test_nine_themes(svc):
 def test_prompt_neutrality():
     p = system_prompt("chat")
     assert "gender or sexual orientation" in p and "Same-gender" in p and "equally valid" in p
+
+
+def test_capture_default_unit_includes_chat_key_and_utc_day(svc):
+    a, b = svc.create_person("A", "potential", "UTC")["id"], svc.create_person("B", "potential", "UTC")["id"]
+    svc.ext_link(a, "whatsapp", "chat-a")
+    svc.ext_link(b, "whatsapp", "chat-b")
+    for key, word in (("chat-a", "alpha"), ("chat-b", "beta")):
+        bt = batch(key, n=2)
+        for m in bt["messages"]:
+            m["text"] = f"{word} " + m["text"]
+        assert svc.ingest_capture(bt)["added"] == 2
+    ua = [u["unit_id"] for u in svc.list_units(a)]
+    ub = [u["unit_id"] for u in svc.list_units(b)]
+    assert ua == ["capture:whatsapp:chat-a:2025-03-09"] and ub == ["capture:whatsapp:chat-b:2025-03-09"]
+
+
+def test_capture_unit_belonging_to_another_person_is_invalid_input(svc):
+    a, b = svc.create_person("A", "potential", "UTC")["id"], svc.create_person("B", "potential", "UTC")["id"]
+    svc.ext_link(a, "whatsapp", "chat-a")
+    svc.ext_link(b, "whatsapp", "chat-b")
+    svc.ingest_capture(batch("chat-a", n=2, unit_id="shared-unit"))
+    with pytest.raises(InvalidInput) as e:
+        svc.ingest_capture(batch("chat-b", n=2, unit_id="shared-unit"))
+    assert e.value.field == "unit_id"
