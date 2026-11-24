@@ -88,7 +88,8 @@ def test_cors_rules(h, client, alice):
     for origin in (APP_ORIGIN, "capacitor://localhost", "https://localhost"):
         r = _preflight(client, "/api/people", origin)
         assert r.status_code == 204 and r.headers["access-control-allow-origin"] == origin
-        assert r.headers["access-control-allow-credentials"] == "true"
+        # the web app may use the refresh cookie; native apps use bearer tokens only (no credentials)
+        assert r.headers.get("access-control-allow-credentials") == ("true" if origin == APP_ORIGIN else None)
         g = client.get("/api/people", headers={"Origin": origin, **auth(alice["access_token"])})
         assert g.headers["access-control-allow-origin"] == origin
     # extension origin: only ingest + /api/ext/*
