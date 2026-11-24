@@ -54,6 +54,13 @@ The apps are distributed through TestFlight, an APK or Play internal testing, an
 - In Xcode, add the **Sign in with Apple** capability to the App target. In the Apple Developer portal, enable it for `app.lovevectorspace.demo`, and create a Services ID for the web flow.
 - Private-relay email addresses are supported.
 
+## Native app origins
+
+The apps talk to the deployed API from these webview origins, which the backend's CORS allow-list must include (no cookies are used on native; refresh tokens live in the keychain/keystore):
+
+- Android: `https://localhost`
+- iOS: `capacitor://localhost`
+
 ## Other review points
 
 - **Not a medical or crisis service.** The footer on every screen says: "This tool offers reflection and pattern warnings. It is not therapy, counselling, or a crisis service."

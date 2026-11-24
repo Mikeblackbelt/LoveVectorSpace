@@ -17,8 +17,20 @@ function humanize(cat: string): string {
  * Warnings only (v2 §7b): flags, severity, evidence and suggested resources.
  * Resources are plain text — never tel:/sms: links or call buttons.
  */
+/** Fixed local disclaimer: shown even if the server omits it, and with zero flags (compact). */
+export const LOCAL_DISCLAIMER =
+  'This tool offers reflection and pattern warnings. It is not therapy, counselling, or a crisis service.';
+
 export function SafetyBlockView({ block }: { block: SafetyBlockT }) {
-  if (!block.flags.length) return null;
+  const disclaimer = block.disclaimer?.trim() || LOCAL_DISCLAIMER;
+  if (!block.flags.length) {
+    return (
+      <p className="safety-compact" data-testid="safety-compact">
+        <span className="glyph">// </span>
+        {disclaimer}
+      </p>
+    );
+  }
   const sev = block.flags.reduce<SafetyFlag['severity']>((s, f) => (SEV_RANK[f.severity] > SEV_RANK[s] ? f.severity : s), 'info');
   const label = sev.toUpperCase();
   return (
@@ -95,7 +107,7 @@ export function SafetyBlockView({ block }: { block: SafetyBlockT }) {
       )}
       <p className="safety-disc">
         <span className="glyph">// </span>
-        {block.disclaimer}
+        {disclaimer}
       </p>
     </section>
   );

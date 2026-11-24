@@ -12,9 +12,34 @@ import { useTheme } from '../theme/ThemeProvider';
 
 type Tab = 'login' | 'signup' | 'reset';
 
-function safeNext(raw: string | null): string {
-  return raw && raw.startsWith('/') && !raw.startsWith('//') && !raw.startsWith('/auth') ? raw : '/people';
+/**
+ * Post-login redirect target. Only same-origin app paths are allowed: no scheme, no protocol-relative
+ * `//host` or `/\host`, no encoded variants of those, and never back into /auth.
+ */
+export function allowedNext(raw: string | null | undefined): string {
+  const fallback = '/people';
+  if (!raw) return fallback;
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return fallback;
+  }
+  for (const v of [raw, decoded]) {
+    // backslashes and control characters are rejected outright (browsers treat "/\host" as "//host")
+    // eslint-disable-next-line no-control-regex
+    if (!v.startsWith('/') || v.startsWith('//') || v.includes('\\') || /[\u0000-\u001f]/.test(v)) return fallback;
+  }
+  try {
+    const u = new URL(raw, 'https://app.invalid');
+    if (u.origin !== 'https://app.invalid') return fallback;
+    if (u.pathname === '/auth' || u.pathname.startsWith('/auth/')) return fallback;
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return fallback;
+  }
 }
+const safeNext = allowedNext;
 
 function msg(e: unknown): string {
   if (e instanceof ApiError) {

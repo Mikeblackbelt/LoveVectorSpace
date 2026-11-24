@@ -10,6 +10,21 @@ let pending: SharedChatFile | null = null;
 export function setPendingShare(f: SharedChatFile): void {
   pending = f;
 }
+export function clearPendingShare(): void {
+  pending = null;
+}
+export function pendingShare(): SharedChatFile | null {
+  return pending;
+}
+
+const MAX_BYTES = 50 * 1024 * 1024;
+const OK_EXT = /\.(txt|zip|json)$/i;
+/** Client-side checks before a shared file is uploaded: chat-export extension and the 50 MB server cap. */
+export function checkSharedFile(name: string, size: number): string | null {
+  if (!OK_EXT.test(name)) return 'Only .txt, .zip or .json chat exports can be imported.';
+  if (size > MAX_BYTES) return 'That file is over 50 MB, the import limit.';
+  return null;
+}
 
 /** Landing page for chat exports shared into the Android app: pick the person, then import. */
 export function SharedImportScreen() {
@@ -23,8 +38,12 @@ export function SharedImportScreen() {
   if (!file) return null;
 
   const choose = async (pid: number) => {
+    const early = checkSharedFile(file.name, 0);
+    if (early) return setErr(early);
     try {
       const blob = await readSharedFile(file);
+      const bad = checkSharedFile(file.name, blob.size);
+      if (bad) return setErr(bad);
       pending = null;
       nav(`/p/${pid}/sources`, { state: { sharedFile: { blob, name: file.name } } });
     } catch {
