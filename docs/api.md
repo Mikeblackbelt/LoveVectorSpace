@@ -71,7 +71,7 @@ User = { "id": str, "email": str, "email_verified": bool, "display_name": str|nu
 | DELETE | `/api/account` | `{confirm: "DELETE MY ACCOUNT", password?}` | 204. A password is required if the account has one; social-only accounts confirm with the phrase. |
 
 ```
-Settings = { "theme": "signal"|"pulse"|"riso"|"blueprint"|"journal"|"crt"|"auto",
+Settings = { "theme": "signal"|"pulse"|"riso"|"blueprint"|"journal"|"matcha"|"midnight"|"inkwell"|"crt"|"auto",
              "auto_theme": {"mode": "system"|"time", "day": theme, "night": theme, "day_start": "07:00", "day_end": "19:00"},
              "reduce_motion": bool, "contrast_boost": bool, "text_size": "s"|"m"|"l",
              "owner_timezone": str|null, "agent_enabled": bool, "agent_reads_text": bool, "catchup_enabled": bool }
@@ -88,8 +88,9 @@ Invite = { "code": str, "email": str|null, "created_at": str, "expires_at": str,
 | GET | `/api/people/{pid}` | — | `Person` |
 | PATCH | `/api/people/{pid}` | `{pseudonym?, mode?, timezone?}` | `Person` |
 | DELETE | `/api/people/{pid}` | — | 204 (cascade) |
-| POST | `/api/people/{pid}/imports` | multipart: `file`, `tz`, `me_names` (repeatable), `source?` (auto-detected) | 201 `ImportResult`. Over 50 MB returns 413. Missing `me_names` returns 422 with `field: "me_names"`. |
-| POST | `/api/people/{pid}/imports/preview` | multipart: `file` | `{format, speakers: [str], lines: int, one_sided: bool}` (detects the format and speaker names) |
+| POST | `/api/people/{pid}/imports` | multipart: `file`, `tz`, `me_names` (repeatable), `match_id?`, `source?` (auto-detected) | 201 `ImportResult`. Over 50 MB returns 413. Missing `me_names` returns 422 with `field: "me_names"` (not required for the dating formats). For Tinder, Hinge, Grindr and Bumble exports `match_id` is required (400 `invalid_input`, `field: "match_id"` if missing or unknown) and one match becomes one unit (`import:<format>:<match_id>`). An unrecognised or malformed file returns 400 `invalid_input` (`field: "file"`) with the parser's message. |
+| POST | `/api/people/{pid}/imports/preview` | multipart: `file` | Chat formats: `{format, speakers: [str], lines: int, one_sided: bool}`. Dating formats (`format` is `tinder`, `hinge`, `grindr` or `bumble`): `{format, matches: [MatchInfo], one_sided: bool}` (no `speakers`/`lines`). |
+| POST | `/api/people/{pid}/imports/messages` | JSON `{source, tz, messages: [{ts_local?\|ts_utc?, ts_precision: "second"\|"minute"\|"approx", role: "me"\|"them", text}]}` | 201 `ImportResult`. `source` is `screenshot_import`, `android_sms`, `android_notify_<app>` or `android_a11y_<app>` (400 `invalid_input`, `field: "source"` otherwise). `android_notify_*` messages are forced to `them` and the import is `one_sided` unless the person has other sources. |
 | GET | `/api/people/{pid}/units` | — | `[Unit]` |
 | DELETE | `/api/units/{unit_id}` | — | `{removed_messages: int}` |
 | GET/PUT | `/api/people/{pid}/speakers` | PUT `[{source, speaker_raw, role}]` | `[SpeakerMapping]` |
@@ -100,6 +101,7 @@ PersonSummary = { "id": int, "pseudonym": str, "mode": str, "sources": [{"source
                   "success": {"percent": float|null, "low": float|null, "high": float|null, "status": "ok"|"insufficient_data"},
                   "safety": "none"|"info"|"concern"|"urgent", "updated_at": str|null }
 Person = { "id": int, "pseudonym": str, "mode": str, "timezone": str|null, "created_at": str }
+MatchInfo = { "match_id": str, "label": str, "first_ts": str|null, "last_ts": str|null, "message_count": int, "one_sided": bool }
 ImportResult = { "unit_id": str, "added": int, "merged": int, "skipped_non_english": int, "one_sided": bool, "job_id": int }
 Unit = { "unit_id": str, "source": str, "created_at": str, "message_count": int, "start_ts": str|null, "end_ts": str|null }
 ```
@@ -124,7 +126,7 @@ SuccessEstimate = { "mode": str, "status": "ok"|"insufficient_data", "percent": 
                     "calibrated": {"status": "not_available"|"ok", "percent": float|null, "low": float|null, "high": float|null,
                                    "n_outcomes": int, "needed": 20} }
 SafetyFlag = { "category": str, "severity": "info"|"concern"|"urgent", "speaker": "me"|"them"|"owner_report", "count": int,
-               "first_seen": str, "last_seen": str, "snippets": [str] }
+               "first_seen": str, "last_seen": str /* ISO UTC datetimes, e.g. 2025-03-09T00:00:00Z */, "snippets": [str] }
 SafetyBlock = { "flags": [SafetyFlag], "resources": [{"name","phone","text","url","description","action": "suggestion_only"}],
                 "disclaimer": str }
 PersonOverview = { "person": Person, "mode": str, "generated_at": str, "success": SuccessEstimate, "safety": SafetyBlock,
@@ -196,12 +198,16 @@ CORS allows only `chrome-extension://$EXTENSION_ID`.
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/api/ext/people` | — | `[{id, pseudonym}]` |
-| POST | `/api/ext/link` | `{person_id, platform: "whatsapp"|"discord"|"instagram", chat_key}` | 204 |
+| POST | `/api/ext/link` | `{person_id, platform: "whatsapp"|"discord"|"instagram"|"tinder"|"grindr"|"bumble", chat_key}` | 204 |
 | DELETE | `/api/ext/link` | `{platform, chat_key}` | 204 |
 | GET | `/api/ext/summary?platform=&chat_key=` | — | `{linked, person: {id, pseudonym}|null, total, today, last7d, my_share_30d, last_captured_ts, last_captured_ids: [≤20]}` (counts only, never message text) |
 | POST | `/api/ingest` | `CaptureBatch` (≤2 MB, ≤10k msgs/min) | `{added, merged, skipped}`. Returns 409 `chat_not_linked` if the chat isn't linked. |
 
-`CaptureBatch` is `{platform, chat_key, tz, messages: [{platform_msg_id?, ts_local?|ts_utc?, ts_precision: "second"|"minute"|"approx", direction: "outgoing"|"incoming", speaker_raw, text}]}`.
+`CaptureBatch` is `{platform: "whatsapp"|"discord"|"instagram"|"tinder"|"grindr"|"bumble", chat_key, tz, unit_id?, direction_uncertain?, messages: [{platform_msg_id?, ts_local?|ts_utc?, ts_precision: "second"|"minute"|"approx", direction: "outgoing"|"incoming", speaker_raw, text}]}`.
+
+`unit_id` is optional. The popup's "Import this page" sets it to `capture:<platform>:<chat_key>:<YYYY-MM-DD>` on every batch of one import, so the server groups them as one import unit. Live-capture batches omit it.
+
+`direction_uncertain` is optional. The extension sets it to `true` when at least 10 message rows were loaded and all pointed the same way. That is normal for a one-sided chat, but could also mean a changed direction marker. Capture continues; the server keeps the data and may mark the unit one-sided or direction-uncertain.
 
 ## MCP
 
@@ -210,3 +216,13 @@ CORS allows only `chrome-extension://$EXTENSION_ID`.
 ## Health
 
 `GET /healthz` returns `{ok: true, version}` and requires no authentication.
+
+## Service lifetime (API layer contract)
+
+Build the factory with `ServiceFactoryImpl.from_settings(settings)`. To evict a cached connection or delete an
+account: `service.close()` (cancels the user's debounce timers, makes queued tasks no-ops, waits a bounded time
+for running tasks; call it without holding the lock), then `with service.lock: conn.close()` using the SAME
+per-user lock. `factory.close_user(user_id)` closes every service of a user and forgets its state;
+`factory.shutdown()` does so for all users at process exit. Jobs left queued/running are marked `error`
+("cancelled") the next time the user is opened. A `conn_opener` must raise (e.g. `open_db(path, key,
+create=False)`) when the user's database no longer exists.
