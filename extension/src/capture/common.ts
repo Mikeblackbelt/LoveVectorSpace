@@ -1,6 +1,6 @@
 import type { CapturedMessage, MessageSink, SiteAdapter } from "../adapters/types";
 import type { RateLimiter, RunGuard } from "../ratelimit";
-import { SeenSet, seenKeys } from "./seen";
+import { SeenSet, seenKeys, type SeenLike } from "./seen";
 
 export type StopReason =
   | "until_date"
@@ -29,7 +29,7 @@ export interface LoopDeps {
   chatKey: string;
   /** Re-checked on every harvest: rows of an unlinked chat are never read. */
   isLinked: (chat_key: string) => boolean | Promise<boolean>;
-  seen?: SeenSet;
+  seen?: SeenLike;
   /** Keep new keys staged until the caller commits (import: only after a successful upload). */
   deferSeen?: boolean;
   isHidden?: () => boolean;
@@ -54,7 +54,7 @@ export interface HarvestResult {
 export interface HarvestOpts {
   chatKey: string;
   isLinked: (chat_key: string) => boolean | Promise<boolean>;
-  seen?: SeenSet;
+  seen?: SeenLike;
   deferSeen?: boolean;
 }
 
@@ -64,7 +64,7 @@ export interface HarvestOpts {
  */
 export class Harvester {
   private seenRows = new WeakSet<Element>();
-  private seen: SeenSet;
+  private seen: SeenLike;
   constructor(
     private adapter: SiteAdapter,
     private sink: MessageSink,

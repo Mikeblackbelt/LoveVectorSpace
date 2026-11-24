@@ -28,6 +28,7 @@ export interface PopupDeps {
   state(): Promise<PopupState>;
   savePrefs(p: Prefs): Promise<void>;
   openOptions(): void;
+  dismissRejected(): Promise<void>;
 }
 
 export const PLATFORM_LABEL: Record<Platform, string> = { whatsapp: "WhatsApp Web", discord: "Discord DMs", instagram: "Instagram DMs", tinder: "Tinder", grindr: "Grindr", bumble: "Bumble" };
@@ -130,7 +131,12 @@ export async function mountPopup(root: HTMLElement, d: PopupDeps): Promise<void>
     const hs = st.health[platform];
     const healthy = chat.health.ok && (hs?.ok ?? true);
     if (st.storageError) body.append(h("div", { class: "alert" }, "Capture paused: browser storage is full or refused a write. Free space or let the queue upload."));
-    if (st.rejected > 0) body.append(h("div", { class: "concern" }, `${st.rejected} message(s) were rejected by the server and dropped.`));
+    if (st.rejected > 0) body.append(
+        h("div", { class: "concern" }, `${st.rejected} message(s) were rejected by the server and dropped. `, h("button", { type: "button", id: "dismiss-rejected", onclick: async () => {
+          await d.dismissRejected();
+          await render();
+        } }, "Dismiss")),
+      );
     if (st.queueFull) body.append(h("div", { class: "alert" }, "Capture paused: the queue holds 5,000 messages. Check the API settings so it can upload."));
     if (!healthy) {
       body.append(

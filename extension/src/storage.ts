@@ -75,3 +75,12 @@ export async function setRun(platform: Platform, r: RunState): Promise<void> {
   await setKey("runs", all);
 }
 export const browserTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/** Forget everything local about chats the server says are no longer linked, including their seen-sets. */
+export async function forgetChats(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  const links = await getLinks();
+  for (const k of keys) delete links[k];
+  await setKey("links", links);
+  await chrome.storage.local.remove(keys.map((k) => `seen:${k}`));
+}

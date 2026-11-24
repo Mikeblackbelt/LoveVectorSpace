@@ -1,6 +1,6 @@
 import type { Health, MessageSink, SiteAdapter } from "../adapters/types";
 import { Harvester } from "./common";
-import { SeenSet } from "./seen";
+import type { SeenLike } from "./seen";
 
 export interface LiveOptions {
   tz: string;
@@ -9,7 +9,7 @@ export interface LiveOptions {
   /** "paused": platform off or user paused (what arrives is skipped). "full": queue full (nothing is marked seen, so it is read later). */
   isAllowed: () => "ok" | "paused" | "full" | Promise<"ok" | "paused" | "full">;
   /** Persistent per-chat seen-set; defaults to memory only. */
-  seenFor?: (chat_key: string) => SeenSet | Promise<SeenSet>;
+  seenFor?: (chat_key: string) => SeenLike | Promise<SeenLike>;
   onHealth?: (h: Health) => void;
   debounceMs?: number;
   pollMs?: number;

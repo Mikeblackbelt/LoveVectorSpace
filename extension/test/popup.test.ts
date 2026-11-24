@@ -22,6 +22,7 @@ function deps(over: Partial<PopupDeps> = {}): PopupDeps {
     state: async () => state,
     savePrefs: async () => undefined,
     openOptions: () => undefined,
+    dismissRejected: vi.fn(async () => undefined),
     ...over,
   };
 }
@@ -86,6 +87,14 @@ describe("popup", () => {
     await mountPopup(root, deps({ state: async () => ({ ...state, rejected: 3, storageError: true }) }));
     expect(root.textContent).toContain("3 message(s) were rejected");
     expect(root.textContent).toContain("storage is full");
+  });
+
+  it("dismissing the rejected warning resets the counter", async () => {
+    const root = document.createElement("div");
+    const d = deps({ state: async () => ({ ...state, rejected: 2 }) });
+    await mountPopup(root, d);
+    (root.querySelector("#dismiss-rejected") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(d.dismissRejected).toHaveBeenCalled());
   });
 
   it("warns when only one side is detected", async () => {

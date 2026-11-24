@@ -1,7 +1,7 @@
 import * as api from "./api";
 import type { BgRequest, BgResponse } from "./messages";
-import { BATCH_MAX, Queue, clampText } from "./queue";
-import { getSettings, getLinks, setKey } from "./storage";
+import { BATCH_MAX, Queue, clampText, postSplit } from "./queue";
+import { forgetChats, getKey, getSettings, setKey } from "./storage";
 
 const queue = new Queue();
 
@@ -10,11 +10,7 @@ chrome.runtime.onStartup.addListener(() => void chrome.alarms.create("flush", { 
 /** Flush, and forget local links for chats the server says are no longer linked. */
 async function flush(force: boolean) {
   const r = await queue.flush(api.ingest, force);
-  if (r.dropped_unlinked?.length) {
-    const links = await getLinks();
-    for (const k of r.dropped_unlinked) delete links[k];
-    await setKey("links", links);
-  }
+  if (r.dropped_unlinked?.length) await forgetChats(r.dropped_unlinked);
   return r;
 }
 
@@ -33,11 +29,11 @@ async function handle(req: BgRequest): Promise<BgResponse> {
         return { ok: true, summary: await api.extSummary(req.platform, req.chat_key) };
       case "import": {
         // One-shot import: sent directly (not via the live queue), in batches of <= 200 sharing one unit_id.
-        let sent = 0;
-        for (let i = 0; i < req.msgs.length; i += BATCH_MAX) {
-          await api.ingest({ platform: req.platform, chat_key: req.chat_key, tz: req.tz, unit_id: req.unit_id, ...(req.direction_uncertain ? { direction_uncertain: true } : {}), messages: req.msgs.slice(i, i + BATCH_MAX).map((m) => ({ ...m, text: clampText(m.text) })) });
-          sent += Math.min(BATCH_MAX, req.msgs.length - i);
-        }
+        const msgs = req.msgs.map((m) => ({ ...m, text: clampText(m.text) }));
+        const { sent, rejected } = await postSplit(msgs, BATCH_MAX, (chunk) =>
+          api.ingest({ platform: req.platform, chat_key: req.chat_key, tz: req.tz, unit_id: req.unit_id, ...(req.direction_uncertain ? { direction_uncertain: true } : {}), messages: chunk }),
+        );
+        if (rejected) await setKey("rejected_count", (await getKey<number>("rejected_count", 0)) + rejected);
         return { ok: true, sent };
       }
       case "flush": {

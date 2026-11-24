@@ -13,6 +13,9 @@ export function installChromeMock(): void {
         async get(key: string) {
           return key in store ? { [key]: structuredClone(store[key]) } : {};
         },
+        async remove(keys: string[]) {
+          for (const k of keys) delete store[k];
+        },
         async set(obj: Record<string, unknown>) {
           for (const [k, v] of Object.entries(obj)) store[k] = structuredClone(v);
         },

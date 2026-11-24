@@ -10,7 +10,7 @@ import { catchupDecision, scrollRunBlocked } from "../decisions";
 import { runImport } from "../capture/import";
 import { runBackfill, BACKFILL_COOLDOWN_MS, BACKFILL_MAX_STEPS } from "../capture/backfill";
 import { runCatchup } from "../capture/catchup";
-import { SeenSet } from "../capture/seen";
+import { sharedSeen } from "../capture/seen";
 import type { LoopDeps, StopReason } from "../capture/common";
 import { startLiveCapture } from "../capture/live";
 import type { BgRequest, BgResponse, TabRequest, TabResponse } from "../messages";
@@ -65,7 +65,7 @@ function boot(adapter: SiteAdapter) {
     const full = (await getKey<boolean>("queue_full", false)) || (await getKey<boolean>("storage_error", false));
     return full ? "full" : "ok";
   }
-  const seenFor = (chat_key: string) => SeenSet.forChat(platform, chat_key);
+  const seenFor = (chat_key: string) => sharedSeen(platform, chat_key);
   const linked = async (chat_key: string) => linkKey(platform, chat_key) in (await getLinks());
 
   startLiveCapture(adapter, sink, {

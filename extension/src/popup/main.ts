@@ -3,7 +3,7 @@ import "./popup.css";
 import * as api from "../api";
 import type { Platform, QueueItem } from "../adapters/types";
 import type { ChatContext, TabRequest, TabResponse } from "../messages";
-import { getHealth, getKey, getPrefs, getRuns, getSettings, setLink, setPrefs } from "../storage";
+import { getHealth, getKey, getPrefs, getRuns, getSettings, setKey, setLink, setPrefs } from "../storage";
 import { mountPopup, type PopupDeps } from "./view";
 
 const root = document.getElementById("root")!;
@@ -61,6 +61,7 @@ const deps: PopupDeps = {
     lastFlush: await getKey<{ at: number; sent: number; error?: string } | null>("last_flush", null),
   }),
   savePrefs: setPrefs,
+  dismissRejected: () => setKey("rejected_count", 0),
   openOptions: () => void chrome.runtime.openOptionsPage(),
 };
 

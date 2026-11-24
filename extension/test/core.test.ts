@@ -189,3 +189,58 @@ describe("direction_uncertain batches", () => {
     expect(seen).toEqual([[2, true], [2, undefined]]);
   });
 });
+
+describe("review round: seen-set, relink, import split, surrogates", () => {
+  it("forgetChats removes links and the chat's seen-set so a relinked chat is recaptured", async () => {
+    const { forgetChats, setKey: sk, getLinks } = await import("../src/storage");
+    await sk("links", { "tinder:a": { person_id: 1, pseudonym: "p" }, "tinder:b": { person_id: 2, pseudonym: "q" } });
+    await sk("seen:tinder:a", "x");
+    await sk("seen:tinder:b", "y");
+    await forgetChats(["tinder:a"]);
+    expect(Object.keys(await getLinks())).toEqual(["tinder:b"]);
+    expect(await getKey("seen:tinder:a", null)).toBeNull();
+    expect(await getKey("seen:tinder:b", null)).toBe("y");
+  });
+
+  it("one shared SeenSet per chat: interleaved commits keep each other's keys", async () => {
+    const { sharedSeen, _resetSeenRegistry } = await import("../src/capture/seen");
+    _resetSeenRegistry();
+    const a = await sharedSeen("whatsapp", "C");
+    const b = await sharedSeen("whatsapp", "C");
+    expect(a).toBe(b);
+    a.stage(["k1"]);
+    const sess = b.session();
+    sess.stage(["k2"]);
+    await a.commit();
+    await sess.commit();
+    const reloaded = await (await import("../src/capture/seen")).SeenSet.forChat("whatsapp", "C");
+    expect(reloaded.has("k1") && reloaded.has("k2")).toBe(true);
+    expect(typeof (await getKey<unknown>("seen:whatsapp:C", null))).toBe("string"); // compact fixed-width form
+  });
+
+  it("postSplit halves 413/422 chunks, isolates and counts single rejects", async () => {
+    const { postSplit } = await import("../src/queue");
+    const calls: number[] = [];
+    const r = await postSplit([1, 2, 3, 4, 5, 6, 7, 8], 8, async (c) => {
+      calls.push(c.length);
+      if (c.length > 2 || c.includes(5)) throw new ApiError(c.includes(5) && c.length <= 2 ? 422 : 413, "x", "x");
+    });
+    expect(r).toEqual({ sent: 7, rejected: 1 });
+    expect(calls[0]).toBe(8);
+  });
+
+  it("postSplit rethrows other errors", async () => {
+    const { postSplit } = await import("../src/queue");
+    await expect(postSplit([1], 1, async () => { throw new ApiError(503, "x", "x"); })).rejects.toThrow();
+  });
+
+  it("clampText never cuts a surrogate pair", async () => {
+    const { clampText } = await import("../src/queue");
+    for (let pad = 0; pad < 3; pad++) {
+      const t = "a".repeat(MAX_TEXT - 12 - 1 + pad) + "😀".repeat(10);
+      const out = clampText(t);
+      expect(out.length).toBeLessThanOrEqual(MAX_TEXT);
+      expect(out.replace(/[\ud800-\udbff][\udc00-\udfff]/g, "").match(/[\ud800-\udfff]/)).toBeNull();
+    }
+  });
+});
