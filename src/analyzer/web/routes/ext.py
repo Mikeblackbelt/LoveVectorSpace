@@ -93,11 +93,10 @@ async def ingest(request: Request, p: Principal = Depends(any_principal)):
             field = ".".join(str(x) for x in e.errors()[0]["loc"]) or None
         raise ApiError(422, "validation_error", "Invalid capture batch.", field) from None
     limiter = request.app.state.ingest_limiter
-    wait = limiter.retry_after(p.user.id, cost=len(batch.messages))
+    wait = limiter.try_hit(p.user.id, len(batch.messages)) if batch.messages else 0   # atomic check + reserve
     if wait:
         raise ApiError(429, "rate_limited", "Too many captured messages; slow down.",
                        headers={"Retry-After": str(wait)})
-    limiter.hit(p.user.id, len(batch.messages))
     payload = batch.model_dump(exclude_none=True)
     return await run_in_threadpool(with_service, request, p, lambda s: s.ingest_capture(payload))
 
